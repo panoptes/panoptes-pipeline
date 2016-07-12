@@ -36,7 +36,7 @@ metadata = {'SEQID': seq_id,\
 for t in range(nt):
     # slightly randomize time gap between images
     gap = tdelta(0,exptime + np.random.normal(5,1))
-    obstime = obstime + t*gap
+    obstime = obstime + gap
     metadata['TIME{:04d}'.format(t)] = obstime.isoformat()
 hdu.header.extend(metadata)
 

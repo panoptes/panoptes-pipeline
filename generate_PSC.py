@@ -4,6 +4,7 @@ import numpy as np
 from astropy.io import fits
 import astropy.units as u
 from astropy.coordinates import SkyCoord
+import json
 
 ## Generate Fake Postange Stamp Cube (FITS cube)
 sky_background = 1000.
@@ -39,20 +40,29 @@ for t in range(nt):
     obstime = obstime + gap
     metadata['TIME{:04d}'.format(t)] = obstime.isoformat()
 hdu.header.extend(metadata)
+print(metadata)
 
-hdu.writeto('PSC_0001.fits', clobber=True)
+hdu.writeto('PSC_0002.fits', clobber=True)
 
 ## Generate Fake Lightcurve
-with open('PSC_0001.dat', 'w') as FO:
-    FO.write('# {:24s} {:6s} {:6s} {:6s} {:6s} {:6s} {:6s}\n'.format(
-             'Time', 'R', 'G', 'B', 'sig_R', 'sig_G', 'sig_B'))
+with open('PSC_0002.json', 'w') as FO:
+    data = []
     for t in range(nt):
         time = hdu.header['TIME{:04d}'.format(t)]
         sig_r = 0.010
         sig_g = 0.006
         sig_b = 0.017
-        r = np.random.normal(1,sig_r)
-        g = np.random.normal(1,sig_g)
-        b = np.random.normal(1,sig_b)
-        FO.write('{:26s} {:6.3f} {:6.3f} {:6.3f} {:6.3f} {:6.3f} {:6.3f}\n'.format(
-                 time, r, g, b, sig_r, sig_g, sig_b))
+        r = np.random.normal(1, sig_r)
+        g = np.random.normal(1, sig_g)
+        b = np.random.normal(1, sig_b)
+        entry = {
+            'Time': time,
+            'R': r,
+            'G': g,
+            'B': b,
+            'sig_r': sig_r,
+            'sig_g': sig_g,
+            'sig_b': sig_b
+        }
+        data.append(entry)
+    json.dump(data, FO)

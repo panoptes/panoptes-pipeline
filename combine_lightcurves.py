@@ -1,11 +1,14 @@
+import os
 import json
 import argparse
 
+import glob
 
-def read_input(filenames):
+
+def get_curves_for_pic(pic):
     curves = []
-    for fn in filenames:
-        with open(fn, 'r') as f:
+    for filename in glob.iglob("data/LC/{}/**/*.json".format(pic), recursive=True):
+        with open(filename, 'r') as f:
             c = json.load(f)
             curves.append(c)
     return curves
@@ -19,20 +22,22 @@ def combine_curves(curves):
     return master
 
 
-def write_output(output, name):
-    with open(name, 'w') as fo:
+def write_output(output, pic):
+    filename = 'output/{}.json'.format(pic)
+    os.makedirs(os.path.dirname(filename), exist_ok=True)
+    with open(filename, 'w') as fo:
         json.dump(output, fo)
 
 
-def main(filenames):
-    curves = read_input(filenames)
+def main(pic):
+    curves = get_curves_for_pic(pic)
     master = combine_curves(curves)
-    write_output(master, 'LC_0001_0003.json')
+    write_output(master, pic)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('PSC1', type=string, nargs='+')
-    parser.add_argument('PSC2', type=string, nargs='+')
+    parser.add_argument('pic', type=str, help="The PICID of the star to build a light curve for.")
     args = parser.parse_args()
-    main([args.PSC1, args.PSC2])
+    main(args.pic)
+

@@ -12,24 +12,69 @@ from astropy.io import fits
 import astropy.units as u
 from astropy.coordinates import SkyCoord
 from astropy.coordinates.name_resolve import NameResolveError
+from collections import defaultdict
 
 
-def generate_network(num_units):
+def generate_network(num_units, num_nights):
     """
-    Generate simualted data from a network of PANOPTES units.
+    Generate simulated data from a network of PANOPTES units.
     :param num_units: the number of units to simulate
+    :param num_nights: the number of nights the network has been observing
     :return:
     """
-    # For every unit, let it observe a few stars, each on a random date, and output a PSC and light curve.
-    stars_per_unit = random.randint(0, 5)
+    # For every unit, set its info, let it observe a few stars,
+    # each on a random date, and output a PSC and light curve.
+    cameras = defaultdict(list)
     for i in range(num_units):
         unit = "PAN{:03d}".format(i)
         site = random.choice(astroplan.get_site_names())
+        set_cameras(cameras, unit)
+
+        stars_per_unit = random.randint(0, 5)
         for j in range(stars_per_unit):
+            camera = random.choice(cameras[unit])
+            field = get_field()
             pic, coords = set_pic()
-            start_time, end_time = set_obstime(coords, site)
-            hdu = write_PSC(unit, pic, coords, start_time, end_time)
+            start_time, end_time = set_obstime(coords, site, num_nights)
+
+            hdu = write_psc(unit, camera, field,
+                            pic, coords, start_time, end_time)
             write_lightcurve(hdu)
+
+
+def set_cameras(cam_dict, unitid):
+    """
+    Set the camera IDs of the unit
+    :param cam_dict: dictionary mapping unitid to camera IDs
+    :param unitid: id of the unit
+    :return:
+    """
+    # Try to create a unique camera id. If collisions occur too
+    # many times, raise an exception.
+    cams_per_unit = 2
+    for i in range(cams_per_unit):
+        attempts = 0
+        same = True
+        while same:
+            same = False
+            cam = "{:06d}".format(random.randint(0, 999999))
+            for un in cam_dict:
+                for c in cam_dict[un]:
+                    if cam == c:
+                        same = True
+            if attempts > 100:
+                raise Exception("Can't find unique camera ID.")
+            attempts += 1
+        cam_dict[unitid].append(cam)
+
+
+def get_field():
+    """
+    Get random (very fake) field name from list
+    :return: field name
+    """
+    fields = ['field_x', 'field_y', 'field_z']
+    return random.choice(fields)
 
 
 def set_pic():
@@ -38,7 +83,7 @@ def set_pic():
     in the PANOPTES Input Catalog.
     :return: coordinates of PIC, PICID
     """
-    # Eventually expand and read from file
+    # Random stars I found as examples - eventually expand list and read from file (?)
     star_list = ['2MASSW J0326137+295015',
                  '2MASSW J1632291+190441',
                  '2MASS J18365633+3847012']
@@ -74,7 +119,7 @@ def random_time(rise_time, set_time):
     :param set_time: time PIC sets
     :return: randomized start time of observation
     """
-    buffer = 1 #hours
+    buffer = 1  # hours, so that observing starts at least some amount of time before object set
     span = set_time - rise_time - tdelta(hours=buffer)
     return rise_time + tdelta(seconds=random.randint(0, span.seconds))
 
@@ -91,7 +136,7 @@ def random_duration(start_time, set_time):
     return tdelta(seconds=random.randint(min_dur, min_dur+span.seconds))
 
 
-def set_obstime(coords, site):
+def set_obstime(coords, site, nights):
     """
     Based on the site of the unit, choose random times to begin and end observing the PIC
      within its rise and set.
@@ -101,8 +146,8 @@ def set_obstime(coords, site):
     """
 
     # Choose start and end for possible observing dates
-    start = dt.strptime('2016-6-1', '%Y-%m-%d')
     end = dt.utcnow()
+    start = end - tdelta(days=nights)
     date = random_date(start, end)
     loc = Observer.at_site(site)
 
@@ -129,11 +174,12 @@ def pic_name(star):
     return pic
 
 
-## Generate Fake Postage Stamp Cube (FITS cube)
-def write_PSC(unit, pic, coords, start_time, end_time):
+def write_psc(unit, camera, field, pic, coords, start_time, end_time):
     """
     Generate a postage stamp cube with fake data for the given unit, PIC, and observation time.
     :param unit: ID of PANOPTES unit
+    :param camera: ID of camera used to take image sequence
+    :param field: name of field of original image sequence
     :param pic: PICID of star
     :param coords: coordinates of star, from SkyCoord
     :param start_time: start time of observation
@@ -142,11 +188,9 @@ def write_PSC(unit, pic, coords, start_time, end_time):
     """
     # Set PSC info - fake field, camera, exposure time, and sequence ID.
     obstime = start_time
-    camera = '0x2A'
-    fields = ['x', 'y', 'z']
-    target_name = 'field_{}'.format(random.choice(fields))
-    seq_id = '{}{}_{}'.format(unit, camera, obstime.strftime('%Y%m%d_%H%M%SUT'))
-    exptime = 100. # seconds
+    target_name = 'field_{}'.format(field)
+    seq_id = '{}_{}_{}'.format(unit, camera, obstime.strftime('%Y%m%d_%H%M%SUT'))
+    exptime = 100.  # seconds
     sky_background = 1000.
     sky_sigma = 5.
     nx = 12
@@ -179,12 +223,13 @@ def write_PSC(unit, pic, coords, start_time, end_time):
     num_frames = t
 
     # Make random datacube from normal distribution, with same pixel dimensions as actual (but no meaningful data)
-    data_cube = np.random.normal(sky_background, sky_sigma, (num_frames,ny,nx))
+    data_cube = np.random.normal(sky_background, sky_sigma, (num_frames, ny, nx))
     hdu = fits.PrimaryHDU(data_cube)
 
     # Add metadata as FITS header and write to file
     hdu.header.extend(metadata)
-    filename = "data/PSC_{}_{}".format(pic, seq_id)
+    filename = "data/PSC/{}/{}/{}/{}.fits".format(unit, camera, start_time.isoformat(), pic)
+    os.makedirs(os.path.dirname(filename), exist_ok=True)
     hdu.writeto(filename, clobber=True)
 
     return hdu
@@ -192,18 +237,22 @@ def write_PSC(unit, pic, coords, start_time, end_time):
 
 def write_lightcurve(hdu):
     """
-    Generate a light curve from randomized flux values for each frame in the PSC.
+    Generate a light curve from randomized flux values for each frame in the PSC
+    and write it to a JSON file.
     :param hdu: the FITS Header/Data Unit of the PSC
     :return:
     """
 
+    # Get info for filename
     pic = hdu.header["PICID"]
-    stardir = 'data/{}'.format(pic)
-    if not os.path.exists(stardir):
-        os.makedirs(stardir)
+    seqid = hdu.header["SEQID"]
+    unit = seqid.split('_')[0]
+    camera = seqid.split('_')[1]
+    start_time = hdu.header["OBSTIME"]
+    filename = "data/LC/{}/{}/{}/{}.json".format(pic, unit, camera, start_time)
+    os.makedirs(os.path.dirname(filename), exist_ok=True)
 
-    seq_id = hdu.header["SEQID"]
-    filename = "{}/LC_{}_{}".format(stardir, pic, seq_id)
+    # Make random relative flux and flux uncertainty data and write to JSON file
     with open(filename, 'w') as FO:
         data = []
         for key in hdu.header:
@@ -231,9 +280,11 @@ def write_lightcurve(hdu):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='Generate a network of '
-                                                 'simulated PANOPTES data.')
-    parser.add_argument('num_units', type=int, nargs='?', default=1,
+    parser = argparse.ArgumentParser(description='Generate data from a network of '
+                                                 'simulated PANOPTES units.')
+    parser.add_argument('num_units', type=int, nargs='?', default=5,
                         help='The number of PANOPTES units to simulate.')
+    parser.add_argument('num_nights', type=int, nargs='?', default=5,
+                        help='The number of nights to simulate, starting continuously before today.')
     args = parser.parse_args()
-    generate_network(args.num_units)
+    generate_network(args.num_units, args.num_nights)

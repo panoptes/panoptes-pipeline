@@ -1,11 +1,12 @@
-import astropy.units as u
 import json
 import numpy as np
 
-from astropy.coordinates import SkyCoord
-from astropy.io import fits
 from datetime import datetime as dt
 from datetime import timedelta as tdelta
+from astropy.io import fits
+import astropy.units as u
+from astropy.coordinates import SkyCoord
+
 
 # Generate Fake Postange Stamp Cube (FITS cube)
 sky_background = 1000.
@@ -43,10 +44,10 @@ for t in range(nt):
 hdu.header.extend(metadata)
 print(metadata)
 
-hdu.writeto('PSC_0002.fits', clobber=True)
+hdu.writeto('PSC_0003.fits', clobber=True)
 
-# Generate Fake Lightcurve
-with open('PSC_0002.json', 'w') as FO:
+## Generate Fake Lightcurve
+with open('PSC_0003.json', 'w') as FO:
     data = []
     for t in range(nt):
         time = hdu.header['TIME{:04d}'.format(t)]

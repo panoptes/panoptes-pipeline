@@ -9,7 +9,7 @@ except ImportError:
 from configparser import ConfigParser
 from distutils.command.build_py import build_py
 
-from pocs.version import version
+import version
 
 # Get some values from the setup.cfg
 conf = ConfigParser()
@@ -39,7 +39,7 @@ setup(name=PACKAGENAME,
       url=URL,
       keywords=KEYWORDS,
       # scripts=['scripts/cr2_to_jpg.sh'],
-      install_requires=['numpy>=1.10', 'astropy', 'transitions', 'astroplan'],
+      install_requires=['numpy>=1.10'],
       setup_requires=['pytest-runner'],
       tests_require=['pytest', 'pytest-cov'],
       classifiers=[

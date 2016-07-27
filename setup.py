@@ -28,7 +28,7 @@ URL = metadata.get('url', 'http://projectpanoptes.org')
 #            if os.path.basename(fname) != 'README.rst']
 
 setup(name=PACKAGENAME,
-      version=0.0.1,
+      version="0.0.1",
       description=DESCRIPTION,
       long_description=LONG_DESCRIPTION,
       author=AUTHOR,

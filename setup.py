@@ -9,6 +9,8 @@ except ImportError:
 from configparser import ConfigParser
 from distutils.command.build_py import build_py
 
+import version
+
 # Get some values from the setup.cfg
 conf = ConfigParser()
 conf.read(['setup.cfg'])
@@ -28,7 +30,7 @@ URL = metadata.get('url', 'http://projectpanoptes.org')
 #            if os.path.basename(fname) != 'README.rst']
 
 setup(name=PACKAGENAME,
-      version="0.0.1",
+      version=version,
       description=DESCRIPTION,
       long_description=LONG_DESCRIPTION,
       author=AUTHOR,

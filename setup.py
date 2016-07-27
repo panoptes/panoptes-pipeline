@@ -9,8 +9,6 @@ except ImportError:
 from configparser import ConfigParser
 from distutils.command.build_py import build_py
 
-import version
-
 # Get some values from the setup.cfg
 conf = ConfigParser()
 conf.read(['setup.cfg'])
@@ -30,7 +28,7 @@ URL = metadata.get('url', 'http://projectpanoptes.org')
 #            if os.path.basename(fname) != 'README.rst']
 
 setup(name=PACKAGENAME,
-      version=version,
+      version="0.0.1",
       description=DESCRIPTION,
       long_description=LONG_DESCRIPTION,
       author=AUTHOR,
@@ -38,7 +36,6 @@ setup(name=PACKAGENAME,
       license=LICENSE,
       url=URL,
       keywords=KEYWORDS,
-      # scripts=['scripts/cr2_to_jpg.sh'],
       install_requires=['numpy>=1.10'],
       setup_requires=['pytest-runner'],
       tests_require=['pytest', 'pytest-cov'],

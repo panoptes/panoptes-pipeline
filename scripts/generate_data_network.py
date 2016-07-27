@@ -3,6 +3,7 @@ import argparse
 import numpy as np
 import random
 import json
+import sys
 
 import astroplan
 from astroplan import Observer
@@ -13,19 +14,24 @@ from astropy import units
 from astropy.coordinates import SkyCoord
 from astropy.coordinates.name_resolve import NameResolveError
 from collections import defaultdict
-from gcloud import storage
+
+from pocs.utils.google.storage import PanStorage
 
 
-def generate_network(num_units, num_nights, tocloud):
+def generate_network(num_units, num_nights):
     """Generate simulated data from a network of PANOPTES units.
 
     :param num_units: the number of units to simulate
     :param num_nights: the number of nights the network has been observing
-    :param tocloud: if True, data will also be upload to Google Cloud Storage
     """
     # For every unit, set its info, let it observe a few stars each night,
     # and output a Postage Stamp Cube (PSC) and light curve for each star.
+    print("Simulating data from {} units over {} nights. This make take "
+          "a few minutes...".format(num_units, num_nights), file=sys.stdout)
     cameras = defaultdict(list)
+    bucket_name = 'panoptes-simulated-data'
+    pan_storage = PanStorage(bucket=bucket_name)
+    temp_dir = '{}/temp'.format(os.getenv('PANDIR', default='/var/panoptes'))
     for i in range(num_units):
         unit = "PAN{:03d}".format(i)
         site = random.choice(astroplan.get_site_names())
@@ -43,15 +49,15 @@ def generate_network(num_units, num_nights, tocloud):
 
                 psc_filename = "PSC/{}/{}/{}/{}.fits".format(
                     unit, camera, start_time.isoformat(), pic)
-                hdu = write_psc(psc_filename, unit, camera, field,
-                                pic, coords, start_time, end_time)
                 lc_filename = "LC/{}/{}/{}/{}.json".format(pic, unit, camera,
-                                                           start_time)
-                write_lightcurve(lc_filename, hdu)
+                                                           start_time.isoformat())
 
-                if tocloud:
-                    upload_to_cloud(psc_filename)
-                    upload_to_cloud(lc_filename)
+                hdu = write_psc("{}/{}".format(temp_dir, psc_filename), unit, camera, field,
+                                pic, coords, start_time, end_time)
+                write_lightcurve("{}/{}".format(temp_dir, lc_filename), hdu)
+
+                pan_storage.upload("{}/{}".format(temp_dir, psc_filename), remote_path=psc_filename)
+                pan_storage.upload("{}/{}".format(temp_dir, lc_filename), remote_path=lc_filename)
 
 
 def set_cameras(cam_dict, unitid):
@@ -273,26 +279,13 @@ def write_lightcurve(filename, hdu):
     return json.dumps(data)
 
 
-def upload_to_cloud(filename):
-    """Upload the given file to the Google Cloud Storage (GCS) bucket for simulated data."""
-    projectid = 'panoptes-survey'
-    client = storage.Client(project=projectid)
-    bucket_name = 'panoptes-simulated-data'
-
-    bucket = client.get_bucket(bucket_name)
-    blob = bucket.blob(filename)
-    blob.upload_from_filename(filename)
-
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description='Generate data from a network of simulated PANOPTES units.')
-    parser.add_argument('num_units', type=int, nargs='?', default=1,
+    parser.add_argument('num_units', type=int, nargs='?', default=20,
                         help='The number of PANOPTES units to simulate.')
-    parser.add_argument('num_nights', type=int, nargs='?', default=1,
+    parser.add_argument('num_nights', type=int, nargs='?', default=7,
                         help='The number of nights to simulate, starting continuously before today.')
-    parser.add_argument('-c', action='store_true', help='Stores the output in a Cloud storage bucket'
-                                                        'in addition to writing a local copy.')
     parser.print_help()
     args = parser.parse_args()
-    generate_network(args.num_units, args.num_nights, args.c)
+    generate_network(args.num_units, args.num_nights)

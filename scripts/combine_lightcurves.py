@@ -1,9 +1,12 @@
+#!/usr/bin/env python3
+
 import os
+import shutil
 import json
 import argparse
+from json.decoder import JSONDecodeError
 
-import glob
-from gcloud import storage
+from pocs.utils.google.storage import PanStorage
 
 
 def get_curves_for_pic(pic):
@@ -13,11 +16,23 @@ def get_curves_for_pic(pic):
     :return: an array of all the light curves for the given PIC
     """
     curves = []
-    for filename in glob.iglob("LC/{}/**/*.json".format(pic), recursive=True):
-        with open(filename, 'r') as f:
-            c = json.load(f)
-            curves.append(c)
-    return curves
+    bucket_name = 'panoptes-simulated-data'
+    prefix = "LC/{}/".format(pic)
+    temp_dir = '{}/temp'.format(os.getenv('PANDIR', default='/var/panoptes'))
+
+    pan_storage = PanStorage(bucket=bucket_name)
+    blobs = pan_storage.list_remote(prefix)
+
+    for blob in blobs:
+        local_path = "{}/{}".format(temp_dir, blob.name)
+        path = pan_storage.download(blob.name, local_path=local_path)
+        with open(path, 'r') as f:
+            try:
+                curve = json.load(f)
+                curves.append(curve)
+            except JSONDecodeError:
+                print("Error: Object could not be decoded as JSON.")
+    return curves, temp_dir
 
 
 def combine_curves(curves):
@@ -31,57 +46,48 @@ def combine_curves(curves):
     """
     master = []
     for c in curves:
-        for datapoint in c:
-            master.append(datapoint)
+        for data_point in c:
+            master.append(data_point)
     return master
 
 
-def write_output(filename, data):
+def upload_output(pic, data, temp_dir):
     """Write the data to a local file.
 
-    :param filename: the filename for the output
+    :param pic: the PIC id of the file to uploaded
     :param data: the master light curve
+    :param temp_dir: the path to the temporary directory where the data is stored
     """
-    os.makedirs(os.path.dirname(filename), exist_ok=True)
-    with open(filename, 'w') as fo:
+    filename = 'MLC/{}.json'.format(pic)
+    local_path = '{}/{}'.format(temp_dir, filename)
+    os.makedirs(os.path.dirname(local_path), exist_ok=True)
+    with open(local_path, 'w') as fo:
         json.dump(data, fo)
 
-
-def upload_to_cloud(filename, data):
-    """Upload the data to a Google Cloud Storage bucket.
-
-    :param filename: the filename for the output
-    :param data: the master light curve
-    """
-    projectid = 'panoptes-survey'
-    client = storage.Client(project=projectid)
     bucket_name = 'panoptes-simulated-data'
-
-    bucket = client.get_bucket(bucket_name)
-    blob = bucket.blob(filename)
-    blob.upload_from_string(data)
+    pan_storage = PanStorage(bucket=bucket_name)
+    pan_storage.upload(local_path, remote_path=filename)
 
 
-def build_mlc(pic, tocloud):
+def cleanup(temp_dir):
+    """Remove the temporary directory and its contents."""
+    shutil.rmtree(temp_dir)
+
+
+def build_mlc(pic):
     """Build a master light curve for a given PIC and output it as JSON.
 
     :param pic: The PIC object to combine light curves for
-    :param tocloud: if True, data will also be upload to Google Cloud Storage
     """
-    curves = get_curves_for_pic(pic)
+    curves, temp_dir = get_curves_for_pic(pic)
     master = combine_curves(curves)
-    filename = 'MLC/{}.json'.format(pic)
-    write_output(filename, master)
-    if tocloud:
-        master_json = json.dump(master)
-        upload_to_cloud(filename, master_json)
+    upload_output(pic, master, temp_dir)
+    cleanup(temp_dir)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('pic', type=str, help="The PICID of the star to build a"
-                                              " light curve for.")
-    parser.add_argument('-c', action='store_true', help='Store the output in a'
-                        ' Cloud Storage bucket in addition to writing a local copy.')
+                                              " master light curve for.")
     args = parser.parse_args()
-    build_mlc(args.pic, args.c)
+    build_mlc(args.pic)

@@ -30,8 +30,9 @@ def get_curves_for_pic(pic):
             try:
                 curve = json.load(f)
                 curves.append(curve)
-            except JSONDecodeError:
-                print("Error: Object could not be decoded as JSON.")
+            except ValueError as err:
+                print("Error: Object {} could not be decoded as JSON: {}".format(
+                    blob.name, err))
     return curves, temp_dir
 
 
@@ -69,11 +70,6 @@ def upload_output(pic, data, temp_dir):
     pan_storage.upload(local_path, remote_path=filename)
 
 
-def cleanup(temp_dir):
-    """Remove the temporary directory and its contents."""
-    shutil.rmtree(temp_dir)
-
-
 def build_mlc(pic):
     """Build a master light curve for a given PIC and output it as JSON.
 
@@ -82,7 +78,6 @@ def build_mlc(pic):
     curves, temp_dir = get_curves_for_pic(pic)
     master = combine_curves(curves)
     upload_output(pic, master, temp_dir)
-    cleanup(temp_dir)
 
 
 if __name__ == "__main__":

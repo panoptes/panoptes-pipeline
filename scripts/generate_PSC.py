@@ -16,7 +16,9 @@ ny = 16
 nt = 42
 data_cube = np.random.normal(sky_background, sky_sigma, (nt, ny, nx))
 obstime = dt.utcnow()
-unit = 'PAN000'  # I've given this the ID of PAN000 just in case it gets confused for data from a real unit.
+# I've given this the ID of PAN000 just in case it gets confused for data
+# from a real unit.
+unit = 'PAN000'
 camera = '0x2A'
 target_name = 'faketarg'
 seq_id = '{}{}_{}'.format(unit, camera, obstime.strftime('%Y%m%d_%H%M%SUT'))
@@ -46,7 +48,7 @@ print(metadata)
 
 hdu.writeto('PSC_0003.fits', clobber=True)
 
-## Generate Fake Lightcurve
+# Generate Fake Lightcurve
 with open('PSC_0003.json', 'w') as FO:
     data = []
     for t in range(nt):

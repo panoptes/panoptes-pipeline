@@ -18,7 +18,7 @@ install:
   # Useful for debugging any issues with conda
   - conda info -a
 
-  - conda create -q -n test-environment python=$TRAVIS_PYTHON_VERSION matplotlib pandas pytest numpy scipy astroplan
+  - conda create -q -n test-environment python=$TRAVIS_PYTHON_VERSION matplotlib pandas pytest numpy scipy
   - source activate test-environment
 
   # # Build our own astroplan for now

@@ -31,7 +31,7 @@ def generate_network(num_units, num_nights):
     cameras = defaultdict(list)
     bucket_name = 'panoptes-simulated-data'
     pan_storage = PanStorage(bucket=bucket_name)
-    temp_dir = '{}/temp'.format(os.getenv('PANDIR', default='/var/panoptes'))
+    temp_dir = '{}/temp'.format(os.getenv('PANDIR'))
     for i in range(num_units):
         unit = "PAN{:03d}".format(i)
         site = random.choice(astroplan.get_site_names())

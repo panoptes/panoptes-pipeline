@@ -18,12 +18,12 @@ install:
   # Useful for debugging any issues with conda
   - conda info -a
 
-  - conda create -q -n test-environment python=$TRAVIS_PYTHON_VERSION matplotlib pandas pytest numpy scipy
+  - conda create -q -n test-environment python=$TRAVIS_PYTHON_VERSION matplotlib pandas pytest numpy scipy astroplan
   - source activate test-environment
 
   # # Build our own astroplan for now
-  - git clone https://github.com/astropy/astroplan.git && cd astroplan && python setup.py install
-  - cd $TRAVIS_BUILD_DIR
+  # - git clone https://github.com/astropy/astroplan.git && cd astroplan && python setup.py install
+  # - cd $TRAVIS_BUILD_DIR
   - pip install -r requirements.txt
   - python setup.py install
 script:

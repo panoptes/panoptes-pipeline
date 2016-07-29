@@ -6,8 +6,6 @@ python:
 cache:
   - pip
 before_install:
-    - sudo mkdir /var/panoptes && sudo chmod 777 /var/panoptes
-    - mkdir $PANDIR/logs
     - pip install coveralls
     - pip install -U pip
 install:

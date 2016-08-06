@@ -21,7 +21,14 @@ install:
   - conda create -q -n test-environment python=$TRAVIS_PYTHON_VERSION matplotlib pandas pytest numpy scipy
   - source activate test-environment
 
-  - pip -q install git+http://github.com/panoptes/POCS.git#egg=pocs --no-deps
+  # # Build our own astroplan for now
+  # - git clone https://github.com/astropy/astroplan.git && cd astroplan && python setup.py install
+  # - cd $TRAVIS_BUILD_DIR
+
+  # Build POCS for now
+  - git clone https://github.com/panoptes/POCS.git && cd POCS && python setup.py install
+  - cd $TRAVIS_BUILD_DIR
+
   - pip install -r requirements.txt
   - python setup.py install
 script:

@@ -31,7 +31,7 @@ install:
   - cd $TRAVIS_BUILD_DIR
 
   # Build POCS for now
-  - cd $PANDIR && git clone https://github.com/panoptes/POCS.git && cd POCS && python setup.py install
+  - cd $PANDIR && git clone https://github.com/panoptes/POCS.git && cd POCS && pip install -r requirements.txt && python setup.py install
 
   - cd $TRAVIS_BUILD_DIR
   - pip install -r requirements.txt

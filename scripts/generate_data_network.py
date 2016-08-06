@@ -10,7 +10,7 @@ from astroplan import Observer
 from datetime import datetime
 from datetime import timedelta
 from astropy.io import fits
-from astropy import units
+from astropy import units as u
 from astropy.coordinates import SkyCoord
 from astropy.coordinates.name_resolve import NameResolveError
 from collections import defaultdict
@@ -18,34 +18,49 @@ from collections import defaultdict
 from pocs.utils.google.storage import PanStorage
 
 
-def generate_network(num_units, num_nights):
+# Global variables
+pan_storage = PanStorage(bucket='panoptes-simulated-data')
+cameras = defaultdict(list)
+
+
+def generate_network(num_units, start_date, end_date):
     """Generate simulated data from a network of PANOPTES units.
 
     :param num_units: the number of units to simulate
-    :param num_nights: the number of nights the network has been observing
+    :param start_date: the start date of observations
+    :param end_date: the end date of observations
     """
-    # For every unit, set its info, let it observe a few stars each night,
-    # and output a Postage Stamp Cube (PSC) and light curve for each star.
-    print("Simulating data from {} units over {} nights. This make take "
-          "a few minutes...".format(num_units, num_nights), file=sys.stdout)
-    cameras = defaultdict(list)
-    bucket_name = 'panoptes-simulated-data'
-    pan_storage = PanStorage(bucket=bucket_name)
-    temp_dir = '{}/temp'.format(os.getenv('PANDIR'))
-    for i in range(num_units):
-        unit = "PAN{:03d}".format(i)
-        site = random.choice(astroplan.get_site_names())
-        set_cameras(cameras, unit)
+    start_date = datetime.strptime(start_date, "%Y-%m-%d")
+    end_date = datetime.strptime(end_date, "%Y-%m-%d")
+    num_nights = (end_date - start_date).days
+    if end_date < start_date:
+        raise ValueError('End date must be after start date.')
 
-        for night in range(num_nights):
+    units = get_current_network()
+    if len(units) == 0:
+        print("Simulating new data network from {} units over {} nights. This make take "
+              "a few minutes...".format(num_units, num_nights), file=sys.stdout)
+        units = init_units(num_units)
+    else:
+        num_units = len(units)
+        update_cameras()
+        print('Adding new simulated data to current network of {} units over {} nights. This may '
+              'take a few minutes...'.format(num_units, num_nights), file=sys.stdout)
+
+    temp_dir = '/tmp/sim-data'
+
+    # For every night, let every unit observe a few stars, and
+    # output a Postage Stamp Cube (PSC) and light curve for each star.
+    curr_date = start_date
+    while curr_date <= end_date:
+        for unit in units:
+            site = random.choice(astroplan.get_site_names())
             stars_per_night = random.randint(0, 5)
-
             for j in range(stars_per_night):
                 camera = random.choice(cameras[unit])
                 field = get_field()
-                pic, coords = set_pic()
-                start_time, end_time = set_obs_time(coords, site, night,
-                                                    num_nights)
+                pic, coords = get_pic()
+                start_time, end_time = set_obs_time(coords, site, curr_date)
 
                 psc_filename = "PSC/{}/{}/{}/{}.fits".format(
                     unit, camera, start_time.isoformat(), pic)
@@ -56,33 +71,82 @@ def generate_network(num_units, num_nights):
                                 pic, coords, start_time, end_time)
                 write_lightcurve("{}/{}".format(temp_dir, lc_filename), hdu)
 
-                pan_storage.upload("{}/{}".format(temp_dir, psc_filename), remote_path=psc_filename)
-                pan_storage.upload("{}/{}".format(temp_dir, lc_filename), remote_path=lc_filename)
+                pan_storage.upload(
+                    "{}/{}".format(temp_dir, psc_filename), remote_path=psc_filename)
+                pan_storage.upload(
+                    "{}/{}".format(temp_dir, lc_filename), remote_path=lc_filename)
+            print('{} observed {} stars on {}.'.format(
+                unit, stars_per_night, curr_date.strftime('%Y-%m-%d')))
+        curr_date = curr_date + timedelta(days=1)
 
 
-def set_cameras(cam_dict, unitid):
+def init_units(num_units):
+    """Initialize a network of new units and their cameras, assigning unique IDs."""
+    units = []
+    for i in range(num_units):
+        unit = "PAN{:03d}".format(i)
+        init_cameras(unit)
+        units.append(unit)
+    return units
+
+
+def get_current_network():
+    """Get the units and their cameras that currently have simulated data on the cloud."""
+    units = []
+    blobs = pan_storage.list_remote(prefix='LC')
+    for blob in blobs:
+        dirs = blob.name.split('/')
+        for i in range(len(dirs)):
+            dir = dirs[i]
+            if dir.startswith('PAN'):
+                unit = dir
+                if unit not in units:
+                    units.append(unit)
+                cam = dirs[i + 1]
+                if cam not in cameras:
+                    cameras[unit].append(cam)
+                break
+    return units
+
+
+def init_cameras(unit):
     """Set the camera IDs of the unit.
 
-    :param cam_dict: dictionary mapping unitid to camera IDs
-    :param unitid: id of the unit
+    :param unit: id of the unit
     """
-    # Try to create a unique camera id. If collisions occur too
-    # many times, raise an exception.
     cams_per_unit = 2
     for i in range(cams_per_unit):
-        attempts = 0
-        same = True
-        while same:
-            same = False
-            cam = "{:06d}".format(random.randint(0, 999999))
-            for un in cam_dict:
-                for c in cam_dict[un]:
-                    if cam == c:
-                        same = True
-            if attempts > 100:
-                raise Exception("Can't find unique camera ID.")
-            attempts += 1
-        cam_dict[unitid].append(cam)
+        add_new_camera(unit)
+
+
+def add_new_camera(unit):
+    """Add a new camera for the unit.
+
+    Select a unique random camera id (first 6 digits of serial number.)
+    If collisions occur too many times, raise an exception.
+    :param: unit: the unit id to add a camera for
+    """
+    attempts = 0
+    same = True
+    while same:
+        same = False
+        cam = "{:06d}".format(random.randint(0, 999999))
+        for un in cameras:
+            for c in cameras[un]:
+                if cam == c:
+                    same = True
+        if attempts > 100:
+            raise Exception("Can't find unique camera ID.")
+        attempts += 1
+    cameras[unit].append(cam)
+    return cam
+
+
+def update_cameras():
+    """Update the camera dictionary after getting current data network from cloud"""
+    for unit in cameras:
+        while len(cameras[unit]) < 2:
+            add_new_camera(unit)
 
 
 def get_field():
@@ -91,7 +155,7 @@ def get_field():
     return random.choice(fields)
 
 
-def set_pic():
+def get_pic():
     """Return the PIC of a star to observe.
 
     Get a star from the 2MASS catalog, and its coordinates.
@@ -141,19 +205,14 @@ def random_duration(start_time, set_time):
     return timedelta(seconds=random.randint(min_dur, min_dur + span.seconds))
 
 
-def set_obs_time(coords, site, night, num_nights):
+def set_obs_time(coords, site, date):
     """Choose times to begin and end observing the PIC between its rise and set.
 
     :param coords: coordinates of the PIC object from SkyCoord
     :param site: name of the site the unit is at, from astroplan
-    :param night: the nth night of observing over the span of num_nights
-    :param num_nights: the total number of observing nights, starting num_nights ago until now
+    :param date: the date of the observation
     :return: randomized start and end time of observation
     """
-    # Choose start and end for possible observing dates
-    end = datetime.utcnow()
-    start = end - timedelta(days=num_nights)
-    date = start + timedelta(days=night)
     loc = Observer.at_site(site)
 
     # Use astroplan to get rise and set of star, and get reasonable random
@@ -207,8 +266,8 @@ def write_psc(filename, unit, camera, field, pic, coords, start_time, end_time):
     # Set metadata
     metadata = {'SEQID': seq_id,
                 'FIELD': target_name,
-                'RA': coords.ra.to(units.degree).value,
-                'DEC': coords.dec.to(units.degree).value,
+                'RA': coords.ra.to(u.degree).value,
+                'DEC': coords.dec.to(u.degree).value,
                 'EQUINOX': coords.equinox.value,
                 'PICID': pic,
                 'OBSTIME': obs_time.isoformat(),
@@ -222,8 +281,10 @@ def write_psc(filename, unit, camera, field, pic, coords, start_time, end_time):
     while obs_time < end_time:
         gap = timedelta(0, exptime + np.random.normal(5, 1))
         obs_time = obs_time + gap
-        metadata['TIME{:04d}'.format(frame)] = obs_time.isoformat()
-        metadata['EXPT{:04d}'.format(frame)] = exptime
+        time = 'TIME{:04d}'.format(frame)
+        exp_time = 'EXPT{:04d}'.format(frame)
+        metadata[time] = obs_time.isoformat()
+        metadata[exp_time] = exptime
         frame += 1
     num_frames = frame
 
@@ -234,7 +295,7 @@ def write_psc(filename, unit, camera, field, pic, coords, start_time, end_time):
     hdu = fits.PrimaryHDU(data_cube)
 
     # Add metadata as FITS header and write to file
-    hdu.header.extend(metadata)
+    hdu.header.extend(metadata.items())
     os.makedirs(os.path.dirname(filename), exist_ok=True)
     hdu.writeto(filename, clobber=True)
 
@@ -282,10 +343,12 @@ def write_lightcurve(filename, hdu):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description='Generate data from a network of simulated PANOPTES units.')
-    parser.add_argument('num_units', type=int, nargs='?', default=20,
+    parser.add_argument('num_units', type=int, nargs='?', default=3,
                         help='The number of PANOPTES units to simulate.')
-    parser.add_argument('num_nights', type=int, nargs='?', default=7,
-                        help='The number of nights to simulate, starting continuously before today.')
+    parser.add_argument('start_date', type=str,
+                        help='The start date of the simulated data, in Y-m-d format.')
+    parser.add_argument('end_date', type=str,
+                        help='The end date of the simulated data, in Y-m-d format.')
     parser.print_help()
     args = parser.parse_args()
-    generate_network(args.num_units, args.num_nights)
+    generate_network(args.num_units, args.start_date, args.end_date)

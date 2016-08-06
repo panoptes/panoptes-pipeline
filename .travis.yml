@@ -26,6 +26,7 @@ install:
   # - cd $TRAVIS_BUILD_DIR
   - pip install -r requirements.txt
   - python setup.py install
+  - pip -q install git+http://github.com/panoptes/POCS.git#egg=pocs --no-deps
 script:
   - coverage run --source=piaa setup.py test
 after_success:

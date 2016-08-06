@@ -37,7 +37,8 @@ install:
   - pip install -r requirements.txt
   - python setup.py install
 script:
-  - coverage run --source=piaa setup.py test
+  - python setup.py test
+  # - coverage run --source=piaa setup.py test
 after_success:
     - if [[ $TRAVIS_PYTHON_VERSION == 3.5* ]]; then
           coveralls;

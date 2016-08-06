@@ -1,3 +1,4 @@
+astropy
 pytest >= 2.8.5
 numpy >= 1.11.1
 pytest-cov

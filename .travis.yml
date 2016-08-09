@@ -5,7 +5,12 @@ python:
   - "3.5"
 cache:
   - pip
+env:
+  - POCS=/var/panoptes/POCS PANDIR=/var/panoptes
 before_install:
+    - sudo mkdir /var/panoptes && sudo chmod 777 /var/panoptes
+    - mkdir $PANDIR/POCS
+    - mkdir $PANDIR/logs
     - pip install coveralls
     - pip install -U pip
 install:
@@ -18,18 +23,23 @@ install:
   # Useful for debugging any issues with conda
   - conda info -a
 
-  - conda create -q -n test-environment python=$TRAVIS_PYTHON_VERSION matplotlib pandas pytest numpy scipy
+  - conda create -q -n test-environment python=$TRAVIS_PYTHON_VERSION matplotlib pandas pytest numpy scipy astropy
   - source activate test-environment
 
-  # # Build our own astroplan for now
-  # - git clone https://github.com/astropy/astroplan.git && cd astroplan && python setup.py install
-  # - cd $TRAVIS_BUILD_DIR
+  # Build our own astroplan for now
+  - pip -q install git+http://github.com/astropy/astroplan.git#egg=astroplan --no-deps
+  - cd $TRAVIS_BUILD_DIR
+
+  # Build POCS for now
+  - cd $PANDIR && git clone https://github.com/panoptes/POCS.git && cd POCS && pip install -r requirements.txt && python setup.py install
+
+  - cd $TRAVIS_BUILD_DIR
   - pip install -r requirements.txt
   - python setup.py install
-  - pip -q install git+http://github.com/panoptes/POCS.git#egg=pocs --no-deps
 script:
-  - coverage run --source=piaa setup.py test
+  - python setup.py test
+  # - coverage run --source=piaa setup.py test
 after_success:
-    - if [[ $ENV == python=3.5* ]]; then
+    - if [[ $TRAVIS_PYTHON_VERSION == 3.5* ]]; then
           coveralls;
       fi

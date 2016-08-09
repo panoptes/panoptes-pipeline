@@ -16,8 +16,9 @@ def test_storage_exists(combiner):
 
 def test_bad_pic(combiner):
     """Tests that error is raised when PIC id isn't recognized"""
+    temp_dir = '/tmp/lc-combine'
     with pytest.raises(NameError):
-        combiner.get_curves_for_pic('PIC_BAD')
+        combiner.get_curves_for_pic('PIC_BAD', temp_dir)
 
 
 def test_combine_curves(combiner):

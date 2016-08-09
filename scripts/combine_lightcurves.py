@@ -34,7 +34,8 @@ class LightCurveCombiner(object):
         """Read light curve files and add all curves to array.
 
         :param pic: the PIC id for the star to make a master light curve for
-        :return: an array of all the light curves for the given PIC
+        :param temp_dir: a temporary directory to store the light curve files in
+        :return: an array containing all the light curves for the given PIC
         """
         curves = []
         prefix = "LC/{}/".format(pic)

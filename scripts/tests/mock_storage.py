@@ -1,26 +1,40 @@
+import os
+import shutil
+
 
 class MockPanStorage(object):
 
-    def __init__(self, project_id='panoptes-survey', bucket=None, blobs=None):
-        self.bucket = bucket
+    def __init__(self, project_id='panoptes-survey', bucket_name=None, prefix='', data_dir='scripts/tests/mock_data'):
+        self.bucket_name = bucket_name
         self.project_id = project_id
-        self.blobs = blobs
+        self.data_dir = data_dir
+        self.prefix = prefix
 
     def list_remote(self, prefix=None):
-        """List the remote files in the bucket with the given prefix, in the form of blobs."""
-        # do i need to mock a blob too, or can this be a list of blobs i pass to the mock?
-        remote_files = []
-        for blob in self.blobs:
-            if blob.name.startswith(prefix):
-                remote_files.append(blob)
-        return remote_files
+        """List the names of the remote stored files in the bucket with the given prefix"""
+        if not prefix:
+            prefix = self.prefix
+        files = []
+        for (dirpath, dirnames, filenames) in os.walk(self.data_dir):
+            if len(filenames) > 0:
+                for filename in filenames:
+                    fl = dirpath+'/'+filename
+                    flname = fl.split(self.data_dir+'/')[1]
+                    print("file:",flname)
+                    if flname.startswith(prefix):
+                        files.append(flname)
+        return files
 
     def upload(self, local_path, remote_path=None):
-        # do i actually upload the given file anywhere... some local temp storage?
-        remote_path = local_path
+        """Upload the given file to the local mock storage directory."""
+        if remote_path is None:
+            remote_path = local_path
+        shutil.copyfile(local_path, remote_path)
         return remote_path
 
     def download(self, remote_path, local_path=None):
-        # download file if it exists from local storage or something?
-        local_path = remote_path
+        """Download the file from the local mock storage directory."""
+        if local_path is None:
+            local_path = remote_path
+        shutil.copyfile(self.data_dir+'/'+remote_path, local_path)
         return local_path

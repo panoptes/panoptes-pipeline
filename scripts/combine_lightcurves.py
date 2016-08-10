@@ -14,50 +14,49 @@ class LightCurveCombiner(object):
     Class to combine light curve segments into master light curve
     """
 
-    def __init__(self, bucket=None, storage=None):
-        assert bucket is not None, warnings.warn("A valid bucket is required.")
-        if storage is None:
-            storage = PanStorage(bucket=bucket)
+    def __init__(self, storage=None, temp_dir='/tmp/lc-combine'):
+        assert storage is not None, warnings.warn(
+            "A valid storage object is required.")
         self.storage = storage
+        self.temp_dir = temp_dir
 
     def run(self, pic):
         """Build a master light curve for a given PIC and output it as JSON.
 
         :param pic: The PIC object to combine light curves for
         """
-        temp_dir = '/tmp/lc-combine'
-        curves = self.get_curves_for_pic(pic, temp_dir)
+        curves = self.get_curves_for_pic(pic)
         master = self.combine_curves(curves)
-        self.upload_output(pic, master, temp_dir)
+        filename = 'MLC/{}.json'.format(pic)
+        self.upload_output(filename, master)
 
-    def get_curves_for_pic(self, pic, temp_dir):
+    def get_curves_for_pic(self, pic):
         """Read light curve files and add all curves to array.
 
         :param pic: the PIC id for the star to make a master light curve for
-        :param temp_dir: a temporary directory to store the light curve files in
         :return: an array containing all the light curves for the given PIC
         """
         curves = []
         prefix = "LC/{}/".format(pic)
 
         pan_storage = self.storage
-        blobs = pan_storage.list_remote(prefix)
-
-        num_blobs = 0
-        for blob in blobs:
-            local_path = "{}/{}".format(temp_dir, blob.name)
-            path = pan_storage.download(blob.name, local_path=local_path)
+        files = pan_storage.list_remote(prefix)
+        num_files = 0
+        for filename in files:
+            local_path = "{}/{}".format(self.temp_dir, filename)
+            os.makedirs(os.path.dirname(local_path), exist_ok=True)
+            path = pan_storage.download(filename, local_path=local_path)
             with open(path, 'r') as f:
                 try:
                     curve = json.load(f)
                     curves.append(curve)
                 except ValueError as err:
                     print("Error: Object {} could not be decoded as JSON: {}".format(
-                        blob.name, err))
-            num_blobs += 1
-        if num_blobs == 0:
-            raise NameError("No light curves with PIC '{}' found in bucket '{}'.".format(
-                pic, pan_storage.bucket.name))
+                        filename, err))
+            num_files += 1
+        if num_files == 0:
+            raise NameError("No light curves for star '{}' found in bucket '{}'.".format(
+                pic, pan_storage.bucket_name))
         return curves
 
     def combine_curves(self, curves):
@@ -74,15 +73,13 @@ class LightCurveCombiner(object):
                 master.append(data_point)
         return master
 
-    def upload_output(self, pic, data, temp_dir):
+    def upload_output(self, filename, data):
         """Write the data to a local file.
 
-        :param pic: the PIC id of the file to uploaded
-        :param data: the master light curve
-        :param temp_dir: the path to the temporary directory where the data is stored
+        :param filename: the name of the file to upload
+        :param data: the data to upload
         """
-        filename = 'MLC/{}.json'.format(pic)
-        local_path = '{}/{}'.format(temp_dir, filename)
+        local_path = '{}/{}'.format(self.temp_dir, filename)
         os.makedirs(os.path.dirname(local_path), exist_ok=True)
         with open(local_path, 'w') as fo:
             json.dump(data, fo)
@@ -96,5 +93,6 @@ if __name__ == "__main__":
     parser.add_argument('pic', type=str, help="The PIC ID of the star to build a"
                                               " master light curve for.")
     args = parser.parse_args()
-    combiner = LightCurveCombiner(bucket='panoptes-simulated-data')
+    pan_storage = PanStorage(bucket='panoptes-simulated-data')
+    combiner = LightCurveCombiner(storage=pan_storage)
     combiner.run(args.pic)

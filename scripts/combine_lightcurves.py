@@ -41,7 +41,6 @@ class LightCurveCombiner(object):
 
         pan_storage = self.storage
         files = pan_storage.list_remote(prefix)
-        num_files = 0
         for filename in files:
             local_path = "{}/{}".format(self.temp_dir, filename)
             os.makedirs(os.path.dirname(local_path), exist_ok=True)
@@ -53,8 +52,7 @@ class LightCurveCombiner(object):
                 except ValueError as err:
                     print("Error: Object {} could not be decoded as JSON: {}".format(
                         filename, err))
-            num_files += 1
-        if num_files == 0:
+        if len(curves) == 0:
             raise NameError("No light curves for star '{}' found in bucket '{}'.".format(
                 pic, pan_storage.bucket_name))
         return curves

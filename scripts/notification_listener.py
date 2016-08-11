@@ -3,7 +3,7 @@ import json
 import combine_lightcurves
 
 
-# Run using screen, then: python3 notification_listener.py
+# Run on GCE instance (image-analysis) using screen, then: python3 notification_listener.py
 app = Flask(__name__)
 
 @app.route('/', methods=['POST'])

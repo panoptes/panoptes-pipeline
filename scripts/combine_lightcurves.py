@@ -50,10 +50,10 @@ class LightCurveCombiner(object):
                     curve = json.load(f)
                     curves.append(curve)
                 except ValueError as err:
-                    print("Error: Object {} could not be decoded as JSON: {}".format(
-                        filename, err))
+                    raise ValueError("Error: Object {} could not be decoded as JSON.".format(
+                        filename))
         if len(curves) == 0:
-            raise NameError("No light curves for star '{}' found in bucket '{}'.".format(
+            raise NameError("No light curves for object '{}' found in bucket '{}'.".format(
                 pic, pan_storage.bucket_name))
         return curves
 
@@ -91,6 +91,6 @@ if __name__ == "__main__":
     parser.add_argument('pic', type=str, help="The PIC ID of the star to build a"
                                               " master light curve for.")
     args = parser.parse_args()
-    pan_storage = PanStorage(bucket='panoptes-simulated-data')
+    pan_storage = PanStorage(bucket_name='panoptes-simulated-data')
     combiner = LightCurveCombiner(storage=pan_storage)
     combiner.run(args.pic)

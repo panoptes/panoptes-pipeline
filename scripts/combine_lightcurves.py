@@ -39,19 +39,18 @@ class LightCurveCombiner(object):
         curves = []
         prefix = "LC/{}/".format(pic)
 
-        pan_storage = self.storage
+        storage = self.storage
         files = pan_storage.list_remote(prefix)
         for filename in files:
             local_path = "{}/{}".format(self.temp_dir, filename)
             os.makedirs(os.path.dirname(local_path), exist_ok=True)
-            path = pan_storage.download(filename, local_path=local_path)
-            with open(path, 'r') as f:
-                try:
-                    curve = json.load(f)
-                    curves.append(curve)
-                except ValueError as err:
-                    raise ValueError("Error: Object {} could not be decoded as JSON.".format(
-                        filename))
+            data = storage.download_string(filename)
+            try:
+                curve = json.load(data.decode())
+                curves.append(curve)
+            except ValueError as err:
+                raise ValueError("Error: Object {} could not be decoded as JSON.".format(
+                    filename))
         if len(curves) == 0:
             raise NameError("No light curves for object '{}' found in bucket '{}'.".format(
                 pic, pan_storage.bucket_name))
@@ -77,13 +76,8 @@ class LightCurveCombiner(object):
         :param filename: the name of the file to upload
         :param data: the data to upload
         """
-        local_path = '{}/{}'.format(self.temp_dir, filename)
-        os.makedirs(os.path.dirname(local_path), exist_ok=True)
-        with open(local_path, 'w') as fo:
-            json.dump(data, fo)
-
-        pan_storage = self.storage
-        pan_storage.upload(local_path, remote_path=filename)
+        storage = self.storage
+        storage.upload_string(json.dumps(data), filename)
 
 
 if __name__ == "__main__":

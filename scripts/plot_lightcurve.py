@@ -12,7 +12,7 @@ from pocs.utils.google.storage import PanStorage
 
 
 def download_mlc(pic):
-    pan_storage = PanStorage(bucket="panoptes-simulated-data")
+    pan_storage = PanStorage(bucket_name="panoptes-simulated-data")
     mlc_remote = "MLC/{}.json".format(pic)
     mlc_local = pan_storage.download(mlc_remote)
     with open(mlc_local, 'r') as mfile:
@@ -61,16 +61,19 @@ def make_plot(master, pic):
     plt.legend(handles=[rline, gline, bline], labels=['R flux', 'G flux', 'B flux'])
 
     # Save plot to local file
-    filename = '{}/plots/MLC_{}.png'.format(os.getenv('PANDIR'), pic)
+    #filename = '{}/plots/MLC_{}.png'.format(os.getenv('PANDIR'), pic)
+    filename = '{}/PIAA/webpage/images/{}.png'.format(os.getenv('PANDIR'), pic)
     os.makedirs(os.path.dirname(filename), exist_ok=True)
     plt.savefig(filename)
-    plt.show()
+    #plt.show()
+    return filename
+
 
 
 def main(pic):
     master = download_mlc(pic)
-    make_plot(master, pic)
-
+    filename = make_plot(master, pic)
+    return filename
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

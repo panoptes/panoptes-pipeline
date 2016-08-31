@@ -1,5 +1,8 @@
-FROM gcr.io/google_appengine/python
+FROM python:3.4
+#FROM gcr.io/google_appengine/python
 
+# Setup virtualenv and environment variables
+RUN pip install virtualenv
 RUN virtualenv /env -p python3.4
 ENV VIRTUAL_ENV /env
 ENV PANUSER panoptes
@@ -9,25 +12,24 @@ ENV POCS $PANDIR/POCS
 ENV PIAA $PANDIR/PIAA
 ENV PAWS $PANDIR/PAWS
 ENV PATH /env/bin:$PATH
-#ENV PATH $PATH:/usr/bin/python3.4
 
-#RUN git clone https://github.com/panoptes/POCS.git $VIRTUAL_ENV/$POCS 
+# Install PIAA dependencies
+ADD requirements.txt $PIAA/requirements.txt
+RUN pip install -r $PIAA/requirements.txt
 
-RUN apt-get update && apt-get install -y libncurses5-dev
-ADD requirements.txt /app/requirements.txt
-#ADD requirements_pocs.txt /app/requirements_pocs.txt
-RUN pip install -r /app/requirements.txt
-#RUN pip install -r /app/requirements_pocs.txt
-#RUN pip install git+https://github.com/panoptes/POCS.git
-RUN git clone https://github.com/panoptes/POCS.git $POCS
+# Clone POCS and install dependencies
+RUN apt-get update && apt-get install -y \ 
+    libncurses5-dev \
+    python3-tk
+RUN git clone -b develop https://github.com/panoptes/POCS.git $POCS
 RUN pip install -r $POCS/requirements.txt
 RUN pip install -e $POCS
 
-ADD . /app
+# Copy PIAA files and install as package
+ADD . $PIAA
+WORKDIR $PIAA
+RUN pip install -e .
 
-RUN pip install -e /app
-
-#CMD python3.4 /app/scripts/notification_listener.py
-
+# Set entrypoint as the Flask notification listener and expose port
 EXPOSE 8080
-ENTRYPOINT ["python3.4", "/app/scripts/notification_listener.py"]
+ENTRYPOINT ["python3", "./scripts/notification_listener.py"]

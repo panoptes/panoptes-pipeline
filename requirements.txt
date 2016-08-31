@@ -1,4 +1,3 @@
-gcloud
 astropy >= 1.2.0
 pytest >= 2.8.5
 numpy >= 1.11.1
@@ -6,5 +5,4 @@ pytest-cov
 pycodestyle
 Flask==0.11.1
 astroplan
-oauth2client
-httplib2
+matplotlib

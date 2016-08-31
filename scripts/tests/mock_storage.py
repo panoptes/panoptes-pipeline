@@ -1,5 +1,6 @@
 import os
 import shutil
+import json
 
 
 class MockPanStorage(object):
@@ -38,3 +39,15 @@ class MockPanStorage(object):
             local_path = remote_path
         shutil.copyfile(self.data_dir+'/'+remote_path, local_path)
         return local_path
+
+    def download_string(self, remote_path):
+        """Download the file as a string from the local mock storage directory."""
+        with open(self.data_dir+'/'+remote_path, 'r') as f:
+            data = f.read()
+        return data.encode('utf-8')
+
+    def upload_string(self, data, remote_path):
+        """Upload the given file as a string to the local mock storage directory."""
+        with open(self.data_dir+'/'+remote_path, 'w') as f:
+            json.dump(data, f)
+        return remote_path

@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 
-import os
 import json
 import argparse
 import warnings
@@ -14,11 +13,10 @@ class LightCurveCombiner(object):
     Class to combine light curve segments into master light curve
     """
 
-    def __init__(self, storage=None, temp_dir='/tmp/lc-combine'):
+    def __init__(self, storage=None):
         assert storage is not None, warnings.warn(
             "A valid storage object is required.")
         self.storage = storage
-        self.temp_dir = temp_dir
 
     def run(self, pic):
         """Build a master light curve for a given PIC and output it as JSON.
@@ -40,20 +38,18 @@ class LightCurveCombiner(object):
         prefix = "LC/{}/".format(pic)
 
         storage = self.storage
-        files = pan_storage.list_remote(prefix)
+        files = storage.list_remote(prefix)
         for filename in files:
-            local_path = "{}/{}".format(self.temp_dir, filename)
-            os.makedirs(os.path.dirname(local_path), exist_ok=True)
             data = storage.download_string(filename)
             try:
-                curve = json.load(data.decode())
+                curve = json.loads(data.decode())
                 curves.append(curve)
             except ValueError as err:
-                raise ValueError("Error: Object {} could not be decoded as JSON.".format(
-                    filename))
+                raise ValueError("ERROR: Object {} could not be decoded as JSON: {}".format(
+                    filename, err))
         if len(curves) == 0:
             raise NameError("No light curves for object '{}' found in bucket '{}'.".format(
-                pic, pan_storage.bucket_name))
+                pic, storage.bucket_name))
         return curves
 
     def combine_curves(self, curves):
@@ -64,10 +60,12 @@ class LightCurveCombiner(object):
         :param curves: an array of light curves, each with many data points, to be combined
         :return: a master light curve stored in a single array
         """
-        master = []
-        for c in curves:
-            for data_point in c:
-                master.append(data_point)
+        #master = []
+        #for c in curves:
+        #    for data_point in c:
+        #        master.append(data_point)
+        #return master
+        master = [data_point for curve in curves for data_point in curve]
         return master
 
     def upload_output(self, filename, data):

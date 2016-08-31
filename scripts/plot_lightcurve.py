@@ -64,7 +64,8 @@ def make_plot(master, pic):
     rline = mlines.Line2D([], [], color='red', linewidth=2)
     gline = mlines.Line2D([], [], color='green', linewidth=2)
     bline = mlines.Line2D([], [], color='blue', linewidth=2)
-    plt.legend(handles=[rline, gline, bline], labels=['R flux', 'G flux', 'B flux'])
+    plt.legend(handles=[rline, gline, bline],
+               labels=['R flux', 'G flux', 'B flux'])
 
     # Save plot to local file
     filename = '{}/plots/MLC_{}.png'.format(os.getenv('PANDIR'), pic)
@@ -82,8 +83,8 @@ def main(pic):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("pic", type=str, nargs='+', help="The PIC id of the star to plot a light curve for.")
+    parser.add_argument("pic", type=str, nargs='+',
+                        help="The PIC id of the star to plot a light curve for.")
     args = parser.parse_args()
     for pic in args.pic:
         main(pic)
-

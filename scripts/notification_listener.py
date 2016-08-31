@@ -29,11 +29,15 @@ def receive():
 
     else:
         try:
-            subprocess.Popen(['python3', 'scripts/combine_lightcurves.py', pic])
-            response = "Master light curve for {} successfully updated.".format(pic)
+            subprocess.Popen(
+                ['python3', 'scripts/combine_lightcurves.py', pic])
+            response = "Master light curve for {} successfully updated.".format(
+                pic)
         except Exception as err:
-            print("Exception occurred while attempting to update light curves: {}".format(err))
-            response = "Failed to update master light curve for {}.".format(pic)
+            print(
+                "Exception occurred while attempting to update light curves: {}".format(err))
+            response = "Failed to update master light curve for {}.".format(
+                pic)
 
     print(response)
     return jsonify(response="Received POST request"), 200

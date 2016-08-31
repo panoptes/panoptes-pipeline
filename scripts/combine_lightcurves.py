@@ -61,10 +61,10 @@ class LightCurveCombiner(object):
         :return: a master light curve stored in a single array
         """
         #master = []
-        #for c in curves:
+        # for c in curves:
         #    for data_point in c:
         #        master.append(data_point)
-        #return master
+        # return master
         master = [data_point for curve in curves for data_point in curve]
         return master
 

@@ -60,11 +60,6 @@ class LightCurveCombiner(object):
         :param curves: an array of light curves, each with many data points, to be combined
         :return: a master light curve stored in a single array
         """
-        #master = []
-        # for c in curves:
-        #    for data_point in c:
-        #        master.append(data_point)
-        # return master
         master = [data_point for curve in curves for data_point in curve]
         return master
 
@@ -75,7 +70,11 @@ class LightCurveCombiner(object):
         :param data: the data to upload
         """
         storage = self.storage
-        storage.upload_string(json.dumps(data), filename)
+        try:
+            data_json = json.dumps(data)
+            storage.upload_string(data_json, filename)
+        except TypeError as err:
+            raise TypeError("ERROR: Data for {} could not be encoded as JSON: {}".format(filename, err))
 
 
 if __name__ == "__main__":

@@ -2,8 +2,11 @@ import webapp2
 import os
 from google.appengine.ext.webapp import template
 
-class MainPage(webapp2.RequestHandler):
 
+class MainPage(webapp2.RequestHandler):
+    """
+    Very basic webpage for PIAA to display master light curve plots. Used for demo purposes.
+    """
     def get(self):
         pic = 'PIC_J18365633+3847012'
         image_name = '{}.png'.format(pic)

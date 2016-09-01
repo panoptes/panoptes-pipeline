@@ -12,7 +12,8 @@ from pocs.utils.google.storage import PanStorage
 
 
 def download_mlc(pic):
-    pan_storage = PanStorage(bucket="panoptes-simulated-data")
+    """Download the master light curve from Google Cloud Storage"""
+    pan_storage = PanStorage(bucket_name="panoptes-simulated-data")
     mlc_remote = "MLC/{}.json".format(pic)
     mlc_local = pan_storage.download(mlc_remote)
     with open(mlc_local, 'r') as mfile:
@@ -21,7 +22,12 @@ def download_mlc(pic):
 
 
 def make_plot(master, pic):
+    """Make matplotlib plot of the master light curve for the given star.
 
+    :param master: the master light curve in array format
+    :param pic: the pic that the master light curve is for
+    :return: the filename of the saved plot
+    """
     # Unpack light curve into arrays
     mtimes = []
     r, g, b = [], [], []
@@ -58,23 +64,27 @@ def make_plot(master, pic):
     rline = mlines.Line2D([], [], color='red', linewidth=2)
     gline = mlines.Line2D([], [], color='green', linewidth=2)
     bline = mlines.Line2D([], [], color='blue', linewidth=2)
-    plt.legend(handles=[rline, gline, bline], labels=['R flux', 'G flux', 'B flux'])
+    plt.legend(handles=[rline, gline, bline],
+               labels=['R flux', 'G flux', 'B flux'])
 
     # Save plot to local file
     filename = '{}/plots/MLC_{}.png'.format(os.getenv('PANDIR'), pic)
     os.makedirs(os.path.dirname(filename), exist_ok=True)
     plt.savefig(filename)
-    plt.show()
+
+    return filename
 
 
 def main(pic):
+    """Make plot of master light curve"""
     master = download_mlc(pic)
-    make_plot(master, pic)
-
+    filename = make_plot(master, pic)
+    return filename
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("pic", help="The PIC id of the star to plot a light curve for.")
+    parser.add_argument("pic", type=str, nargs='+',
+                        help="The PIC id of the star to plot a light curve for.")
     args = parser.parse_args()
-    main(args.pic)
-
+    for pic in args.pic:
+        main(pic)

@@ -29,6 +29,7 @@ class DataGenerator(object):
             storage = PanStorage(bucket_name='panoptes-simulated-data')
         self.storage = storage
         self.cameras = defaultdict(list)
+        self.star_dict = {}
 
     def generate_network(self, num_units, start_date, end_date):
         """Generate simulated data from a network of PANOPTES units.
@@ -181,12 +182,15 @@ class DataGenerator(object):
         tries = 10
         for i in range(tries):
             star = random.choice(star_list)
-            try:
-                coords = SkyCoord.from_name(star, frame='fk5')
-                pic = self.pic_name(star)
-                return pic, coords
-            except NameResolveError:
-                print("Star name {} not found.".format(star))
+            if star not in self.star_dict:
+                try:
+                    coords = SkyCoord.from_name(star, frame='fk5')
+                    self.star_dict[star] = coords
+                except NameResolveError:
+                    print("Star name {} not found.".format(star))
+            pic = self.pic_name(star)
+            coords = self.star_dict[star]
+            return pic, coords
         raise Exception("Too many tries to find a valid star.")
 
     def random_time(self, rise_time, set_time):

@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 
-import os
 import json
 import argparse
 import warnings
@@ -14,11 +13,10 @@ class LightCurveCombiner(object):
     Class to combine light curve segments into master light curve
     """
 
-    def __init__(self, storage=None, temp_dir='/tmp/lc-combine'):
+    def __init__(self, storage=None):
         assert storage is not None, warnings.warn(
             "A valid storage object is required.")
         self.storage = storage
-        self.temp_dir = temp_dir
 
     def run(self, pic):
         """Build a master light curve for a given PIC and output it as JSON.
@@ -39,22 +37,19 @@ class LightCurveCombiner(object):
         curves = []
         prefix = "LC/{}/".format(pic)
 
-        pan_storage = self.storage
-        files = pan_storage.list_remote(prefix)
+        storage = self.storage
+        files = storage.list_remote(prefix)
         for filename in files:
-            local_path = "{}/{}".format(self.temp_dir, filename)
-            os.makedirs(os.path.dirname(local_path), exist_ok=True)
-            path = pan_storage.download(filename, local_path=local_path)
-            with open(path, 'r') as f:
-                try:
-                    curve = json.load(f)
-                    curves.append(curve)
-                except ValueError as err:
-                    print("Error: Object {} could not be decoded as JSON: {}".format(
-                        filename, err))
+            data = storage.download_string(filename)
+            try:
+                curve = json.loads(data.decode())
+                curves.append(curve)
+            except ValueError as err:
+                raise ValueError("ERROR: Object {} could not be decoded as JSON: {}".format(
+                    filename, err))
         if len(curves) == 0:
-            raise NameError("No light curves for star '{}' found in bucket '{}'.".format(
-                pic, pan_storage.bucket_name))
+            raise NameError("No light curves for object '{}' found in bucket '{}'.".format(
+                pic, storage.bucket_name))
         return curves
 
     def combine_curves(self, curves):
@@ -65,10 +60,7 @@ class LightCurveCombiner(object):
         :param curves: an array of light curves, each with many data points, to be combined
         :return: a master light curve stored in a single array
         """
-        master = []
-        for c in curves:
-            for data_point in c:
-                master.append(data_point)
+        master = [data_point for curve in curves for data_point in curve]
         return master
 
     def upload_output(self, filename, data):
@@ -77,13 +69,12 @@ class LightCurveCombiner(object):
         :param filename: the name of the file to upload
         :param data: the data to upload
         """
-        local_path = '{}/{}'.format(self.temp_dir, filename)
-        os.makedirs(os.path.dirname(local_path), exist_ok=True)
-        with open(local_path, 'w') as fo:
-            json.dump(data, fo)
-
-        pan_storage = self.storage
-        pan_storage.upload(local_path, remote_path=filename)
+        storage = self.storage
+        try:
+            data_json = json.dumps(data)
+            storage.upload_string(data_json, filename)
+        except TypeError as err:
+            raise TypeError("ERROR: Data for {} could not be encoded as JSON: {}".format(filename, err))
 
 
 if __name__ == "__main__":
@@ -91,6 +82,6 @@ if __name__ == "__main__":
     parser.add_argument('pic', type=str, help="The PIC ID of the star to build a"
                                               " master light curve for.")
     args = parser.parse_args()
-    pan_storage = PanStorage(bucket='panoptes-simulated-data')
+    pan_storage = PanStorage(bucket_name='panoptes-simulated-data')
     combiner = LightCurveCombiner(storage=pan_storage)
     combiner.run(args.pic)

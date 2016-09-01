@@ -8,7 +8,7 @@ from scripts.tests.mock_storage import MockPanStorage
 def combiner():
     """Return a valid light curve combiner"""
     mock_storage = MockPanStorage(bucket_name='mock-bucket')
-    return LightCurveCombiner(storage=mock_storage, temp_dir='temp_test')
+    return LightCurveCombiner(storage=mock_storage)
 
 
 def test_storage_exists(combiner):

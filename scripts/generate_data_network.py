@@ -14,6 +14,7 @@ from astropy.io import fits
 from astropy import units as u
 from astropy.coordinates import SkyCoord
 from astropy.coordinates.name_resolve import NameResolveError
+from astropy.coordinates import EarthLocation
 from collections import defaultdict
 
 from pocs.utils.google.storage import PanStorage
@@ -99,8 +100,7 @@ class DataGenerator(object):
                         lc = self.build_lightcurve(hdu)
 
                         # Write data products to local temp files
-                        self.write_psc(
-                            "{}/{}".format(temp_dir, psc_filename), hdu)
+                        self.write_psc("{}/{}".format(temp_dir, psc_filename), hdu)
                         self.write_lightcurve(
                             "{}/{}".format(temp_dir, lc_filename), lc)
 
@@ -119,7 +119,7 @@ class DataGenerator(object):
         units = []
         for i in range(num_units):
             unit = "PAN{:03d}".format(i)
-            site = random.choice(astroplan.get_site_names())
+            site = random.choice(EarthLocation.get_site_names())
             self.unit_dict[unit] = site
             self.init_cameras(unit)
             units.append(unit)

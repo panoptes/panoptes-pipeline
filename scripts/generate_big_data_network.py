@@ -35,16 +35,19 @@ class DataGenerator(object):
     Now just a wrapper class, should be updated to abstract out other objects eventually
     """
 
-    def __init__(self, storage=None):
+    def __init__(self, storage=None, local_dir=None):
         if not storage:
             storage = PanStorage(bucket_name='panoptes-simulated-data')
+        if not local_dir:
+            local_dir = '/tmp/sim-data'
         self.storage = storage
         self.cameras = defaultdict(list)
         self.star_dict = {}
         self.unit_dict = {}
+        self.local_dir = local_dir
         download_IERS_A()
 
-    def generate_network(self, num_units, start_date, end_date):
+    def generate_network(self, num_units, start_date, end_date, cloud):
         """Generate simulated data from a network of PANOPTES units.
 
         :param num_units: the number of units to simulate
@@ -67,8 +70,6 @@ class DataGenerator(object):
             self.update_cameras()
             print('Adding new simulated data to current network of {} units over {} nights. This may '
                   'take a few minutes...'.format(num_units, num_nights), file=sys.stdout)
-
-        temp_dir = '/tmp/sim-data'
 
         # For every night, let every unit observe a few stars, and
         # output a Postage Stamp Cube (PSC) and light curve for each star.
@@ -112,20 +113,19 @@ class DataGenerator(object):
 
                             # Write data products to local temp files
                             self.write_psc(
-                                "{}/{}".format(temp_dir, psc_filename), hdu)
+                                "{}/{}".format(self.local_dir, psc_filename), hdu)
                             self.write_lightcurve(
-                                "{}/{}".format(temp_dir, lc_filename), lc)
+                                "{}/{}".format(self.local_dir, lc_filename), lc)
 
                             # Upload data products from local files to cloud
-                            multiply_factor = 1
-                            for m in range(multiply_factor):
-
+                            if cloud:
                                 self.storage.upload(
-                                    "{}/{}".format(temp_dir, psc_filename), remote_path=psc_filename)
+                                    "{}/{}".format(self.local_dir, psc_filename), remote_path=psc_filename)
                                 self.storage.upload(
-                                    "{}/{}".format(temp_dir, lc_filename), remote_path=lc_filename)
+                                    "{}/{}".format(self.local_dir, lc_filename), remote_path=lc_filename)
                                 lc_count += 1
-                                print('{}|LC{}| {}/{} observed star {} on {}.'.format(
+
+                            print('{}|LC{}| {}/{} observed star {} on {}.'.format(
                                     datetime.now().time(), lc_count, unit, camera, pic, curr_date.strftime('%Y-%m-%d')))
 
                 stars_per_night = sequences_per_night * stars_per_sequence
@@ -352,7 +352,9 @@ if __name__ == "__main__":
                         help='The start date of the simulated data, in Y-m-d format.')
     parser.add_argument('end_date', type=str,
                         help='The end date of the simulated data, in Y-m-d format.')
+    parser.add_argument('local_dir', type=str, help='The local directory in which to store the simulated data.')
+    parser.add_argument('-c', '--cloud', action='store_true', help='Upload simulated data to Google Cloud Storage.')
     parser.print_help()
     args = parser.parse_args()
-    gen = DataGenerator()
-    gen.generate_network(args.num_units, args.start_date, args.end_date)
+    gen = DataGenerator(local_dir=args.local_dir)
+    gen.generate_network(args.num_units, args.start_date, args.end_date, args.cloud)

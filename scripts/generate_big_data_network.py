@@ -126,7 +126,7 @@ class DataGenerator(object):
                                 lc_count += 1
 
                             print('{}|LC{}| {}/{} observed star {} on {}.'.format(
-                                    datetime.now().time(), lc_count, unit, camera, pic, curr_date.strftime('%Y-%m-%d')))
+                                datetime.now().time(), lc_count, unit, camera, pic, curr_date.strftime('%Y-%m-%d')))
 
                 stars_per_night = sequences_per_night * stars_per_sequence
                 print('{} {} observed {} stars on {}.'.format(
@@ -352,9 +352,12 @@ if __name__ == "__main__":
                         help='The start date of the simulated data, in Y-m-d format.')
     parser.add_argument('end_date', type=str,
                         help='The end date of the simulated data, in Y-m-d format.')
-    parser.add_argument('local_dir', type=str, help='The local directory in which to store the simulated data.')
-    parser.add_argument('-c', '--cloud', action='store_true', help='Upload simulated data to Google Cloud Storage.')
+    parser.add_argument('local_dir', type=str,
+                        help='The local directory in which to store the simulated data.')
+    parser.add_argument('-c', '--cloud', action='store_true',
+                        help='Upload simulated data to Google Cloud Storage.')
     parser.print_help()
     args = parser.parse_args()
     gen = DataGenerator(local_dir=args.local_dir)
-    gen.generate_network(args.num_units, args.start_date, args.end_date, args.cloud)
+    gen.generate_network(args.num_units, args.start_date,
+                         args.end_date, args.cloud)

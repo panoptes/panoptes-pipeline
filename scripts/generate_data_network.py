@@ -137,7 +137,7 @@ class DataGenerator(object):
                     unit = dir
                     if unit not in units:
                         units.append(unit)
-                        site = random.choice(astroplan.get_site_names())
+                        site = random.choice(EarthLocation.get_site_names())
                         self.unit_dict[unit] = site
                     cam = dirs[i + 1]
                     if cam not in self.cameras[unit]:

@@ -10,21 +10,22 @@ from astroplan import Observer
 from astroplan import download_IERS_A
 from datetime import datetime
 from datetime import timedelta
+from astropy.time import Time
 from astropy.io import fits
 from astropy import units as u
 from astropy.coordinates import SkyCoord
-from astropy.coordinates.name_resolve import NameResolveError
+from astropy.coordinates.angles import Angle
 from collections import defaultdict
 
 from pocs.utils.google.storage import PanStorage
 
 
 #############################################################################
-# This class is a simulator that simulates more realistic data. It gets     #
-# real stars by their name, and uses astropy to calculate accurate rise     #
-# and set times. However, more stars need to be included, perhaps in a hard-#
-# coded file. It is also not accurate in the data flow (see                 #
-# generate_big_data_network.py). The two files should eventually be merged. #
+# This class is a simulator that is designed to simulate larger quantities  #
+# of data, more accurate in the levels of data products than                #
+# generate_data_network.py (which has more realistic star data). Use this   #
+# to simulate large quantities of data to test the pipeline. Should         #
+# eventually be merged with generate_data_network.py.                       #
 #############################################################################
 
 class DataGenerator(object):
@@ -70,45 +71,62 @@ class DataGenerator(object):
 
         # For every night, let every unit observe a few stars, and
         # output a Postage Stamp Cube (PSC) and light curve for each star.
+        lc_count = 0
         curr_date = start_date
         while curr_date <= end_date:
             for unit in units:
 
-                sequences_per_night = random.randint(5, 5)
+                # Start first sequence 1-2 hours after sunset
+                site = self.unit_dict[unit]
+                loc = Observer.at_site(site)
+                sunset = loc.sun_set_time(
+                    Time(curr_date, scale='utc'), which='next')
+                sunset_time = datetime.strptime(
+                    sunset.isot, "%Y-%m-%dT%H:%M:%S.%f")
+                last_obs_end_time = sunset_time + \
+                    timedelta(minutes=(random.random() * 60 + 60))
+                sequences_per_night = random.randint(4, 6)
                 for i in range(sequences_per_night):
 
-                    stars_per_sequence = random.randint(10, 10)
+                    stars_per_sequence = random.randint(100, 200)
+                    start_time, end_time = self.set_obs_time(last_obs_end_time)
+                    last_obs_end_time = end_time
+
                     for j in range(stars_per_sequence):
 
                         # Get observation information
-                        camera = random.choice(self.cameras[unit])
                         field = self.get_field()
                         pic, coords = self.get_fake_pic()
-                        site = self.unit_dict[unit]
-                        start_time, end_time = self.set_obs_time(
-                            coords, site, curr_date)
 
-                        psc_filename = "PSC/{}/{}/{}/{}.fits".format(
-                            unit, camera, start_time.isoformat(), pic)
-                        lc_filename = "LC/{}/{}/{}/{}.json".format(pic, unit, camera,
-                                                                   start_time.isoformat())
+                        for camera in self.cameras[unit]:
+                            psc_filename = "PSC/{}/{}/{}/{}.fits".format(
+                                unit, camera, start_time.isoformat(), pic)
+                            lc_filename = "LC/{}/{}/{}/{}.json".format(pic, unit, camera,
+                                                                       start_time.isoformat())
 
-                        # Create data products
-                        hdu = self.build_psc(unit, camera, field,
-                                             pic, coords, start_time, end_time)
-                        lc = self.build_lightcurve(hdu)
+                            # Create data products
+                            hdu = self.build_psc(unit, camera, field,
+                                                 pic, coords, start_time, end_time)
+                            lc = self.build_lightcurve(hdu)
 
-                        # Write data products to local temp files
-                        self.write_psc(
-                            "{}/{}".format(temp_dir, psc_filename), hdu)
-                        self.write_lightcurve(
-                            "{}/{}".format(temp_dir, lc_filename), lc)
+                            # Write data products to local temp files
+                            self.write_psc(
+                                "{}/{}".format(temp_dir, psc_filename), hdu)
+                            self.write_lightcurve(
+                                "{}/{}".format(temp_dir, lc_filename), lc)
 
-                        # Upload data products from local files to cloud
-                        self.storage.upload(
-                            "{}/{}".format(temp_dir, psc_filename), remote_path=psc_filename)
-                        self.storage.upload(
-                            "{}/{}".format(temp_dir, lc_filename), remote_path=lc_filename)
+                            # Upload data products from local files to cloud
+                            multiply_factor = 1
+                            for m in range(multiply_factor):
+
+                                self.storage.upload(
+                                    "{}/{}".format(temp_dir, psc_filename), remote_path=psc_filename)
+                                self.storage.upload(
+                                    "{}/{}".format(temp_dir, lc_filename), remote_path=lc_filename)
+                                lc_count += 1
+                                print('{}|LC{}| {}/{} observed star {} on {}.'.format(
+                                    datetime.now().time(), lc_count, unit, camera, pic, curr_date.strftime('%Y-%m-%d')))
+
                 stars_per_night = sequences_per_night * stars_per_sequence
                 print('{} {} observed {} stars on {}.'.format(
                     datetime.now().time(), unit, stars_per_night, curr_date.strftime('%Y-%m-%d')))
@@ -187,57 +205,19 @@ class DataGenerator(object):
         fields = ['field_x', 'field_y', 'field_z']
         return random.choice(fields)
 
-    def get_pic(self):
-        """Return the PIC of a star to observe.
+    def get_fake_pic(self):
+        """Generate a fake Panoptes Input Catalog star and random coordinates."""
+        pic = "PIC_{:06d}".format(random.randint(0, 50))
+        if pic in self.star_dict:
+            coords = self.star_dict[pic]
+        else:
+            ra = Angle((random.random() * 360) * u.deg)
+            dec = Angle((random.random() * 180 - 90) * u.deg)
+            coords = SkyCoord(ra.to(u.degree), dec.to(u.degree), frame='fk5')
+            self.star_dict[pic] = coords
+        return pic, coords
 
-        Get a star from the 2MASS catalog, and its coordinates.
-        Format its name in the PANOPTES Input Catalog (PIC).
-        :return: coordinates of PIC, PICID
-        """
-        # Random stars I found as examples - eventually expand list and read from
-        # file (?)
-        star_list = ['2MASSW J0326137+295015',
-                     '2MASSW J1632291+190441',
-                     '2MASS J18365633+3847012']
-
-        # Make sure PIC is valid and has coords found by astropy's SkyCoord.
-        tries = 10
-        for i in range(tries):
-            star = random.choice(star_list)
-            if star not in self.star_dict:
-                try:
-                    coords = SkyCoord.from_name(star, frame='fk5')
-                    self.star_dict[star] = coords
-                except NameResolveError:
-                    print("Star name {} not found.".format(star))
-            pic = self.pic_name(star)
-            coords = self.star_dict[star]
-            return pic, coords
-        raise Exception("Too many tries to find a valid star.")
-
-    def random_time(self, rise_time, set_time):
-        """Choose a random time to begin the observation between the object's rise and set.
-
-        :param rise_time: time PIC rises
-        :param set_time: time PIC sets
-        :return: randomized start time of observation
-        """
-        buffer = 1  # hours, so that observing starts at least some amount of time before object set
-        span = set_time - rise_time - timedelta(hours=buffer)
-        return rise_time + timedelta(seconds=random.randint(0, span.seconds))
-
-    def random_duration(self, start_time, set_time):
-        """Choose a random duration for the observation between the start and the time the object sets.
-
-        :param start_time: time unit starts observing PIC
-        :param set_time: time PIC sets
-        :return: randomized duration of observation
-        """
-        min_dur = 1000
-        span = set_time - start_time - timedelta(seconds=min_dur)
-        return timedelta(seconds=random.randint(min_dur, min_dur + span.seconds))
-
-    def set_obs_time(self, coords, site, date):
+    def set_obs_time(self, last_obs_end_time):
         """Choose times to begin and end observing the PIC between its rise and set.
 
         :param coords: coordinates of the PIC object from SkyCoord
@@ -245,24 +225,14 @@ class DataGenerator(object):
         :param date: the date of the observation
         :return: randomized start and end time of observation
         """
-        loc = Observer.at_site(site)
-
-        # Use astroplan to get rise and set of star, and get reasonable random
-        # obs_time and duration
-        rise = loc.target_rise_time(date, coords, which='next')
-        rise_time = datetime.strptime(rise.isot, "%Y-%m-%dT%H:%M:%S.%f")
-        set = loc.target_set_time(rise_time, coords, which='next')
-        set_time = datetime.strptime(set.isot, "%Y-%m-%dT%H:%M:%S.%f")
-        start_time = self.random_time(rise_time, set_time)
-        seq_duration = self.random_duration(start_time, set_time)
+        # Set 0-10 minute buffer between end of last observation and start of
+        # new observation
+        buffer_new_obs = timedelta(minutes=random.random() * 10)
+        start_time = last_obs_end_time + buffer_new_obs
+        # Random sequence duration between 1 and 3 hours
+        seq_duration = timedelta(minutes=(random.random() * 120) + 60)
         end_time = start_time + seq_duration
         return start_time, end_time
-
-    def pic_name(self, star):
-        """Format PICID for star from its catalog name."""
-        jcoords = star.split()[1]
-        pic = "PIC_{}".format(jcoords)
-        return pic
 
     def build_psc(self, unit, camera, field, pic, coords, start_time, end_time):
         """Generate a postage stamp cube with fake data for the given unit, PIC, and observation time.

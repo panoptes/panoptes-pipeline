@@ -5,6 +5,8 @@ PIAA
 
 The Panoptes Image Analysis Algorithm (PIAA) repository contains the data processing pipeline and algorithms for the images taken by PANOPTES observatories. PIAA currently handles storing the raw data, processing intermediate data and storing final data products. Eventually it will also analyze final data products and store results. 
 
+For a detailed explanation of the system, design choices and alternatives, see the [Design Doc](https://docs.google.com/document/d/1GefBo-vYa6jKhT8LO7Z-fd7rppOMjD7AIczNJLBhS-o/edit#heading=h.xgjl2srtytjt).
+
 ## System Components
 
 ####Data Simulator####
@@ -14,12 +16,12 @@ Receives notifications when new objects are added to the GCS bucket and pushes t
 ####Kubernetes Cluster####
 Cluster of nodes managed using Kubernetes on Google Container Engine (GKE) and Docker. A Flask server on each pod recieves notifications from App Engine and spawns subprocesses to combine the stored light curves into master light curves for each Panoptes Input Catalog (PIC) star.
 ####Google Cloud Storage####
-All simulated data inputs and products - light curves, PSCs and master light curves - are currently stored in a Google Cloud Storage bucket.
+All simulated data inputs and products - light curves, PSCs and master light curves - are currently stored in a GCS bucket.
 
 
 ## Running the Light Curve Analysis
 
-### Setting Up Notification Channel
+### Setting Up the Notification Channel
 
 GCS has a feature called Object Change Notifications. These send an HTTP request with the metadata of the changed object in a given bucket. To set up this channel, runr
 ~~~
@@ -34,7 +36,9 @@ Download the source code from the [Google Cloud repository](https://pantheon.cor
 appcfg.py update -A panoptes-survey .
 ~~~
 
-### Updating the Docker image to run on Kubernetes/GKE
+### Kubernetes/GKE Cluster
+
+#### Updating the Docker image
 
 In your local PIAA directory, make desired changes. Make sure [kubectl](http://kubernetes.io/docs/user-guide/prereqs/), [Docker](https://docs.docker.com/) and the [Cloud SDK](https://cloud.google.com/sdk/docs/quickstarts) are installed. Then run
 ~~~
@@ -57,3 +61,8 @@ To change the number of replicated pods that run on the nodes, run
 kubectl scale deployment/<deployment_name> --replicas=<num_pods>
 ~~~
 where `<deployment_name>` is the name of the Deployment, currently `combiner`.
+
+
+### Development on Google Compute Engine
+
+For development purposes, a Google Compute Engine (GCE) instance can be used. The instance piaa-instance has been used for development and contains the PIAA and POCS repos, though they likely need to be updated. The url that App Engine sends notifications to needs to be changed to the external IP for the instance (set `listener='GCE'`). 

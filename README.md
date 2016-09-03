@@ -31,7 +31,7 @@ Currently, a channel is set up called `panoptes-simulated-data-channel` that sen
 
 ### Deploying the App Engine Proxy
 
-Download the source code from the [Google Cloud repository](https://pantheon.corp.google.com/code/develop/browse/notification-proxy/master?project=panoptes-survey) into a local directory named `notification-proxy`. Make sure the [App Engine SDK](https://cloud.google.com/appengine/downloads#Google_App_Engine_SDK_for_Python) is installed. Deploy using 
+Clone the source code from the [Google Cloud repository](https://pantheon.corp.google.com/code/develop/browse/notification-proxy/master?project=panoptes-survey) into a local directory named `notification-proxy`. Make sure the [App Engine SDK](https://cloud.google.com/appengine/downloads#Google_App_Engine_SDK_for_Python) is installed. Deploy using 
 ~~~
 appcfg.py update -A panoptes-survey .
 ~~~
@@ -63,6 +63,23 @@ kubectl scale deployment/<deployment_name> --replicas=<num_pods>
 where `<deployment_name>` is the name of the Deployment, currently `combiner`.
 
 
-### Development on Google Compute Engine
+### Development 
+
+#### Setting up
+
+Clone this repository to a directory named PIAA on your local machine and run
+~~~
+pip install -r requirements.txt
+~~~
+to install the dependencies. Set up everything as in the [Coding in PANOPTES wiki](https://github.com/panoptes/POCS/wiki/Coding-in-PANOPTES), and add the environment variable  
+~~~
+PIAA=$PANDIR/PIAA
+~~~
+
+#### Running on Google Compute Engine
 
 For development purposes, a Google Compute Engine (GCE) instance can be used. The instance piaa-instance has been used for development and contains the PIAA and POCS repos, though they likely need to be updated. The url that App Engine sends notifications to needs to be changed to the external IP for the instance (set `listener='GCE'`). 
+
+#### Logging
+
+The logs can be monitored to see how system components are running. Here is where to find the [logs for the App Engine notification proxy](https://pantheon.corp.google.com/logs/viewer?project=panoptes-survey&minLogLevel=0&expandAll=false&resource=appengine.googleapis.com%2Fmodule_id%2Fnotification-proxy&key1=notification-proxy&logName=&advancedFilter=metadata.serviceName%3D%22appengine.googleapis.com%22%0Ametadata.labels.%22appengine.googleapis.com%2Fmodule_id%22%3D%22notification-proxy%22%0A) and the [logs for the Container Engine cluster](https://pantheon.corp.google.com/logs/viewer?project=panoptes-survey&minLogLevel=0&expandAll=false&resource=container.googleapis.com&key1=notification-proxy&logName=&lastVisibleTimestampNanos=1472781565000000000).

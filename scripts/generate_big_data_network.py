@@ -8,7 +8,6 @@ import sys
 import astroplan
 
 from astroplan import Observer
-from astroplan import download_IERS_A
 from astropy import units as u
 from astropy.coordinates import EarthLocation
 from astropy.coordinates import SkyCoord
@@ -37,8 +36,8 @@ class DataGenerator(object):
     Now just a wrapper class, should be updated to abstract out other objects eventually
     """
 
-    def __init__(self, storage=None, local_dir=None):
-        if not storage:
+    def __init__(self, storage=None, local_dir=None, use_cloud=False):
+        if use_cloud and not storage:
             storage = PanStorage(bucket_name='panoptes-simulated-data')
         if not local_dir:
             local_dir = '/tmp/sim-data'
@@ -47,9 +46,8 @@ class DataGenerator(object):
         self.star_dict = {}
         self.unit_dict = {}
         self.local_dir = local_dir
-        download_IERS_A()
 
-    def generate_network(self, num_units, start_date, end_date, cloud):
+    def generate_network(self, num_units, start_date, end_date, use_cloud):
         """Generate simulated data from a network of PANOPTES units.
 
         :param num_units: the number of units to simulate
@@ -62,7 +60,10 @@ class DataGenerator(object):
         if end_date < start_date:
             raise ValueError('End date must be after start date.')
 
-        units = self.get_current_network()
+        units = []
+        if use_cloud:
+            units = self.get_current_network()
+
         if len(units) == 0:
             print("Simulating new data network from {} units over {} nights. This make take "
                   "a few minutes...".format(num_units, num_nights), file=sys.stdout)
@@ -120,7 +121,7 @@ class DataGenerator(object):
                                 "{}/{}".format(self.local_dir, lc_filename), lc)
 
                             # Upload data products from local files to cloud
-                            if cloud:
+                            if use_cloud:
                                 self.storage.upload(
                                     "{}/{}".format(self.local_dir, psc_filename), remote_path=psc_filename)
                                 self.storage.upload(
@@ -358,8 +359,7 @@ if __name__ == "__main__":
                         help='The local directory in which to store the simulated data.')
     parser.add_argument('-c', '--cloud', action='store_true',
                         help='Upload simulated data to Google Cloud Storage.')
-    parser.print_help()
     args = parser.parse_args()
-    gen = DataGenerator(local_dir=args.local_dir)
+    gen = DataGenerator(local_dir=args.local_dir, use_cloud=args.cloud)
     gen.generate_network(args.num_units, args.start_date,
                          args.end_date, args.cloud)

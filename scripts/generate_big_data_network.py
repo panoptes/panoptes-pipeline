@@ -1,22 +1,23 @@
-import os
 import argparse
-import numpy as np
-import random
 import json
+import numpy as np
+import os
+import random
 import sys
 
 import astroplan
+
 from astroplan import Observer
 from astroplan import download_IERS_A
-from datetime import datetime
-from datetime import timedelta
-from astropy.time import Time
-from astropy.io import fits
 from astropy import units as u
+from astropy.coordinates import EarthLocation
 from astropy.coordinates import SkyCoord
 from astropy.coordinates.angles import Angle
-from astropy.coordinates import EarthLocation
+from astropy.io import fits
+from astropy.time import Time
 from collections import defaultdict
+from datetime import datetime
+from datetime import timedelta
 
 from pocs.utils.google.storage import PanStorage
 
@@ -30,6 +31,7 @@ from pocs.utils.google.storage import PanStorage
 #############################################################################
 
 class DataGenerator(object):
+
     """Class to generate a network of simulated PANOPTES images and light curves
 
     Now just a wrapper class, should be updated to abstract out other objects eventually

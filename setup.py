@@ -2,7 +2,7 @@
 # Licensed under an MIT style license - see LICENSE.txt
 
 try:
-    from setuptools import setup
+    from setuptools import setup, find_packages
 except ImportError:
     from distutils.core import setup
 
@@ -39,6 +39,7 @@ setup(name=PACKAGENAME,
       install_requires=['numpy>=1.10'],
       setup_requires=['pytest-runner'],
       tests_require=['pytest', 'pytest-cov'],
+      packages=find_packages(exclude=['tests', 'test_*']),
       classifiers=[
           'Development Status :: 3 - Alpha',
           'Environment :: Console',

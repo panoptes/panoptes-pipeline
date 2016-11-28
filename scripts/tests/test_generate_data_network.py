@@ -2,12 +2,18 @@ import pytest
 import re
 
 from astropy import units as u
+from astropy.coordinates import SkyCoord
 from datetime import datetime
 from datetime import timedelta
-from astropy.coordinates import SkyCoord
 
 from scripts.generate_data_network import DataGenerator
 from scripts.tests.mock_storage import MockPanStorage
+
+
+pytestmark = pytest.mark.skipif(
+    not pytest.config.getoption("--network-tests"),
+    reason="--network-tests required to test network"
+)
 
 
 @pytest.fixture()

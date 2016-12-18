@@ -228,12 +228,13 @@ def get_point_sources(field_dir, seq_files, image_num=0, sextractor_params=None)
     point_sources = Table.read(source_file, format='ascii.sextractor')
 
     # Remove the point sources that sextractor has flagged
-    point_sources = point_sources[point_sources['FLAGS'] == 0]
+    if 'FLAGS' in point_sources:
+        point_sources = point_sources[point_sources['FLAGS'] == 0]
+        point_sources.remove_columns(['FLAGS'])
 
     # Rename columns
     point_sources.rename_column('X_IMAGE', 'X')
     point_sources.rename_column('Y_IMAGE', 'Y')
-    point_sources.remove_columns(['FLAGS'])
 
     # Filter point sources near edge
     # w, h = data[0].shape

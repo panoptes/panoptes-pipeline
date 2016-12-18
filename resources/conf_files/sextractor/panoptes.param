@@ -1,0 +1,6 @@
+MAG_BEST                 Best of MAG_AUTO and MAG_ISOCOR                           [mag]
+MAGERR_BEST              RMS error for MAG_BEST                                    [mag]
+X_IMAGE                  Object position along x                                   [pixel]
+Y_IMAGE                  Object position along y                                   [pixel]
+ALPHA_J2000              Right ascension of barycenter (J2000)                     [deg]
+DELTA_J2000              Declination of barycenter (J2000)                         [deg]

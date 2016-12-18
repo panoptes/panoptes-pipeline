@@ -19,6 +19,7 @@ from matplotlib import pyplot as plt
 
 import ipywidgets as widgets
 
+from pocs.utils import error
 from pocs.utils import images
 
 from photutils import RectangularAnnulus
@@ -203,15 +204,23 @@ def background_subtract(c0, normalize=False):
     return (r_d, g_d, b_d)
 
 
-def get_point_sources(field_dir, seq_files, image_num=0):
+def get_point_sources(field_dir, seq_files, image_num=0, sextractor_params=None):
     # Write the sextractor catalog to a file
     source_file = '{}/test{:02d}.cat'.format(field_dir, image_num)
 
     if not os.path.exists(source_file):
         # Build catalog of point sources
         sextractor = shutil.which('sextractor')
-        cmd = [sextractor, '-c', '/usr/share/sextractor/default.sex',
-               '-CATALOG_NAME', source_file, seq_files[image_num]]
+        if sextractor is None:
+            raise error.InvalidSystemCommand('sextractor not found')
+
+        if sextractor_params is None:
+            sextractor_params = [
+                '-c', '{}/PIAA/resources/conf_files/sextractor/panoptes.sex'.format(os.getenv('PANDIR')),
+                '-CATALOG_NAME', source_file,
+            ]
+
+        cmd = [sextractor, *sextractor_params, seq_files[image_num]]
         cp = subprocess.run(cmd)
         print(cp.stdout)
 

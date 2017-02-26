@@ -1,7 +1,18 @@
-MAG_BEST                 Best of MAG_AUTO and MAG_ISOCOR                           [mag]
-MAGERR_BEST              RMS error for MAG_BEST                                    [mag]
-X_IMAGE                  Object position along x                                   [pixel]
-Y_IMAGE                  Object position along y                                   [pixel]
-ALPHA_J2000              Right ascension of barycenter (J2000)                     [deg]
-DELTA_J2000              Declination of barycenter (J2000)                         [deg]
+#MAG_AUTO
+#MAGERR_AUTO
+#XPEAK_IMAGE
+#YPEAK_IMAGE
+X_IMAGE
+Y_IMAGE
+#X_IMAGE_DBL
+#Y_IMAGE_DBL
+#ALPHA_SKY
+#DELTA_SKY
+ALPHA_J2000
+DELTA_J2000
+BACKGROUND
+FLUX_AUTO
+FLUX_MAX
+FLUXERR_AUTO
+FWHM_IMAGE
 FLAGS

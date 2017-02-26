@@ -6,8 +6,9 @@ from astropy.io import fits
 from astropy.stats import sigma_clipped_stats
 from astropy.table import Table
 from astropy.wcs import WCS
-
-from warnings import warn
+from astropy.nddata.utils import Cutout2D
+from astropy.coordinates import SkyCoord
+from astropy import units as u
 
 from numba import autojit
 
@@ -24,7 +25,6 @@ from pocs.utils import images
 
 from photutils import RectangularAnnulus
 from photutils import RectangularAperture
-from photutils import aperture_photometry
 
 
 class StampSizeException(Exception):
@@ -60,12 +60,12 @@ def get_all_variance(stamps, i, normalize=False):
     for m in range(num_frames):
         s0 = stamps[i, m]
         if normalize:
-            s0 /= s0.sum()
+            s0 = s0 / s0.sum()
 
         for j in range(num_stars):
             s1 = stamps[j, m]
             if normalize:
-                s1 /= s1.sum()
+                s1 = s1 / s1.sum()
             v[j] += get_variance(s0, s1)
 
     return v
@@ -90,19 +90,18 @@ def get_long(stamps):
 
 def get_cube(seq_files, point_sources, radius=3, padding=(0, 0, 0, 0), normalize=False, bias_subtract=1024):
 
-    cube = np.ndarray((len(point_sources), len(seq_files), 100))
+    cube = np.ndarray((len(point_sources), len(seq_files), (2*radius)**2))
 
-    x1 = 4.5
-    y1 = 4.5
+    # x1 = 4.5
+    # y1 = 4.5
     # apertures = RectangularAperture((x1, y1), w=6, h=6, theta=0)
-    annulus = RectangularAnnulus((x1, y1), w_in=6, w_out=10, h_out=10, theta=0)
+    # annulus = RectangularAnnulus((x1, y1), w_in=6, w_out=10, h_out=10, theta=0)
 
     for i, f in enumerate(seq_files):
         if i % 10 == 0:
             print(i, end='')
         else:
             print('.', end='')
-
         with fits.open(f) as hdu:
             if f.endswith('.fz'):
                 idx = 1
@@ -110,7 +109,12 @@ def get_cube(seq_files, point_sources, radius=3, padding=(0, 0, 0, 0), normalize
                 idx = 0
 
             header = hdu[idx].header
-            d0 = hdu[idx].data
+            d0 = hdu[idx].data - bias_subtract
+            # Get common background
+            d_mean, d_median, d_std = sigma_clipped_stats(d0)
+            d0 = d0 - int(d_mean)
+            d0[d0 > 1e4] = 0
+
             wcs = WCS(header)
 
             # See if image is solved
@@ -118,15 +122,15 @@ def get_cube(seq_files, point_sources, radius=3, padding=(0, 0, 0, 0), normalize
                 print('not solved')
                 continue
 
-            for j, loc in enumerate(point_sources):
+            coords = wcs.all_world2pix(point_sources['ALPHA_J2000'], point_sources['DELTA_J2000'], 1)
 
-                coords = wcs.all_world2pix(loc['ALPHA_J2000'], loc['DELTA_J2000'], 1)
-
+            for j, ps in enumerate(point_sources):
                 # Get the postage stamp around the coordinates
-                c0 = make_postage_stamp(d0, coords[0], coords[1], radius=radius, padding=padding) - bias_subtract
+                c0 = make_postage_stamp(d0, coords[0][j], coords[1][j], radius=radius, padding=padding) 
+                #c0 = Cutout2D(d0, (get_index(coords[0][j]), get_index(coords[1][j])), (10, 10), wcs=wcs).data - ps['BACKGROUND']
 
-                # cube[j, i] = c0.flatten()
-                cube[j, i] = get_rgb(c0).flatten()
+                cube[j, i] = c0.flatten()
+                #cube[j, i] = get_rgb(c0).flatten()
 
                 # Find a rough estimate of the background in the annulus
                 # bkg_flux = aperture_photometry(c1, annulus)['aperture_sum'][0] / annulus.area()
@@ -147,7 +151,7 @@ def get_cube(seq_files, point_sources, radius=3, padding=(0, 0, 0, 0), normalize
 
 @autojit
 def get_rgb(c0):
-    r_mask, g_mask, b_mask = make_masks(c0.reshape(10, 10))
+    r_mask, g_mask, b_mask = make_masks(c0.reshape(6, 6))
 
     r_d = np.ma.array(c0, mask=~r_mask)
     g_d = np.ma.array(c0, mask=~g_mask)
@@ -204,11 +208,11 @@ def background_subtract(c0, normalize=False):
     return (r_d, g_d, b_d)
 
 
-def get_point_sources(field_dir, seq_files, image_num=0, sextractor_params=None):
+def get_point_sources(field_dir, seq_files, image_num=0, sextractor_params=None, force_new=False):
     # Write the sextractor catalog to a file
     source_file = '{}/test{:02d}.cat'.format(field_dir, image_num)
 
-    if not os.path.exists(source_file):
+    if not os.path.exists(source_file) or force_new:
         # Build catalog of point sources
         sextractor = shutil.which('sextractor')
         if sextractor is None:
@@ -221,14 +225,13 @@ def get_point_sources(field_dir, seq_files, image_num=0, sextractor_params=None)
             ]
 
         cmd = [sextractor, *sextractor_params, seq_files[image_num]]
-        cp = subprocess.run(cmd)
-        print(cp.stdout)
+        subprocess.run(cmd)
 
     # Read catalog
     point_sources = Table.read(source_file, format='ascii.sextractor')
 
     # Remove the point sources that sextractor has flagged
-    if 'FLAGS' in point_sources:
+    if 'FLAGS' in point_sources.keys():
         point_sources = point_sources[point_sources['FLAGS'] == 0]
         point_sources.remove_columns(['FLAGS'])
 
@@ -240,7 +243,7 @@ def get_point_sources(field_dir, seq_files, image_num=0, sextractor_params=None)
     # w, h = data[0].shape
     w, h = (3476, 5208)
 
-    stamp_size = 40
+    stamp_size = 50
 
     top = point_sources['Y'] > stamp_size
     bottom = point_sources['Y'] < w - stamp_size
@@ -254,7 +257,7 @@ def show_aperture_stamps(seq_files, point_sources):
     fig, ax = plt.subplots(6, 5)
     fig.set_size_inches(15, 22)
 
-    sns.set_style('white')
+    #sns.set_style('white')
 
     for f in range(6):
         for i in range(5):
@@ -267,16 +270,17 @@ def show_aperture_stamps(seq_files, point_sources):
             coords = wcs.all_world2pix(loc['ALPHA_J2000'], loc['DELTA_J2000'], 1)
     #         coords = wcs.all_world2pix(target.ra.value, target.dec.value, 1)
 
+            color = pixel_color(coords[0], coords[1])
             # Get large stamp
             c0 = make_postage_stamp(d0, coords[0], coords[1], radius=5)
 
             # Find centroid
-    #         x1, y1 = centroid_2dg(c0)
             x1 = 4.5
             y1 = 4.5
 
             ax[f][i].imshow(c0)
-            ax[f][i].set_title("Image: {} Ref: {} ".format(f, loc.name))
+            #ax[f][i].plot(coords[0] % 10, coords[1] % 10, color='red', marker='+', ms=3, mew=30)
+            ax[f][i].set_title("Image: {} Ref: {} - {}".format(f, loc.name, color))
             apertures = RectangularAperture((x1, y1), w=6, h=6, theta=0)
             # annulus = RectangularAnnulus((x1, y1), w_in=4, w_out=10, h_out=10, theta=0)
             apertures.plot(color='b', lw=1.5, ax=ax[f][i])
@@ -293,6 +297,7 @@ def compare_psc(pscs, w=6, h=6, with_colorbar=False):
 
         for num, stamp in enumerate(pscs[:, i]):
             im = axes[num].imshow(stamp.reshape(w, h), cmap="Greys")
+            axes[num].set_title('Flux={:.2f}'.format(stamp.sum()))
 
         if with_colorbar:
             cax = fig.add_axes([0.9, 0.1, 0.03, 0.8])
@@ -302,8 +307,12 @@ def compare_psc(pscs, w=6, h=6, with_colorbar=False):
         plt.tight_layout()
 
 
-def pixel_color(col, row, use_index=False):
-    if use_index:
+def get_index(x):
+    return int(round(x - 1))
+
+
+def pixel_color(col, row, zero_based=False):
+    if zero_based:
         assert isinstance(col, int), "Index mode only accepts integers"
         assert isinstance(row, int), "Index mode only accepts integers"
         assert row >= 0 and row < 3476, 'Row value outside dimensions of image'
@@ -312,12 +321,8 @@ def pixel_color(col, row, use_index=False):
         assert row >= 0.5 and row < 3476.5, 'Row value outside dimensions of image'
         assert col >= 0.5 and col < 5208.5, 'Column value outside dimensions of image'
 
-    row = int(np.round(row))
-    col = int(np.round(col))
-
-    if not use_index:
-        row -= 1
-        col -= 1
+    row = get_index(row)
+    col = get_index(col)
 
     if row < 0:
         row = 0
@@ -327,16 +332,16 @@ def pixel_color(col, row, use_index=False):
     color = None
 
     if (row % 2 == 1) and (col % 2 == 0):
-        color = 'red'
+        color = 'R'
 
     if (row % 2 == 1) and (col % 2 == 1):
-        color = 'green'
+        color = 'G1'
 
     if (row % 2 == 0) and (col % 2 == 0):
-        color = 'green'
+        color = 'G2'
 
     if (row % 2 == 0) and (col % 2 == 1):
-        color = 'blue'
+        color = 'B'
 
     return color
 
@@ -359,57 +364,39 @@ def make_slice(x, y, radius=3, padding=None):
     else:
         padding = (0, 0, 0, 0)
 
-    # Remove the center four pixels from radius
-    radius -= 1
+    color = pixel_color(x, y, zero_based=False)
 
-    color = pixel_color(x, y)
+    x_idx = get_index(x)
+    y_idx = get_index(y)
 
-    round_x = int(np.round(x))
-    round_y = int(np.round(y))
+    # Correct so Red pixel is always in lower-left
+    if color == 'R':
+        center_x = x_idx
+        center_y = y_idx
+    elif color == 'B':
+        center_x = x_idx
+        center_y = y_idx
+    elif color == 'G1':
+        center_x = x_idx
+        center_y = y_idx
+    elif color == 'G2':
+        center_x = x_idx
+        center_y = y_idx
 
-    if color == 'red':
-        left = round_x - 1 - radius
-        right = round_x + 1 + radius
-        top = round_y - 1 - radius
-        bottom = round_y + 1 + radius
-    elif color == 'blue':
-        right = round_x + radius
-        left = round_x - 2 - radius
-        bottom = round_y + 2 + radius
-        top = round_y - radius
-    elif color == 'green':  # Put in top left
-        if round_x % 2 == 0:
-            left = round_x - 2 - radius
-            right = round_x + radius
-            bottom = round_y + 1 + radius
-            top = round_y - 1 - radius
-        else:
-            left = round_x - 1 - radius
-            right = round_x + 1 + radius
-            bottom = round_y + radius
-            top = round_y - 2 - radius
+    center_x = int(center_x)
+    center_y = int(center_y)
 
-    # # Correct so Red pixel is always in lower-left
-    # if round_x % 2 == 1.5:
-    #     round_x = round_x
-
-    # if round_y % 2 == 0.5:
-    #     round_y = round_y - 1.5
-
-    # center_x = int(np.round(round_x))
-    # center_y = int(np.round(round_y))
-
-    # top = center_y - radius - padding[2]
-    # bottom = center_y + radius + padding[0]
-    # left = center_x - radius - padding[3]
-    # right = center_x + radius + padding[1]
+    top = center_y + radius
+    bottom = center_y - radius
+    left = center_x - radius + 1
+    right = center_x + radius + 1
 
     top -= padding[0]
     right += padding[1]
     bottom += padding[2]
     left -= padding[3]
 
-    return (np.s_[top:bottom], np.s_[left:right])
+    return (np.s_[bottom:top], np.s_[left:right])
 
 
 def make_postage_stamp(data, *args, **kwargs):
@@ -427,18 +414,18 @@ def make_masks(data):
 
     w, h = data.shape
 
-    red_mask = np.array(
+    red_mask = np.flipud(np.array(
         [index[0] % 2 == 0 and index[1] % 2 == 0 for index, i in np.ndenumerate(data)]
-    ).reshape(w, h)
+    ).reshape(w, h))
 
-    blue_mask = np.array(
+    blue_mask = np.flipud(np.array(
         [index[0] % 2 == 1 and index[1] % 2 == 1 for index, i in np.ndenumerate(data)]
-    ).reshape(w, h)
+    ).reshape(w, h))
 
-    green_mask = np.array(
+    green_mask = np.flipud(np.array(
         [(index[0] % 2 == 0 and index[1] % 2 == 1) or (index[0] % 2 == 1 and index[1] % 2 == 0)
          for index, i in np.ndenumerate(data)]
-    ).reshape(w, h)
+    ).reshape(w, h))
 
     return red_mask, green_mask, blue_mask
 

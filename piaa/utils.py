@@ -2,19 +2,17 @@ import os
 import shutil
 import subprocess
 
+from astropy import units as u
+from astropy.coordinates import SkyCoord
 from astropy.io import fits
 from astropy.stats import sigma_clipped_stats
 from astropy.table import Table
 from astropy.wcs import WCS
-from astropy.nddata.utils import Cutout2D
-from astropy.coordinates import SkyCoord
-from astropy import units as u
 
 from numba import autojit
 
 import numpy as np
 import pandas as pd
-import seaborn as sns
 
 from matplotlib import pyplot as plt
 
@@ -126,7 +124,7 @@ def get_cube(seq_files, point_sources, radius=3, padding=(0, 0, 0, 0), normalize
 
             for j, ps in enumerate(point_sources):
                 # Get the postage stamp around the coordinates
-                c0 = make_postage_stamp(d0, coords[0][j], coords[1][j], radius=radius, padding=padding) 
+                c0 = make_postage_stamp(d0, coords[0][j], coords[1][j], radius=radius, padding=padding)
                 #c0 = Cutout2D(d0, (get_index(coords[0][j]), get_index(coords[1][j])), (10, 10), wcs=wcs).data - ps['BACKGROUND']
 
                 cube[j, i] = c0.flatten()
@@ -257,7 +255,7 @@ def show_aperture_stamps(seq_files, point_sources):
     fig, ax = plt.subplots(6, 5)
     fig.set_size_inches(15, 22)
 
-    #sns.set_style('white')
+    # sns.set_style('white')
 
     for f in range(6):
         for i in range(5):

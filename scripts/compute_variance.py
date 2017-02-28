@@ -46,11 +46,16 @@ if __name__ == '__main__':
     stamp0 = stamp0 / stamp0.sum()
 
     def get_v(source_index):
-        s1 = obs.get_source_stamps(source_index)
-        stamp1 = np.array([s.data.flatten() for s in s1])
-        stamp1 = stamp1 / stamp1.sum()
+        print(source_index, '.', end='')
+        try:
+            s1 = obs.get_source_stamps(source_index)
+            stamp1 = np.array([s.data.flatten() for s in s1])
+            stamp1 = stamp1 / stamp1.sum()
+            v = ((stamp0 - stamp1)**2).sum()
+        except Exception:
+            v = 999
 
-        return ((stamp0 - stamp1)**2).sum()
+        return v
 
     with Pool() as pool:
         result = pool.map(get_v, obs.point_sources.index)

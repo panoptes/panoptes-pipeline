@@ -9,6 +9,7 @@ from astropy.io import fits
 from astropy.nddata.utils import Cutout2D
 from astropy.stats import sigma_clipped_stats
 from astropy.table import Table
+from astropy.utils.console import ProgressBar
 from astropy.wcs import WCS
 
 from photutils import RectangularAperture
@@ -47,8 +48,8 @@ class Observation(object):
         self._point_sources = None
         self._pixel_locations = None
 
-        self._cutout_masks = (None, None, None)
-        self._cutouts_cache = {}
+        self._stamp_masks = (None, None, None)
+        self._stamps_cache = {}
 
         # self.psc_collection = None
 
@@ -98,6 +99,10 @@ class Observation(object):
 
         return self._pixel_locations
 
+    @property
+    def stamps(self):
+        return self._stamps_cache
+
     # @property
     # def num_frames(self):
     #     assert self.psc_collection is not None
@@ -108,11 +113,11 @@ class Observation(object):
     #     assert self.psc_collection is not None
     #     return self.psc_collection.shape[1]
 
-    def subtract_background(self, cutout, r_mask=None, g_mask=None, b_mask=None, background_sub_method='median'):
+    def subtract_background(self, stamp, r_mask=None, g_mask=None, b_mask=None, background_sub_method='median'):
         """ Perform RGB background subtraction
 
         Args:
-            cutout (numpy.array): A cutout of the data
+            stamp (numpy.array): A stamp of the data
             r_mask (numpy.ma.array, optional): A mask of the R channel
             g_mask (numpy.ma.array, optional): A mask of the G channel
             b_mask (numpy.ma.array, optional): A mask of the B channel
@@ -122,12 +127,12 @@ class Observation(object):
             numpy.array: The background subtracted data recomined into one array
         """
         self.logger.debug("Subtracting background - {}".format(background_sub_method))
-        source_mask = make_source_mask(cutout.data, snr=3., npixels=2)
+        source_mask = make_source_mask(stamp.data, snr=3., npixels=2)
 
         if r_mask is None or g_mask is None or b_mask is None:
             self.logger.debug("Making RGB masks for data subtraction")
-            self._cutout_masks = utils.make_masks(cutout.data)
-            r_mask, g_mask, b_mask = self._cutout_masks
+            self._stamp_masks = utils.make_masks(stamp.data)
+            r_mask, g_mask, b_mask = self._stamp_masks
 
         method_lookup = {
             'mean': 0,
@@ -135,38 +140,38 @@ class Observation(object):
         }
         method_idx = method_lookup[background_sub_method]
 
-        r_masked_data = np.ma.array(cutout.data, mask=np.logical_or(source_mask, ~r_mask))
+        r_masked_data = np.ma.array(stamp.data, mask=np.logical_or(source_mask, ~r_mask))
         r_stats = sigma_clipped_stats(r_masked_data, sigma=3.)
-        r_masked_data = np.ma.array(cutout.data, mask=~r_mask) - int(r_stats[method_idx])
+        r_masked_data = np.ma.array(stamp.data, mask=~r_mask) - int(r_stats[method_idx])
 
-        g_masked_data = np.ma.array(cutout.data, mask=np.logical_or(source_mask, ~g_mask))
+        g_masked_data = np.ma.array(stamp.data, mask=np.logical_or(source_mask, ~g_mask))
         g_stats = sigma_clipped_stats(g_masked_data, sigma=3.)
-        g_masked_data = np.ma.array(cutout.data, mask=~g_mask) - int(g_stats[method_idx])
+        g_masked_data = np.ma.array(stamp.data, mask=~g_mask) - int(g_stats[method_idx])
 
-        b_masked_data = np.ma.array(cutout.data, mask=np.logical_or(source_mask, ~b_mask))
+        b_masked_data = np.ma.array(stamp.data, mask=np.logical_or(source_mask, ~b_mask))
         b_stats = sigma_clipped_stats(b_masked_data, sigma=3.)
-        b_masked_data = np.ma.array(cutout.data, mask=~b_mask) - int(b_stats[method_idx])
+        b_masked_data = np.ma.array(stamp.data, mask=~b_mask) - int(b_stats[method_idx])
 
         subtracted_data = r_masked_data.filled(0) + g_masked_data.filled(0) + b_masked_data.filled(0)
-        subtracted_data[subtracted_data > 1e3] = 1e-5
+        subtracted_data[subtracted_data > 1e4] = 1e-5
 
         return subtracted_data
 
-    def get_cutouts(self, source_index, force_new=False, *args, **kwargs):
-        """ Create a cutout (stamp) of the data
+    def get_source_stamps(self, source_index, force_new=False, *args, **kwargs):
+        """ Create a stamp (stamp) of the data
 
         This uses the start and end points from the source drift to figure out
-        an appropriate size to cutout. Data is bias and background subtracted.
+        an appropriate size to stamp. Data is bias and background subtracted.
         """
         try:
             if force_new:
-                del self._cutouts_cache[source_index]
-            cutouts = self._cutouts_cache[source_index]
+                del self._stamps_cache[source_index]
+            stamps = self._stamps_cache[source_index]
         except KeyError:
-            cutouts = list()
+            stamps = list()
 
-            start_pos, mid_pos, end_pos = self._get_cutout_points(source_index)
-            mid_pos = self._adjust_cutout_midpoint(mid_pos)
+            start_pos, mid_pos, end_pos = self._get_stamp_points(source_index)
+            mid_pos = self._adjust_stamp_midpoint(mid_pos)
 
             for i in range(len(self.files)):
                 # Get all the data and subtract the bias
@@ -176,33 +181,40 @@ class Observation(object):
                 width, height = (start_pos - end_pos)
 
                 # Values should be padded at x4
-                cutout = Cutout2D(
+                stamp = Cutout2D(
                     data, (mid_pos[0], mid_pos[1]), (self._nearest_10(height) + 8, self._nearest_10(width) + 4))
 
                 if i == 0:
-                    r_mask, g_mask, b_mask = utils.make_masks(cutout.data)
+                    r_mask, g_mask, b_mask = utils.make_masks(stamp.data)
 
-                cutout.data = self.subtract_background(cutout, r_mask, g_mask, b_mask, *args, **kwargs)
-                cutouts.append(cutout)
+                stamp.data = self.subtract_background(stamp, r_mask, g_mask, b_mask, *args, **kwargs)
+                stamps.append(stamp)
 
-            self._cutouts_cache[source_index] = cutouts
+            self._stamps_cache[source_index] = stamps
 
-        return cutouts
+        return stamps
 
-    def get_fluxes(self, source_index):
+    def get_source_fluxes(self, source_index):
+        """ Get fluxes for given source
 
+        Args:
+            source_index (int): Index of the source from `point_sources`
+
+        Returns:
+            numpy.array: 1-D array of fluxes
+        """
         fluxes = []
 
-        cutouts = self.get_cutouts(source_index)
+        stamps = self.get_source_stamps(source_index)
 
         # Get aperture photometry
         for i in self.pixel_locations:
-            x = int(self.pixel_locations[i, source_index, 0] - cutouts[i].origin_original[0]) - 0.5
-            y = int(self.pixel_locations[i, source_index, 1] - cutouts[i].origin_original[1]) - 0.5
+            x = int(self.pixel_locations[i, source_index, 0] - stamps[i].origin_original[0]) - 0.5
+            y = int(self.pixel_locations[i, source_index, 1] - stamps[i].origin_original[1]) - 0.5
 
             aperture = RectangularAperture((x, y), w=6, h=6, theta=0)
 
-            phot_table = aperture_photometry(cutouts[i].data, aperture)
+            phot_table = aperture_photometry(stamps[i].data, aperture)
 
             flux = phot_table['aperture_sum'][0]
 
@@ -213,58 +225,87 @@ class Observation(object):
         return fluxes
 
     def get_frame_stamp(self, source_index, frame_index, *args, **kwargs):
+        """ Get individual stamp for given source and frame
 
-        cutouts = self.get_cutouts(source_index, *args, **kwargs)
+        Note:
+            Data is bias and background subtracted
 
-        cutout = cutouts[frame_index]
+        Args:
+            source_index (int): Index of the source from `point_sources`
+            frame_index (int): Index of the frame from `files`
+            *args (TYPE): Description
+            **kwargs (TYPE): Description
 
-        return cutout
+        Returns:
+            numpy.array: Array of data
+        """
+        stamps = self.get_source_stamps(source_index, *args, **kwargs)
 
-    def get_aperture(self, source_index, frame_index, *args, **kwargs):
-        cutout = self.get_frame_stamp(source_index, frame_index, *args, **kwargs)
+        stamp = stamps[frame_index]
 
-        x = int(self.pixel_locations[frame_index, source_index, 0] - cutout.origin_original[0]) - 0.5
-        y = int(self.pixel_locations[frame_index, source_index, 1] - cutout.origin_original[1]) - 0.5
+        return stamp
 
-        aperture = RectangularAperture((x, y), w=6, h=6, theta=0)
+    def get_frame_aperture(self, source_index, frame_index, width=6, height=6, *args, **kwargs):
+        """Aperture for given frame from source
+
+        Note:
+            `width` and `height` should be in multiples of 2 to get a super-pixel
+
+        Args:
+            source_index (int): Index of the source from `point_sources`
+            frame_index (int): Index of the frame from `files`
+            width (int, optional): Width of the aperture, defaults to 3x2=6
+            height (int, optional): Height of the aperture, defaults to 3x2=6
+            *args (TYPE): Description
+            **kwargs (TYPE): Description
+
+        Returns:
+            photutils.RectangularAperture: Aperture surrounding the frame
+        """
+        stamp = self.get_frame_stamp(source_index, frame_index, *args, **kwargs)
+
+        x = int(self.pixel_locations[frame_index, source_index, 0] - stamp.origin_original[0]) - 0.5
+        y = int(self.pixel_locations[frame_index, source_index, 1] - stamp.origin_original[1]) - 0.5
+
+        aperture = RectangularAperture((x, y), w=width, h=height, theta=0)
 
         return aperture
 
     def plot_stamp(self, source_index, frame_index, show_bayer=True, show_data=False, *args, **kwargs):
 
-        cutout = self.get_frame_stamp(source_index, frame_index, *args, **kwargs)
+        stamp = self.get_frame_stamp(source_index, frame_index, *args, **kwargs)
 
         fig, (ax1) = plt.subplots(1, 1, facecolor='white')
         fig.set_size_inches(30, 15)
 
-        aperture = self.get_aperture(source_index, frame_index, return_aperture=True)
+        aperture = self.get_frame_aperture(source_index, frame_index, return_aperture=True)
 
         aperture_mask = aperture.to_mask(method='center')[0]
-        aperture_data = aperture_mask.cutout(cutout.data)
+        aperture_data = aperture_mask.cutout(stamp.data)
 
-        phot_table = aperture_photometry(cutout.data, aperture, method='center')
+        phot_table = aperture_photometry(stamp.data, aperture, method='center')
 
         if show_data:
             print(np.flipud(aperture_data))  # Flip the data to match plot
 
-        cax = ax1.imshow(cutout.data, cmap='cubehelix_r', vmin=0., vmax=aperture_data.max())
+        cax = ax1.imshow(stamp.data, cmap='cubehelix_r', vmin=0., vmax=aperture_data.max())
         fig.colorbar(cax)
 
         aperture.plot(color='b', ls='--', lw=2)
 
         if show_bayer:
             # Bayer pattern
-            for i, val in np.ndenumerate(cutout.data):
-                x, y = cutout.to_original_position((i[1], i[0]))
+            for i, val in np.ndenumerate(stamp.data):
+                x, y = stamp.to_original_position((i[1], i[0]))
                 ax1.text(x=i[1], y=i[0], ha='center', va='center',
                          s=utils.pixel_color(x, y, zero_based=True), fontsize=10, alpha=0.25)
 
             # major ticks every 2, minor ticks every 1
-            x_major_ticks = np.arange(-0.5, cutout.bbox_cutout[1][1], 2)
-            x_minor_ticks = np.arange(-0.5, cutout.bbox_cutout[1][1], 1)
+            x_major_ticks = np.arange(-0.5, stamp.bbox_cutout[1][1], 2)
+            x_minor_ticks = np.arange(-0.5, stamp.bbox_cutout[1][1], 1)
 
-            y_major_ticks = np.arange(-0.5, cutout.bbox_cutout[0][1], 2)
-            y_minor_ticks = np.arange(-0.5, cutout.bbox_cutout[0][1], 1)
+            y_major_ticks = np.arange(-0.5, stamp.bbox_cutout[0][1], 2)
+            y_minor_ticks = np.arange(-0.5, stamp.bbox_cutout[0][1], 1)
 
             ax1.set_xticks(x_major_ticks)
             ax1.set_xticks(x_minor_ticks, minor=True)
@@ -278,6 +319,49 @@ class Observation(object):
                                                                     frame_index, phot_table['aperture_sum'][0]))
 
         return fig
+
+    def get_stamp_variance(self, s0, s1):
+        """ Compare one stamp to another and get variance
+
+        Args:
+            stamps(np.array): Collection of stamps with axes: frame, PIC, pixels
+            frame(int): The frame number we want to compare
+            i(int): Index of target PIC
+            j(int): Index of PIC we want to compare target to
+        """
+        return ((s0 - s1)**2).sum()
+
+    def get_variance_for_target(self, target_index, normalize=False, sort_by_variance=True, *args, **kwargs):
+        """ Get all variances for given target
+
+        Args:
+            stamps(np.array): Collection of stamps with axes: frame, PIC, pixels
+            i(int): Index of target PIC
+        """
+        num_stars = len(self.point_sources)
+        num_frames = len(self.files)
+
+        v = np.zeros((num_stars), dtype=np.float)
+
+        for frame_index in ProgressBar(range(num_frames), ipython_widget=kwargs.get('ipython_widget', False)):
+
+            s0 = self.get_frame_stamp(target_index, frame_index).data
+            if normalize:
+                s0 = s0 / s0.sum()
+
+            for source_index in range(num_stars):
+                s1 = self.get_frame_stamp(source_index, frame_index).data
+                if normalize:
+                    s1 = s1 / s1.sum()
+                v[source_index] += self.get_stamp_variance(s0, s1)
+
+        self.point_sources['V'] = pd.Series(v)
+
+        if sort_by_variance:
+            # Sort the values by lowest total variance
+            self.point_sources.sort_values(by=['V'], inplace=True)
+
+        return self.point_sources['V']
 
     def lookup_point_sources(self, image_num=0, sextractor_params=None, force_new=False):
         """ Extract point sources from image
@@ -397,7 +481,7 @@ class Observation(object):
     #     s = pd.Series(v)
     #     return s
 
-    def _get_cutout_points(self, idx):
+    def _get_stamp_points(self, idx):
         # Print beginning, middle, and end positions
         start_pos = self.pixel_locations.iloc[0, idx]
         mid_pos = self.pixel_locations.iloc[int(len(self.files) / 2), idx]
@@ -405,7 +489,7 @@ class Observation(object):
 
         return start_pos, mid_pos, end_pos
 
-    def _adjust_cutout_midpoint(self, mid_pos):
+    def _adjust_stamp_midpoint(self, mid_pos):
         """ The midpoint pixel should always end up as Blue to accommodate slicing """
         color = utils.pixel_color(mid_pos[0], mid_pos[1])
 

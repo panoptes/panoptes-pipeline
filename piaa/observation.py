@@ -44,6 +44,7 @@ class Observation(object):
         self._img_h = 5208
 
         self.aperture_size = aperture_size
+        self.stamp_size = (None, None)
 
         self._point_sources = None
         self._pixel_locations = None
@@ -157,7 +158,7 @@ class Observation(object):
 
         return subtracted_data
 
-    def get_source_stamps(self, source_index, force_new=False, *args, **kwargs):
+    def get_source_stamps(self, source_index, force_new=False, cache=True, *args, **kwargs):
         """ Create a stamp (stamp) of the data
 
         This uses the start and end points from the source drift to figure out
@@ -190,7 +191,10 @@ class Observation(object):
                 stamp.data = self.subtract_background(stamp, r_mask, g_mask, b_mask, *args, **kwargs)
                 stamps.append(stamp)
 
-            self._stamps_cache[source_index] = stamps
+            if cache:
+                self._stamps_cache[source_index] = stamps
+
+            self.stamp_size = stamps[0].data.shape
 
         return stamps
 

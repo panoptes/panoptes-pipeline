@@ -126,7 +126,7 @@ class Observation(object):
         Returns:
             numpy.array: The background subtracted data recomined into one array
         """
-        self.logger.debug("Subtracting background - {}".format(background_sub_method))
+        # self.logger.debug("Subtracting background - {}".format(background_sub_method))
         source_mask = make_source_mask(stamp.data, snr=3., npixels=2)
 
         if r_mask is None or g_mask is None or b_mask is None:
@@ -321,39 +321,37 @@ class Observation(object):
         return fig
 
     def get_stamp_variance(self, s0, s1):
-        """ Compare one stamp to another and get variance
+        """Compare one stamp to another and get variance
 
         Args:
-            stamps(np.array): Collection of stamps with axes: frame, PIC, pixels
-            frame(int): The frame number we want to compare
-            i(int): Index of target PIC
-            j(int): Index of PIC we want to compare target to
+            s0 (numpy.array): Target stamp
+            s1 (numpy.array): Stamp for comparison
         """
         return ((s0 - s1)**2).sum()
 
-    def get_variance_for_target(self, target_index, normalize=False, sort_by_variance=True, *args, **kwargs):
+    def get_variance_for_target(self, target_index, normalize=True, sort_by_variance=True, *args, **kwargs):
         """ Get all variances for given target
 
         Args:
             stamps(np.array): Collection of stamps with axes: frame, PIC, pixels
             i(int): Index of target PIC
         """
-        num_stars = len(self.point_sources)
-        num_frames = len(self.files)
+        num_sources = len(self.point_sources)
 
-        v = np.zeros((num_stars), dtype=np.float)
+        v = np.zeros((num_sources), dtype=np.float)
 
-        for frame_index in ProgressBar(range(num_frames), ipython_widget=kwargs.get('ipython_widget', False)):
+        s0 = self.get_source_stamps(target_index)
+        stamp0 = np.array([s.data.flatten() for s in s0])
+        if normalize:
+            stamp0 = stamp0 / stamp0.sum()
 
-            s0 = self.get_frame_stamp(target_index, frame_index).data
+        for source_index in ProgressBar(range(num_sources), ipython_widget=kwargs.get('ipython_widget', False)):
+            s1 = self.get_source_stamps(source_index)
+            stamp1 = np.array([s.data.flatten() for s in s1])
             if normalize:
-                s0 = s0 / s0.sum()
+                stamp1 = stamp1 / stamp1.sum()
 
-            for source_index in range(num_stars):
-                s1 = self.get_frame_stamp(source_index, frame_index).data
-                if normalize:
-                    s1 = s1 / s1.sum()
-                v[source_index] += self.get_stamp_variance(s0, s1)
+            v[source_index] = ((stamp0 - stamp1) ** 2).sum()
 
         self.point_sources['V'] = pd.Series(v)
 

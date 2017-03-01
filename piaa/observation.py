@@ -27,7 +27,7 @@ from . import utils
 from pocs.utils import error
 
 
-Stamp = namedtuple('Stamp', ['row_slice', 'col_slice'])
+Stamp = namedtuple('Stamp', ['row_slice', 'col_slice', 'mid_point'])
 
 
 class Observation(object):
@@ -48,8 +48,13 @@ class Observation(object):
 
         self.camera_bias = camera_bias
 
-        self._img_w = 3476
-        self._img_h = 5208
+        self._img_h = 3476
+        self._img_w = 5208
+        # Background regions
+        self._back_h = int(self._img_h // 5)
+        self._back_w = int(self._img_w // 5)
+
+        self.background_region = {}
 
         self.aperture_size = aperture_size
         self.stamp_size = (None, None)
@@ -130,13 +135,15 @@ class Observation(object):
             self.logger.debug("Getting existing data cube")
         except KeyError:
             self.logger.debug("Creating data cube")
-            cube_dset = self._hdf5.create_dataset('cube', (len(self.files), self._img_w, self._img_h))
+            cube_dset = self._hdf5.create_dataset('cube', (len(self.files), self._img_h, self._img_w))
             for i, f in enumerate(self.files):
                 cube_dset[i] = fits.getdata(f)
 
         return cube_dset
 
-    def subtract_background(self, stamp, r_mask=None, g_mask=None, b_mask=None, background_sub_method='median'):
+    def subtract_background(self, stamp,
+                            r_mask=None, g_mask=None, b_mask=None, mid_point=None, frame_index=None,
+                            background_sub_method='median'):
         """ Perform RGB background subtraction
 
         Args:
@@ -150,39 +157,95 @@ class Observation(object):
             numpy.array: The background subtracted data recomined into one array
         """
         # self.logger.debug("Subtracting background - {}".format(background_sub_method))
-        self.logger.debug("Getting source mask")
-        source_mask = make_source_mask(stamp, snr=3., npixels=2)
 
-        if r_mask is None or g_mask is None or b_mask is None:
-            self.logger.debug("Making RGB masks for data subtraction")
-            self._stamp_masks = utils.make_masks(stamp)
-            r_mask, g_mask, b_mask = self._stamp_masks
+        background_region_id = (int(mid_point[1] // self._back_w), int(mid_point[0] // self._back_h))
+        self.logger.debug("Background region: {}\tFrame: {}".format(background_region_id, frame_index))
 
-        method_lookup = {
-            'mean': 0,
-            'median': 1,
-        }
-        method_idx = method_lookup[background_sub_method]
+        try:
+            frame_background = self.background_region[frame_index]
+        except KeyError:
+            frame_background = dict()
+            self.background_region[frame_index] = frame_background
 
-        self.logger.debug("Subtracking R channel")
-        r_masked_data = np.ma.array(stamp, mask=np.logical_or(source_mask, ~r_mask))
-        r_stats = sigma_clipped_stats(r_masked_data, sigma=3.)
-        r_masked_data = np.ma.array(stamp, mask=~r_mask) - int(r_stats[method_idx])
+        try:
+            background_region = frame_background[background_region_id]
+        except KeyError:
+            background_region = dict()
+            self.background_region[frame_index][background_region_id] = background_region
 
-        self.logger.debug("Subtracking G channel")
-        g_masked_data = np.ma.array(stamp, mask=np.logical_or(source_mask, ~g_mask))
-        g_stats = sigma_clipped_stats(g_masked_data, sigma=3.)
-        g_masked_data = np.ma.array(stamp, mask=~g_mask) - int(g_stats[method_idx])
+        try:
+            r_channel_background = background_region['red']
+            g_channel_background = background_region['green']
+            b_channel_background = background_region['blue']
+        except KeyError:
+            r_channel_background = list()
+            g_channel_background = list()
+            b_channel_background = list()
+            self.background_region[frame_index][background_region_id]['red'] = r_channel_background
+            self.background_region[frame_index][background_region_id]['green'] = g_channel_background
+            self.background_region[frame_index][background_region_id]['blue'] = b_channel_background
 
-        self.logger.debug("Subtracking B channel")
-        b_masked_data = np.ma.array(stamp, mask=np.logical_or(source_mask, ~b_mask))
-        b_stats = sigma_clipped_stats(b_masked_data, sigma=3.)
-        b_masked_data = np.ma.array(stamp, mask=~b_mask) - int(b_stats[method_idx])
+        self.logger.debug("R channel background {}".format(r_channel_background))
+        self.logger.debug("G channel background {}".format(g_channel_background))
+        self.logger.debug("B channel background {}".format(b_channel_background))
 
-        self.logger.debug("Combining channels")
+        if len(r_channel_background) < 5:
+
+            self.logger.debug("Getting source mask {} {} {}".format(type(stamp), stamp.dtype, stamp.shape))
+            source_mask = make_source_mask(stamp, snr=3., npixels=2)
+            self.logger.debug("Got source mask")
+
+            if r_mask is None or g_mask is None or b_mask is None:
+                self.logger.debug("Making RGB masks for data subtraction")
+                self._stamp_masks = utils.make_masks(stamp)
+                r_mask, g_mask, b_mask = self._stamp_masks
+
+            method_lookup = {
+                'mean': 0,
+                'median': 1,
+            }
+            method_idx = method_lookup[background_sub_method]
+
+            self.logger.debug("Determining backgrounds")
+            r_masked_data = np.ma.array(stamp, mask=np.logical_or(source_mask, ~r_mask))
+            r_stats = sigma_clipped_stats(r_masked_data, sigma=3.)
+            r_back = r_stats[method_idx]
+            r_channel_background.append(r_back)
+
+            g_masked_data = np.ma.array(stamp, mask=np.logical_or(source_mask, ~g_mask))
+            g_stats = sigma_clipped_stats(g_masked_data, sigma=3.)
+            g_back = g_stats[method_idx]
+            g_channel_background.append(g_back)
+
+            b_masked_data = np.ma.array(stamp, mask=np.logical_or(source_mask, ~b_mask))
+            b_stats = sigma_clipped_stats(b_masked_data, sigma=3.)
+            b_back = b_stats[method_idx]
+            b_channel_background.append(b_back)
+
+            # Store the background values
+            self.logger.debug("Storing new background values: {} {} {}".format(
+                r_channel_background, g_channel_background, b_channel_background))
+            self.background_region[frame_index][background_region_id]['red'] = r_channel_background
+            self.background_region[frame_index][background_region_id]['green'] = g_channel_background
+            self.background_region[frame_index][background_region_id]['blue'] = b_channel_background
+            self.logger.debug("Values stored")
+
+        # Use average of others
+        self.logger.debug("Subtracting mean backgrounds")
+        r_back = np.median(r_channel_background)
+        g_back = np.median(g_channel_background)
+        b_back = np.median(b_channel_background)
+
+        self.logger.debug("Background subtraction: Region {} {}\t{}\t{}".format(
+            background_region_id, r_back, g_back, b_back))
+        r_masked_data = np.ma.array(stamp, mask=~r_mask) - int(r_back)
+        g_masked_data = np.ma.array(stamp, mask=~g_mask) - int(g_back)
+        b_masked_data = np.ma.array(stamp, mask=~b_mask) - int(b_back)
+
+        # self.logger.debug("Combining channels")
         subtracted_data = r_masked_data.filled(0) + g_masked_data.filled(0) + b_masked_data.filled(0)
 
-        self.logger.debug("Removing saturated")
+        # self.logger.debug("Removing saturated")
         subtracted_data[subtracted_data > 1e4] = 1e-5
 
         return subtracted_data
@@ -210,9 +273,9 @@ class Observation(object):
                 (self._nearest_10(height) + 8, self._nearest_10(width) + 4)
             )
 
-            ys, xs = cutout.bbox_original
+            xs, ys = cutout.bbox_original
 
-            stamp = Stamp(slice(xs[0], xs[1] + 1), slice(ys[0], ys[1] + 1))
+            stamp = Stamp(slice(xs[0], xs[1] + 1), slice(ys[0], ys[1] + 1), mid_pos)
 
             if cache:
                 self._stamps_cache[source_index] = stamp
@@ -376,7 +439,7 @@ class Observation(object):
 
                 try:
                     ss = self.get_source_slice(source_index)
-                    stamp = np.array(self.data_cube[:, ss.col_slice, ss.row_slice])
+                    stamp = np.array(self.data_cube[:, ss.row_slice, ss.col_slice])
 
                     if r_mask is None:
                         r_mask, g_mask, b_mask = utils.make_masks(stamp[0])
@@ -385,10 +448,16 @@ class Observation(object):
                     # Bias and background subtraction
                     stamp -= self.camera_bias
 
-                    self.logger.debug("Performing background subtraction")
+                    self.logger.debug("Performing background subtraction: Source {}".format(source_index))
                     stamps_clean = list()
-                    for s in stamp:
-                        stamps_clean.append(self.subtract_background(s, r_mask, g_mask, b_mask))
+                    for i, s in enumerate(stamp):
+                        try:
+                            stamps_clean.append(
+                                self.subtract_background(s, r_mask=r_mask, g_mask=g_mask, b_mask=b_mask,
+                                                         mid_point=ss.mid_point, frame_index=i))
+                        except Exception as e:
+                            self.logger.warning(
+                                "Problem subtracting background for stamp {} frame {}: {}".format(source_index, i, e))
 
                     stamps_clean = np.array(stamps_clean)
 

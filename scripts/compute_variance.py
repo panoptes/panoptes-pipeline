@@ -1,11 +1,7 @@
 #!/usr/bin/env python
 
-from multiprocessing import Pool
-
-import numpy as np
 import pandas as pd
 
-from astropy import units as u
 from astropy.time import Time
 
 from piaa.observation import Observation
@@ -29,36 +25,17 @@ if __name__ == '__main__':
 
     obs = Observation(args.image_dir)
 
-    print("Getting variance for index {}".format(args.target_index))
-    print(obs.point_sources.iloc[args.target_index])
-
     start = Time.now()
     print("Starting at  {}".format(start))
 
-    # obs.get_variance_for_target(args.target_index, normalize=True)
+    # Normalize first
+    print("Normalizing stamps")
+    obs.create_normalized_stamps()
+    print("Normalization done: {:02f} seconds".format(((Time.now() - start).sec)))
 
-    num_sources = len(obs.point_sources)
-
-    v = np.zeros((num_sources), dtype=np.float)
-
-    s0 = obs.get_source_stamps(args.target_index)
-    stamp0 = np.array([s.data.flatten() for s in s0])
-    stamp0 = stamp0 / stamp0.sum()
-
-    def get_v(source_index):
-        print(source_index, '.', end='')
-        try:
-            s1 = obs.get_source_stamps(source_index)
-            stamp1 = np.array([s.data.flatten() for s in s1])
-            stamp1 = stamp1 / stamp1.sum()
-            v = ((stamp0 - stamp1)**2).sum()
-        except Exception:
-            v = 999
-
-        return v
-
-    with Pool() as pool:
-        result = pool.map(get_v, obs.point_sources.index)
+    print("Getting variance for index {}".format(args.target_index))
+    print(obs.point_sources.iloc[args.target_index])
+    result = obs.get_variance_for_target(args.target_index, ipython_widget=True)
 
     obs.point_sources['V'] = pd.Series(result)
 
@@ -66,6 +43,8 @@ if __name__ == '__main__':
     obs.point_sources.sort_values(by=['V'], inplace=True)
 
     # Save values to file
-    obs.point_sources.to_csv('vary_{}.csv'.format(args.target_index))
+    output_file = 'vary_{}.csv'.format(args.target_index)
+    print("Saving to file: {}".format(output_file))
+    obs.point_sources.to_csv(output_file)
 
-    print("Processing time: {:02f}".format(((Time.now() - start).sec * u.second)))
+    print("Processing time: {:02f} seconds".format(((Time.now() - start).sec)))

@@ -3,6 +3,7 @@ import os
 import shutil
 import subprocess
 
+from collections import namedtuple
 from glob import glob
 
 from astropy.io import fits
@@ -16,6 +17,7 @@ from photutils import RectangularAperture
 from photutils import aperture_photometry
 from photutils import make_source_mask
 
+import h5py
 import numpy as np
 import pandas as pd
 
@@ -23,6 +25,9 @@ from matplotlib import pyplot as plt
 
 from . import utils
 from pocs.utils import error
+
+
+Stamp = namedtuple('Stamp', ['row_slice', 'col_slice'])
 
 
 class Observation(object):
@@ -36,6 +41,9 @@ class Observation(object):
         self.logger.info('Setting up Observation for analysis')
 
         super(Observation, self).__init__()
+
+        if image_dir.endswith('/'):
+            image_dir = image_dir[:-1]
         self._image_dir = image_dir
 
         self.camera_bias = camera_bias
@@ -52,7 +60,8 @@ class Observation(object):
         self._stamp_masks = (None, None, None)
         self._stamps_cache = {}
 
-        # self.psc_collection = None
+        self._hdf5 = h5py.File(image_dir + '.hdf5')
+        self._hdf5_normalized = h5py.File(image_dir + '_normalized.hdf5')
 
         self._load_images()
 
@@ -114,6 +123,19 @@ class Observation(object):
     #     assert self.psc_collection is not None
     #     return self.psc_collection.shape[1]
 
+    @property
+    def data_cube(self):
+        try:
+            cube_dset = self._hdf5['cube']
+            self.logger.debug("Getting existing data cube")
+        except KeyError:
+            self.logger.debug("Creating data cube")
+            cube_dset = self._hdf5.create_dataset('cube', (len(self.files), self._img_w, self._img_h))
+            for i, f in enumerate(self.files):
+                cube_dset[i] = fits.getdata(f)
+
+        return cube_dset
+
     def subtract_background(self, stamp, r_mask=None, g_mask=None, b_mask=None, background_sub_method='median'):
         """ Perform RGB background subtraction
 
@@ -128,11 +150,11 @@ class Observation(object):
             numpy.array: The background subtracted data recomined into one array
         """
         # self.logger.debug("Subtracting background - {}".format(background_sub_method))
-        source_mask = make_source_mask(stamp.data, snr=3., npixels=2)
+        source_mask = make_source_mask(stamp, snr=3., npixels=2)
 
         if r_mask is None or g_mask is None or b_mask is None:
             self.logger.debug("Making RGB masks for data subtraction")
-            self._stamp_masks = utils.make_masks(stamp.data)
+            self._stamp_masks = utils.make_masks(stamp)
             r_mask, g_mask, b_mask = self._stamp_masks
 
         method_lookup = {
@@ -141,24 +163,24 @@ class Observation(object):
         }
         method_idx = method_lookup[background_sub_method]
 
-        r_masked_data = np.ma.array(stamp.data, mask=np.logical_or(source_mask, ~r_mask))
+        r_masked_data = np.ma.array(stamp, mask=np.logical_or(source_mask, ~r_mask))
         r_stats = sigma_clipped_stats(r_masked_data, sigma=3.)
-        r_masked_data = np.ma.array(stamp.data, mask=~r_mask) - int(r_stats[method_idx])
+        r_masked_data = np.ma.array(stamp, mask=~r_mask) - int(r_stats[method_idx])
 
-        g_masked_data = np.ma.array(stamp.data, mask=np.logical_or(source_mask, ~g_mask))
+        g_masked_data = np.ma.array(stamp, mask=np.logical_or(source_mask, ~g_mask))
         g_stats = sigma_clipped_stats(g_masked_data, sigma=3.)
-        g_masked_data = np.ma.array(stamp.data, mask=~g_mask) - int(g_stats[method_idx])
+        g_masked_data = np.ma.array(stamp, mask=~g_mask) - int(g_stats[method_idx])
 
-        b_masked_data = np.ma.array(stamp.data, mask=np.logical_or(source_mask, ~b_mask))
+        b_masked_data = np.ma.array(stamp, mask=np.logical_or(source_mask, ~b_mask))
         b_stats = sigma_clipped_stats(b_masked_data, sigma=3.)
-        b_masked_data = np.ma.array(stamp.data, mask=~b_mask) - int(b_stats[method_idx])
+        b_masked_data = np.ma.array(stamp, mask=~b_mask) - int(b_stats[method_idx])
 
         subtracted_data = r_masked_data.filled(0) + g_masked_data.filled(0) + b_masked_data.filled(0)
         subtracted_data[subtracted_data > 1e4] = 1e-5
 
         return subtracted_data
 
-    def get_source_stamps(self, source_index, force_new=False, cache=True, *args, **kwargs):
+    def get_source_slice(self, source_index, force_new=False, cache=True, *args, **kwargs):
         """ Create a stamp (stamp) of the data
 
         This uses the start and end points from the source drift to figure out
@@ -167,36 +189,31 @@ class Observation(object):
         try:
             if force_new:
                 del self._stamps_cache[source_index]
-            stamps = self._stamps_cache[source_index]
+            stamp = self._stamps_cache[source_index]
         except KeyError:
-            stamps = list()
-
             start_pos, mid_pos, end_pos = self._get_stamp_points(source_index)
             mid_pos = self._adjust_stamp_midpoint(mid_pos)
 
-            for i in range(len(self.files)):
-                # Get all the data and subtract the bias
-                data = fits.getdata(self.files[i]) - self.camera_bias
+            # Get the width and height of data region
+            width, height = (start_pos - end_pos)
 
-                # Get the width and height of data region
-                width, height = (start_pos - end_pos)
+            cutout = Cutout2D(
+                fits.getdata(self.files[0]),
+                (mid_pos[0], mid_pos[1]),
+                (self._nearest_10(height) + 8, self._nearest_10(width) + 4)
+            )
 
-                # Values should be padded at x4
-                stamp = Cutout2D(
-                    data, (mid_pos[0], mid_pos[1]), (self._nearest_10(height) + 8, self._nearest_10(width) + 4))
+            ys, xs = cutout.bbox_original
 
-                if i == 0:
-                    r_mask, g_mask, b_mask = utils.make_masks(stamp.data)
-
-                stamp.data = self.subtract_background(stamp, r_mask, g_mask, b_mask, *args, **kwargs)
-                stamps.append(stamp)
+            stamp = Stamp(slice(xs[0], xs[1] + 1), slice(ys[0], ys[1] + 1))
 
             if cache:
-                self._stamps_cache[source_index] = stamps
+                self._stamps_cache[source_index] = stamp
 
-            self.stamp_size = stamps[0].data.shape
+            # Shared across all stamps
+            self.stamp_size = cutout.data.shape
 
-        return stamps
+        return stamp
 
     def get_source_fluxes(self, source_index):
         """ Get fluxes for given source
@@ -324,16 +341,52 @@ class Observation(object):
 
         return fig
 
-    def get_stamp_variance(self, s0, s1):
-        """Compare one stamp to another and get variance
+    def create_normalized_stamps(self, remove_cube=False, *args, **kwargs):
+        """Create normalized stamps for entire data cube
+
+        Creates a slice through the cube corresponding to a stamp and stores the
+        normalized data in the hdf5 table with key `normalized/<index>`, where
+        `<index>` is the source index from `point_sources`
 
         Args:
-            s0 (numpy.array): Target stamp
-            s1 (numpy.array): Stamp for comparison
-        """
-        return ((s0 - s1)**2).sum()
+            remove_cube (bool, optional): Remove the full cube from the hdf5 file after
+                processing, defaults to False
+            *args (TYPE): Description
+            **kwargs (dict): `ipython_widget=True` can be passed to display progress
+                within a notebook
 
-    def get_variance_for_target(self, target_index, normalize=True, sort_by_variance=True, *args, **kwargs):
+        """
+
+        r_mask = None
+        g_mask = None
+        b_mask = None
+
+        for source_index in ProgressBar(self.point_sources.index,
+                                        ipython_widget=kwargs.get('ipython_widget', False)):
+
+            group_name = 'normalized/{}'.format(source_index)
+            if group_name not in self._hdf5_normalized:
+
+                try:
+                    ss = self.get_source_slice(source_index)
+                    stamp = self.data_cube[:, ss.col_slice, ss.row_slice]
+
+                    if r_mask is None:
+                        r_mask, g_mask, b_mask = utils.make_masks(stamp)
+
+                    # Bias and background subtraction
+                    stamp -= self.camera_bias
+                    stamp = self.subtract_background(stamp, r_mask, g_mask, b_mask)
+
+                    # Normalize
+                    stamp /= stamp.sum()
+
+                    # Store
+                    self._hdf5_normalized.create_dataset(group_name, data=stamp)
+                except:
+                    self.logger.warning("Problem creating normalized stamp for: {}".format(source_index))
+
+    def get_variance_for_target(self, target_index, *args, **kwargs):
         """ Get all variances for given target
 
         Args:
@@ -344,26 +397,14 @@ class Observation(object):
 
         v = np.zeros((num_sources), dtype=np.float)
 
-        s0 = self.get_source_stamps(target_index)
-        stamp0 = np.array([s.data.flatten() for s in s0])
-        if normalize:
-            stamp0 = stamp0 / stamp0.sum()
+        stamp0 = np.array(self._hdf5['normalized/{}'.format(target_index)])
 
         for source_index in ProgressBar(range(num_sources), ipython_widget=kwargs.get('ipython_widget', False)):
-            s1 = self.get_source_stamps(source_index)
-            stamp1 = np.array([s.data.flatten() for s in s1])
-            if normalize:
-                stamp1 = stamp1 / stamp1.sum()
+            stamp1 = np.array(self._hdf5['normalized/{}'.format(source_index)])
 
             v[source_index] = ((stamp0 - stamp1) ** 2).sum()
 
-        self.point_sources['V'] = pd.Series(v)
-
-        if sort_by_variance:
-            # Sort the values by lowest total variance
-            self.point_sources.sort_values(by=['V'], inplace=True)
-
-        return self.point_sources['V']
+        return v
 
     def lookup_point_sources(self, image_num=0, sextractor_params=None, force_new=False):
         """ Extract point sources from image

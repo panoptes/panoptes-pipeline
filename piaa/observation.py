@@ -423,12 +423,17 @@ class Observation(object):
             ax1.grid(which='major', color='r', linestyle='-', alpha=0.25)
             ax1.grid(which='minor', color='r', linestyle='-', alpha=0.1)
 
+        ax1.set_xticklabels([])
+        ax1.set_yticklabels([])
         ax1.set_title("Full Stamp", fontsize=16)
 
         # Show numbers
         for i, val in np.ndenumerate(aperture_data):
             #     print(i[0] / 10, i[1] / 10, val)
-            ax2.text(x=(i[1] / 10) + 0.05, y=(i[0] / 10) + 0.05,
+            x_loc = (i[1] / 10) + 0.05
+            y_loc = (i[0] / 10) + 0.05
+
+            ax2.text(x=x_loc, y=y_loc,
                      ha='center', va='center', s=val, fontsize=14, alpha=0.75, transform=ax2.transAxes)
 
         # major ticks every 2, minor ticks every 1
@@ -463,18 +468,23 @@ class Observation(object):
             edgecolor='blue',
         ))
 
+        r_a_mask, g_a_mask, b_a_mask = utils.make_masks(aperture_data)
+
         ax2.set_xlim(-0.5, 9.5)
         ax2.set_ylim(-0.5, 9.5)
-        # ax2.set_xticklabels([])
-        # ax2.set_yticklabels([])
-        ax2.set_title("Flux values", fontsize=16)
+        ax2.set_xticklabels([])
+        ax2.set_yticklabels([])
+        ax2.imshow(np.ma.array(np.ones((10, 10)), mask=~r_a_mask), cmap='Reds', vmin=0, vmax=4., )
+        ax2.imshow(np.ma.array(np.ones((10, 10)), mask=~g_a_mask), cmap='Greens', vmin=0, vmax=4., )
+        ax2.imshow(np.ma.array(np.ones((10, 10)), mask=~b_a_mask), cmap='Blues', vmin=0, vmax=4., )
+        ax2.set_title("Values", fontsize=16)
 
         ax3.contourf(aperture_data, cmap='cubehelix_r')
         ax3.set_xlim(-0.5, 9.5)
         ax3.set_ylim(-0.5, 9.5)
         ax3.set_xticklabels([])
         ax3.set_yticklabels([])
-        ax3.set_title("Contour of aperture", fontsize=16)
+        ax3.set_title("Contour", fontsize=16)
 
         fig.suptitle("Source {} Frame {} Aperture Flux: {}".format(source_index,
                                                                    frame_index, int(phot_table['aperture_sum'][0])),

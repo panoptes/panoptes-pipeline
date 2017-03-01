@@ -150,6 +150,7 @@ class Observation(object):
             numpy.array: The background subtracted data recomined into one array
         """
         # self.logger.debug("Subtracting background - {}".format(background_sub_method))
+        self.logger.debug("Getting source mask")
         source_mask = make_source_mask(stamp, snr=3., npixels=2)
 
         if r_mask is None or g_mask is None or b_mask is None:
@@ -163,19 +164,25 @@ class Observation(object):
         }
         method_idx = method_lookup[background_sub_method]
 
+        self.logger.debug("Subtracking R channel")
         r_masked_data = np.ma.array(stamp, mask=np.logical_or(source_mask, ~r_mask))
         r_stats = sigma_clipped_stats(r_masked_data, sigma=3.)
         r_masked_data = np.ma.array(stamp, mask=~r_mask) - int(r_stats[method_idx])
 
+        self.logger.debug("Subtracking G channel")
         g_masked_data = np.ma.array(stamp, mask=np.logical_or(source_mask, ~g_mask))
         g_stats = sigma_clipped_stats(g_masked_data, sigma=3.)
         g_masked_data = np.ma.array(stamp, mask=~g_mask) - int(g_stats[method_idx])
 
+        self.logger.debug("Subtracking B channel")
         b_masked_data = np.ma.array(stamp, mask=np.logical_or(source_mask, ~b_mask))
         b_stats = sigma_clipped_stats(b_masked_data, sigma=3.)
         b_masked_data = np.ma.array(stamp, mask=~b_mask) - int(b_stats[method_idx])
 
+        self.logger.debug("Combining channels")
         subtracted_data = r_masked_data.filled(0) + g_masked_data.filled(0) + b_masked_data.filled(0)
+
+        self.logger.debug("Removing saturated")
         subtracted_data[subtracted_data > 1e4] = 1e-5
 
         return subtracted_data
@@ -369,22 +376,30 @@ class Observation(object):
 
                 try:
                     ss = self.get_source_slice(source_index)
-                    stamp = self.data_cube[:, ss.col_slice, ss.row_slice]
+                    stamp = np.array(self.data_cube[:, ss.col_slice, ss.row_slice])
 
                     if r_mask is None:
-                        r_mask, g_mask, b_mask = utils.make_masks(stamp)
+                        r_mask, g_mask, b_mask = utils.make_masks(stamp[0])
 
+                    self.logger.debug("Performing bias subtraction")
                     # Bias and background subtraction
                     stamp -= self.camera_bias
-                    stamp = self.subtract_background(stamp, r_mask, g_mask, b_mask)
+
+                    self.logger.debug("Performing background subtraction")
+                    stamps_clean = list()
+                    for s in stamp:
+                        stamps_clean.append(self.subtract_background(s, r_mask, g_mask, b_mask))
+
+                    stamps_clean = np.array(stamps_clean)
 
                     # Normalize
-                    stamp /= stamp.sum()
+                    self.logger.debug("Normalizing")
+                    stamps_clean /= stamps_clean.sum()
 
                     # Store
                     self._hdf5_normalized.create_dataset(group_name, data=stamp)
-                except:
-                    self.logger.warning("Problem creating normalized stamp for: {}".format(source_index))
+                except Exception as e:
+                    self.logger.warning("Problem creating normalized stamp for {}: {}".format(source_index, e))
 
     def get_variance_for_target(self, target_index, *args, **kwargs):
         """ Get all variances for given target

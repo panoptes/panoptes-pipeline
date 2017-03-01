@@ -374,8 +374,12 @@ class Observation(object):
         stamp_slice = self.get_source_slice(source_index, *args, **kwargs)
         stamp = self.get_frame_stamp(source_index, frame_index, *args, **kwargs)
 
-        fig, (ax1) = plt.subplots(1, 1, facecolor='white')
-        fig.set_size_inches(30, 15)
+        # fig, (ax1) = plt.subplots(1, 1, facecolor='white')
+        # fig.set_size_inches(30, 15)
+        plt.figure(figsize=(20, 12))
+        ax1 = plt.subplot2grid((2, 2), (0, 0), rowspan=2)
+        ax2 = plt.subplot2grid((2, 2), (0, 1))
+        ax3 = plt.subplot2grid((2, 2), (1, 1))
 
         aperture = self.get_frame_aperture(source_index, frame_index, return_aperture=True)
 
@@ -387,10 +391,10 @@ class Observation(object):
         if show_data:
             print(np.flipud(aperture_data))  # Flip the data to match plot
 
-        cax = ax1.imshow(stamp, cmap='cubehelix_r', vmin=0., vmax=aperture_data.max())
-        fig.colorbar(cax)
+        cax1 = ax1.imshow(stamp, cmap='cubehelix_r', vmin=0., vmax=aperture_data.max())
+        plt.colorbar(cax1, ax=ax1)
 
-        aperture.plot(color='b', ls='--', lw=2)
+        aperture.plot(color='b', ls='--', lw=2, ax=ax1)
 
         if show_bayer:
             # Bayer pattern
@@ -414,10 +418,40 @@ class Observation(object):
             ax1.grid(which='major', color='r', linestyle='-', alpha=0.25)
             ax1.grid(which='minor', color='r', linestyle='-', alpha=0.1)
 
-        ax1.set_title("Source {} Frame {} Aperture Flux: {}".format(source_index,
-                                                                    frame_index, int(phot_table['aperture_sum'][0])))
+        ax1.set_title("Full Stamp")
 
-        return fig
+        plt.suptitle("Source {} Frame {} Aperture Flux: {}".format(source_index,
+                                                                   frame_index, int(phot_table['aperture_sum'][0])))
+
+        # Show numbers
+        for i, val in np.ndenumerate(aperture_data):
+            #     print(i[0] / 10, i[1] / 10, val)
+            ax2.text(x=(i[1] / 10) + 0.05, y=(i[0] / 10) + 0.05,
+                     ha='center', va='center', s=val, fontsize=18, alpha=0.75, transform=ax2.transAxes)
+
+        # major ticks every 2, minor ticks every 1
+        x_major_ticks = np.arange(-0.5, stamp_slice.cutout.bbox_cutout[1][1], 2)
+        x_minor_ticks = np.arange(-0.5, stamp_slice.cutout.bbox_cutout[1][1], 1)
+
+        y_major_ticks = np.arange(-0.5, stamp_slice.cutout.bbox_cutout[0][1], 2)
+        y_minor_ticks = np.arange(-0.5, stamp_slice.cutout.bbox_cutout[0][1], 1)
+
+        ax2.set_xticks(x_major_ticks)
+        ax2.set_xticks(x_minor_ticks, minor=True)
+        ax2.set_yticks(y_major_ticks)
+        ax2.set_yticks(y_minor_ticks, minor=True)
+
+        ax2.grid(which='major', color='r', linestyle='-', alpha=0.25)
+        ax2.grid(which='minor', color='r', linestyle='-', alpha=0.1)
+
+        ax2.set_xlim(-0.5, 9.5)
+        ax2.set_ylim(-0.5, 9.5)
+        ax2.set_title("Flux values")
+
+        ax3.contourf(aperture_data, cmap='cubehelix_r')
+        ax3.set_title("Contour of aperture")
+
+        # return fig
 
     def create_normalized_stamps(self, remove_cube=False, *args, **kwargs):
         """Create normalized stamps for entire data cube
@@ -492,7 +526,7 @@ class Observation(object):
         stamp0 = np.array(self._hdf5['normalized/{}'.format(target_index)])
 
         for source_index in ProgressBar(range(num_sources), ipython_widget=kwargs.get('ipython_widget', False)):
-            stamp1 = np.array(self._hdf5['normalized/{}'.format(source_index)])
+            stamp1 = np.array(self._hdf5_normalized['normalized/{}'.format(source_index)])
 
             v[source_index] = ((stamp0 - stamp1) ** 2).sum()
 

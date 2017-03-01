@@ -35,7 +35,7 @@ if __name__ == '__main__':
 
     print("Getting variance for index {}".format(args.target_index))
     print(obs.point_sources.iloc[args.target_index])
-    result = obs.get_variance_for_target(args.target_index, ipython_widget=True)
+    result = obs.get_variance_for_target(args.target_index)
 
     obs.point_sources['V'] = pd.Series(result)
 

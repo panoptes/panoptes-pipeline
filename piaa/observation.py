@@ -27,7 +27,7 @@ from . import utils
 from pocs.utils import error
 
 
-Stamp = namedtuple('Stamp', ['row_slice', 'col_slice', 'mid_point'])
+Stamp = namedtuple('Stamp', ['row_slice', 'col_slice', 'mid_point', 'cutout'])
 
 
 class Observation(object):
@@ -246,6 +246,7 @@ class Observation(object):
         subtracted_data = r_masked_data.filled(0) + g_masked_data.filled(0) + b_masked_data.filled(0)
 
         # self.logger.debug("Removing saturated")
+        subtracted_data[subtracted_data < 0] = 1e-5
         subtracted_data[subtracted_data > 1e4] = 1e-5
 
         return subtracted_data
@@ -275,13 +276,16 @@ class Observation(object):
 
             xs, ys = cutout.bbox_original
 
-            stamp = Stamp(slice(xs[0], xs[1] + 1), slice(ys[0], ys[1] + 1), mid_pos)
+            # Shared across all stamps
+            self.stamp_size = cutout.data.shape
+
+            # Don't carry around the data
+            cutout.data = []
+
+            stamp = Stamp(slice(xs[0], xs[1] + 1), slice(ys[0], ys[1] + 1), mid_pos, cutout=cutout)
 
             if cache:
                 self._stamps_cache[source_index] = stamp
-
-            # Shared across all stamps
-            self.stamp_size = cutout.data.shape
 
         return stamp
 
@@ -315,7 +319,7 @@ class Observation(object):
 
         return fluxes
 
-    def get_frame_stamp(self, source_index, frame_index, *args, **kwargs):
+    def get_frame_stamp(self, source_index, frame_index, subtract_background=True, *args, **kwargs):
         """ Get individual stamp for given source and frame
 
         Note:
@@ -330,11 +334,14 @@ class Observation(object):
         Returns:
             numpy.array: Array of data
         """
-        stamps = self.get_source_stamps(source_index, *args, **kwargs)
+        stamp_slice = self.get_source_slice(source_index, *args, **kwargs)
 
-        stamp = stamps[frame_index]
+        stamp = self.data_cube[frame_index, stamp_slice.row_slice, stamp_slice.col_slice]
 
-        return stamp
+        if subtract_background:
+            stamp = self.subtract_background(stamp, mid_point=stamp_slice.mid_point, frame_index=frame_index)
+
+        return stamp.astype(int)
 
     def get_frame_aperture(self, source_index, frame_index, width=6, height=6, *args, **kwargs):
         """Aperture for given frame from source
@@ -353,10 +360,10 @@ class Observation(object):
         Returns:
             photutils.RectangularAperture: Aperture surrounding the frame
         """
-        stamp = self.get_frame_stamp(source_index, frame_index, *args, **kwargs)
+        stamp_slice = self.get_source_slice(source_index, *args, **kwargs)
 
-        x = int(self.pixel_locations[frame_index, source_index, 0] - stamp.origin_original[0]) - 0.5
-        y = int(self.pixel_locations[frame_index, source_index, 1] - stamp.origin_original[1]) - 0.5
+        x = int(self.pixel_locations[frame_index, source_index, 0] - stamp_slice.cutout.origin_original[0]) - 0.5
+        y = int(self.pixel_locations[frame_index, source_index, 1] - stamp_slice.cutout.origin_original[1]) - 0.5
 
         aperture = RectangularAperture((x, y), w=width, h=height, theta=0)
 
@@ -364,6 +371,7 @@ class Observation(object):
 
     def plot_stamp(self, source_index, frame_index, show_bayer=True, show_data=False, *args, **kwargs):
 
+        stamp_slice = self.get_source_slice(source_index, *args, **kwargs)
         stamp = self.get_frame_stamp(source_index, frame_index, *args, **kwargs)
 
         fig, (ax1) = plt.subplots(1, 1, facecolor='white')
@@ -372,31 +380,31 @@ class Observation(object):
         aperture = self.get_frame_aperture(source_index, frame_index, return_aperture=True)
 
         aperture_mask = aperture.to_mask(method='center')[0]
-        aperture_data = aperture_mask.cutout(stamp.data)
+        aperture_data = aperture_mask.cutout(stamp)
 
-        phot_table = aperture_photometry(stamp.data, aperture, method='center')
+        phot_table = aperture_photometry(stamp, aperture, method='center')
 
         if show_data:
             print(np.flipud(aperture_data))  # Flip the data to match plot
 
-        cax = ax1.imshow(stamp.data, cmap='cubehelix_r', vmin=0., vmax=aperture_data.max())
+        cax = ax1.imshow(stamp, cmap='cubehelix_r', vmin=0., vmax=aperture_data.max())
         fig.colorbar(cax)
 
         aperture.plot(color='b', ls='--', lw=2)
 
         if show_bayer:
             # Bayer pattern
-            for i, val in np.ndenumerate(stamp.data):
-                x, y = stamp.to_original_position((i[1], i[0]))
+            for i, val in np.ndenumerate(stamp):
+                x, y = stamp_slice.cutout.to_original_position((i[1], i[0]))
                 ax1.text(x=i[1], y=i[0], ha='center', va='center',
                          s=utils.pixel_color(x, y, zero_based=True), fontsize=10, alpha=0.25)
 
             # major ticks every 2, minor ticks every 1
-            x_major_ticks = np.arange(-0.5, stamp.bbox_cutout[1][1], 2)
-            x_minor_ticks = np.arange(-0.5, stamp.bbox_cutout[1][1], 1)
+            x_major_ticks = np.arange(-0.5, stamp_slice.cutout.bbox_cutout[1][1], 2)
+            x_minor_ticks = np.arange(-0.5, stamp_slice.cutout.bbox_cutout[1][1], 1)
 
-            y_major_ticks = np.arange(-0.5, stamp.bbox_cutout[0][1], 2)
-            y_minor_ticks = np.arange(-0.5, stamp.bbox_cutout[0][1], 1)
+            y_major_ticks = np.arange(-0.5, stamp_slice.cutout.bbox_cutout[0][1], 2)
+            y_minor_ticks = np.arange(-0.5, stamp_slice.cutout.bbox_cutout[0][1], 1)
 
             ax1.set_xticks(x_major_ticks)
             ax1.set_xticks(x_minor_ticks, minor=True)
@@ -407,7 +415,7 @@ class Observation(object):
             ax1.grid(which='minor', color='r', linestyle='-', alpha=0.1)
 
         ax1.set_title("Source {} Frame {} Aperture Flux: {}".format(source_index,
-                                                                    frame_index, phot_table['aperture_sum'][0]))
+                                                                    frame_index, int(phot_table['aperture_sum'][0])))
 
         return fig
 

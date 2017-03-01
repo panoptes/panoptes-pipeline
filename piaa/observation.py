@@ -145,7 +145,7 @@ class Observation(object):
 
     def subtract_background(self, stamp, frame_index,
                             r_mask=None, g_mask=None, b_mask=None, mid_point=None,
-                            background_sub_method='median'):
+                            background_sub_method='median', store_background=False):
         """ Perform RGB background subtraction
 
         Args:
@@ -183,9 +183,10 @@ class Observation(object):
             r_channel_background = list()
             g_channel_background = list()
             b_channel_background = list()
-            self.background_region[frame_index][background_region_id]['red'] = r_channel_background
-            self.background_region[frame_index][background_region_id]['green'] = g_channel_background
-            self.background_region[frame_index][background_region_id]['blue'] = b_channel_background
+            if store_background:
+                self.background_region[frame_index][background_region_id]['red'] = r_channel_background
+                self.background_region[frame_index][background_region_id]['green'] = g_channel_background
+                self.background_region[frame_index][background_region_id]['blue'] = b_channel_background
 
         self.logger.debug("R channel background {}".format(r_channel_background))
         self.logger.debug("G channel background {}".format(g_channel_background))
@@ -195,7 +196,6 @@ class Observation(object):
 
             self.logger.debug("Getting source mask {} {} {}".format(type(stamp), stamp.dtype, stamp.shape))
             source_mask = make_source_mask(stamp, snr=3., npixels=2)
-            self.logger.debug("Got source mask")
 
             if r_mask is None or g_mask is None or b_mask is None:
                 self.logger.debug("Making RGB masks for data subtraction")
@@ -223,14 +223,6 @@ class Observation(object):
             b_stats = sigma_clipped_stats(b_masked_data, sigma=3.)
             b_back = b_stats[method_idx]
             b_channel_background.append(b_back)
-
-            # Store the background values
-            self.logger.debug("Storing new background values: {} {} {}".format(
-                r_channel_background, g_channel_background, b_channel_background))
-            self.background_region[frame_index][background_region_id]['red'] = r_channel_background
-            self.background_region[frame_index][background_region_id]['green'] = g_channel_background
-            self.background_region[frame_index][background_region_id]['blue'] = b_channel_background
-            self.logger.debug("Values stored")
 
         # Use average of others
         self.logger.debug("Subtracting mean backgrounds")
@@ -284,7 +276,12 @@ class Observation(object):
             # Don't carry around the data
             cutout.data = []
 
-            stamp = Stamp(slice(xs[0], xs[1] + 1), slice(ys[0], ys[1] + 1), mid_pos, cutout=cutout)
+            stamp = Stamp(
+                row_slice=slice(xs[0], xs[1] + 1),
+                col_slice=slice(ys[0], ys[1] + 1),
+                mid_point=mid_pos,
+                cutout=cutout,
+            )
 
             if cache:
                 self._stamps_cache[source_index] = stamp
@@ -371,7 +368,7 @@ class Observation(object):
 
         return aperture
 
-    def plot_stamp(self, source_index, frame_index, show_bayer=True, show_data=False, *args, **kwargs):
+    def plot_stamp(self, source_index, frame_index, show_data=False, *args, **kwargs):
 
         stamp_slice = self.get_source_slice(source_index, *args, **kwargs)
         stamp = self.get_frame_stamp(source_index, frame_index, *args, **kwargs)
@@ -401,27 +398,26 @@ class Observation(object):
 
         aperture.plot(color='b', ls='--', lw=2, ax=ax1)
 
-        if show_bayer:
-            # Bayer pattern
-            for i, val in np.ndenumerate(stamp):
-                x, y = stamp_slice.cutout.to_original_position((i[1], i[0]))
-                ax1.text(x=i[1], y=i[0], ha='center', va='center',
-                         s=utils.pixel_color(x, y, zero_based=True), fontsize=10, alpha=0.25)
+        # Bayer pattern
+        for i, val in np.ndenumerate(stamp):
+            x, y = stamp_slice.cutout.to_original_position((i[1], i[0]))
+            ax1.text(x=i[1], y=i[0], ha='center', va='center',
+                     s=utils.pixel_color(x, y, zero_based=True), fontsize=10, alpha=0.25)
 
-            # major ticks every 2, minor ticks every 1
-            x_major_ticks = np.arange(-0.5, stamp_slice.cutout.bbox_cutout[1][1], 2)
-            x_minor_ticks = np.arange(-0.5, stamp_slice.cutout.bbox_cutout[1][1], 1)
+        # major ticks every 2, minor ticks every 1
+        x_major_ticks = np.arange(-0.5, stamp_slice.cutout.bbox_cutout[1][1], 2)
+        x_minor_ticks = np.arange(-0.5, stamp_slice.cutout.bbox_cutout[1][1], 1)
 
-            y_major_ticks = np.arange(-0.5, stamp_slice.cutout.bbox_cutout[0][1], 2)
-            y_minor_ticks = np.arange(-0.5, stamp_slice.cutout.bbox_cutout[0][1], 1)
+        y_major_ticks = np.arange(-0.5, stamp_slice.cutout.bbox_cutout[0][1], 2)
+        y_minor_ticks = np.arange(-0.5, stamp_slice.cutout.bbox_cutout[0][1], 1)
 
-            ax1.set_xticks(x_major_ticks)
-            ax1.set_xticks(x_minor_ticks, minor=True)
-            ax1.set_yticks(y_major_ticks)
-            ax1.set_yticks(y_minor_ticks, minor=True)
+        ax1.set_xticks(x_major_ticks)
+        ax1.set_xticks(x_minor_ticks, minor=True)
+        ax1.set_yticks(y_major_ticks)
+        ax1.set_yticks(y_minor_ticks, minor=True)
 
-            ax1.grid(which='major', color='r', linestyle='-', alpha=0.25)
-            ax1.grid(which='minor', color='r', linestyle='-', alpha=0.1)
+        ax1.grid(which='major', color='r', linestyle='-', alpha=0.25)
+        ax1.grid(which='minor', color='r', linestyle='-', alpha=0.1)
 
         ax1.set_xticklabels([])
         ax1.set_yticklabels([])
@@ -436,13 +432,6 @@ class Observation(object):
             ax2.text(x=x_loc, y=y_loc,
                      ha='center', va='center', s=val, fontsize=14, alpha=0.75, transform=ax2.transAxes)
 
-        # major ticks every 2, minor ticks every 1
-        x_major_ticks = np.arange(-0.5, stamp_slice.cutout.bbox_cutout[1][1], 2)
-        x_minor_ticks = np.arange(-0.5, stamp_slice.cutout.bbox_cutout[1][1], 1)
-
-        y_major_ticks = np.arange(-0.5, stamp_slice.cutout.bbox_cutout[0][1], 2)
-        y_minor_ticks = np.arange(-0.5, stamp_slice.cutout.bbox_cutout[0][1], 1)
-
         ax2.set_xticks(x_major_ticks)
         ax2.set_xticks(x_minor_ticks, minor=True)
         ax2.set_yticks(y_major_ticks)
@@ -452,14 +441,6 @@ class Observation(object):
         ax2.grid(which='minor', color='r', linestyle='-', alpha=0.1)
 
         ax2.add_patch(patches.Rectangle(
-            (1.5, 1.5),
-            6, 6,
-            fill=False,
-            lw=2,
-            ls='dashed',
-            edgecolor='blue',
-        ))
-        ax3.add_patch(patches.Rectangle(
             (1.5, 1.5),
             6, 6,
             fill=False,
@@ -480,6 +461,14 @@ class Observation(object):
         ax2.set_title("Values", fontsize=16)
 
         ax3.contourf(aperture_data, cmap='cubehelix_r')
+        ax3.add_patch(patches.Rectangle(
+            (1.5, 1.5),
+            6, 6,
+            fill=False,
+            lw=2,
+            ls='dashed',
+            edgecolor='blue',
+        ))
         ax3.set_xlim(-0.5, 9.5)
         ax3.set_ylim(-0.5, 9.5)
         ax3.set_xticklabels([])
@@ -532,14 +521,16 @@ class Observation(object):
 
                     self.logger.debug("Performing background subtraction: Source {}".format(source_index))
                     stamps_back_subtracted = list()
-                    for i, s in enumerate(stamps):
+                    for frame_index, s in enumerate(stamps):
                         try:
                             stamps_back_subtracted.append(
-                                self.subtract_background(s, i, r_mask=r_mask, g_mask=g_mask, b_mask=b_mask,
-                                                         mid_point=ss.mid_point))
+                                self.subtract_background(s, frame_index,
+                                                         r_mask=r_mask, g_mask=g_mask, b_mask=b_mask,
+                                                         mid_point=ss.mid_point, store_background=True))
                         except Exception as e:
                             self.logger.warning(
-                                "Problem subtracting background for stamp {} frame {}: {}".format(source_index, i, e))
+                                "Problem subtracting background {} frame {}: {}".format(
+                                    source_index, frame_index, e))
 
                     stamps_back_subtracted = np.array(stamps_back_subtracted)
 

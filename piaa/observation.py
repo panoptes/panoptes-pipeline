@@ -22,6 +22,7 @@ import numpy as np
 import pandas as pd
 
 from matplotlib import gridspec
+from matplotlib import patches
 from matplotlib import pyplot as plt
 
 from . import utils
@@ -376,7 +377,7 @@ class Observation(object):
         stamp = self.get_frame_stamp(source_index, frame_index, *args, **kwargs)
 
         fig = plt.figure(1)
-        fig.set_size_inches(15, 15)
+        fig.set_size_inches(13, 15)
         gs = gridspec.GridSpec(2, 2, width_ratios=[1, 1])
         ax1 = plt.subplot(gs[:, 0])
         ax2 = plt.subplot(gs[0, 1])
@@ -428,7 +429,7 @@ class Observation(object):
         for i, val in np.ndenumerate(aperture_data):
             #     print(i[0] / 10, i[1] / 10, val)
             ax2.text(x=(i[1] / 10) + 0.05, y=(i[0] / 10) + 0.05,
-                     ha='center', va='center', s=val, fontsize=18, alpha=0.75, transform=ax2.transAxes)
+                     ha='center', va='center', s=val, fontsize=14, alpha=0.75, transform=ax2.transAxes)
 
         # major ticks every 2, minor ticks every 1
         x_major_ticks = np.arange(-0.5, stamp_slice.cutout.bbox_cutout[1][1], 2)
@@ -445,10 +446,27 @@ class Observation(object):
         ax2.grid(which='major', color='r', linestyle='-', alpha=0.25)
         ax2.grid(which='minor', color='r', linestyle='-', alpha=0.1)
 
+        ax2.add_patch(patches.Rectangle(
+            (1.5, 1.5),
+            6, 6,
+            fill=False,
+            lw=2,
+            ls='dashed',
+            edgecolor='blue',
+        ))
+        ax3.add_patch(patches.Rectangle(
+            (1.5, 1.5),
+            6, 6,
+            fill=False,
+            lw=2,
+            ls='dashed',
+            edgecolor='blue',
+        ))
+
         ax2.set_xlim(-0.5, 9.5)
         ax2.set_ylim(-0.5, 9.5)
-        ax2.set_xticklabels([])
-        ax2.set_yticklabels([])
+        # ax2.set_xticklabels([])
+        # ax2.set_yticklabels([])
         ax2.set_title("Flux values", fontsize=16)
 
         ax3.contourf(aperture_data, cmap='cubehelix_r')
@@ -462,7 +480,7 @@ class Observation(object):
                                                                    frame_index, int(phot_table['aperture_sum'][0])),
                      fontsize=20)
 
-        fig.tight_layout(rect=[0, 0.03, 1, 0.95])
+        fig.tight_layout(rect=[0., 0., 1., 0.95])
         return fig
 
     def create_normalized_stamps(self, remove_cube=False, *args, **kwargs):
@@ -493,34 +511,34 @@ class Observation(object):
 
                 try:
                     ss = self.get_source_slice(source_index)
-                    stamp = np.array(self.data_cube[:, ss.row_slice, ss.col_slice])
+                    stamps = np.array(self.data_cube[:, ss.row_slice, ss.col_slice])
 
                     if r_mask is None:
-                        r_mask, g_mask, b_mask = utils.make_masks(stamp[0])
+                        r_mask, g_mask, b_mask = utils.make_masks(stamps[0])
 
                     self.logger.debug("Performing bias subtraction")
                     # Bias and background subtraction
-                    stamp -= self.camera_bias
+                    stamps -= self.camera_bias
 
                     self.logger.debug("Performing background subtraction: Source {}".format(source_index))
-                    stamps_clean = list()
-                    for i, s in enumerate(stamp):
+                    stamps_back_subtracted = list()
+                    for i, s in enumerate(stamps):
                         try:
-                            stamps_clean.append(
+                            stamps_back_subtracted.append(
                                 self.subtract_background(s, i, r_mask=r_mask, g_mask=g_mask, b_mask=b_mask,
                                                          mid_point=ss.mid_point))
                         except Exception as e:
                             self.logger.warning(
                                 "Problem subtracting background for stamp {} frame {}: {}".format(source_index, i, e))
 
-                    stamps_clean = np.array(stamps_clean)
+                    stamps_back_subtracted = np.array(stamps_back_subtracted)
 
                     # Normalize
                     self.logger.debug("Normalizing")
-                    stamps_clean /= stamps_clean.sum()
+                    stamps_back_subtracted /= stamps_back_subtracted.sum()
 
                     # Store
-                    self._hdf5_normalized.create_dataset(group_name, data=stamp)
+                    self._hdf5_normalized.create_dataset(group_name, data=stamps_back_subtracted)
                 except Exception as e:
                     self.logger.warning("Problem creating normalized stamp for {}: {}".format(source_index, e))
 

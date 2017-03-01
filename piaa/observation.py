@@ -142,8 +142,8 @@ class Observation(object):
 
         return cube_dset
 
-    def subtract_background(self, stamp,
-                            r_mask=None, g_mask=None, b_mask=None, mid_point=None, frame_index=None,
+    def subtract_background(self, stamp, frame_index,
+                            r_mask=None, g_mask=None, b_mask=None, mid_point=None,
                             background_sub_method='median'):
         """ Perform RGB background subtraction
 
@@ -340,7 +340,7 @@ class Observation(object):
         stamp = self.data_cube[frame_index, stamp_slice.row_slice, stamp_slice.col_slice]
 
         if subtract_background:
-            stamp = self.subtract_background(stamp, mid_point=stamp_slice.mid_point, frame_index=frame_index)
+            stamp = self.subtract_background(stamp, frame_index, mid_point=stamp_slice.mid_point)
 
         return stamp.astype(int)
 
@@ -507,8 +507,8 @@ class Observation(object):
                     for i, s in enumerate(stamp):
                         try:
                             stamps_clean.append(
-                                self.subtract_background(s, r_mask=r_mask, g_mask=g_mask, b_mask=b_mask,
-                                                         mid_point=ss.mid_point, frame_index=i))
+                                self.subtract_background(s, i, r_mask=r_mask, g_mask=g_mask, b_mask=b_mask,
+                                                         mid_point=ss.mid_point))
                         except Exception as e:
                             self.logger.warning(
                                 "Problem subtracting background for stamp {} frame {}: {}".format(source_index, i, e))
@@ -535,7 +535,7 @@ class Observation(object):
 
         v = np.zeros((num_sources), dtype=np.float)
 
-        stamp0 = np.array(self._hdf5['normalized/{}'.format(target_index)])
+        stamp0 = np.array(self._hdf5_normalized['normalized/{}'.format(target_index)])
 
         for source_index in ProgressBar(range(num_sources), ipython_widget=kwargs.get('ipython_widget', False)):
             stamp1 = np.array(self._hdf5_normalized['normalized/{}'.format(source_index)])

@@ -21,6 +21,7 @@ import h5py
 import numpy as np
 import pandas as pd
 
+from matplotlib import gridspec
 from matplotlib import pyplot as plt
 
 from . import utils
@@ -374,12 +375,15 @@ class Observation(object):
         stamp_slice = self.get_source_slice(source_index, *args, **kwargs)
         stamp = self.get_frame_stamp(source_index, frame_index, *args, **kwargs)
 
-        # fig, (ax1) = plt.subplots(1, 1, facecolor='white')
-        # fig.set_size_inches(30, 15)
-        plt.figure(figsize=(20, 12))
-        ax1 = plt.subplot2grid((2, 2), (0, 0), rowspan=2)
-        ax2 = plt.subplot2grid((2, 2), (0, 1))
-        ax3 = plt.subplot2grid((2, 2), (1, 1))
+        fig = plt.figure(1)
+        fig.set_size_inches(15, 15)
+        gs = gridspec.GridSpec(2, 2, width_ratios=[1, 1])
+        ax1 = plt.subplot(gs[:, 0])
+        ax2 = plt.subplot(gs[0, 1])
+        ax3 = plt.subplot(gs[1, 1])
+        fig.add_subplot(ax1)
+        fig.add_subplot(ax2)
+        fig.add_subplot(ax3)
 
         aperture = self.get_frame_aperture(source_index, frame_index, return_aperture=True)
 
@@ -418,10 +422,7 @@ class Observation(object):
             ax1.grid(which='major', color='r', linestyle='-', alpha=0.25)
             ax1.grid(which='minor', color='r', linestyle='-', alpha=0.1)
 
-        ax1.set_title("Full Stamp")
-
-        plt.suptitle("Source {} Frame {} Aperture Flux: {}".format(source_index,
-                                                                   frame_index, int(phot_table['aperture_sum'][0])))
+        ax1.set_title("Full Stamp", fontsize=16)
 
         # Show numbers
         for i, val in np.ndenumerate(aperture_data):
@@ -446,12 +447,23 @@ class Observation(object):
 
         ax2.set_xlim(-0.5, 9.5)
         ax2.set_ylim(-0.5, 9.5)
-        ax2.set_title("Flux values")
+        ax2.set_xticklabels([])
+        ax2.set_yticklabels([])
+        ax2.set_title("Flux values", fontsize=16)
 
         ax3.contourf(aperture_data, cmap='cubehelix_r')
-        ax3.set_title("Contour of aperture")
+        ax3.set_xlim(-0.5, 9.5)
+        ax3.set_ylim(-0.5, 9.5)
+        ax3.set_xticklabels([])
+        ax3.set_yticklabels([])
+        ax3.set_title("Contour of aperture", fontsize=16)
 
-        # return fig
+        fig.suptitle("Source {} Frame {} Aperture Flux: {}".format(source_index,
+                                                                   frame_index, int(phot_table['aperture_sum'][0])),
+                     fontsize=20)
+
+        fig.tight_layout(rect=[0, 0.03, 1, 0.95])
+        return fig
 
     def create_normalized_stamps(self, remove_cube=False, *args, **kwargs):
         """Create normalized stamps for entire data cube

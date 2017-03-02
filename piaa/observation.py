@@ -318,7 +318,8 @@ class Observation(object):
 
         return fluxes
 
-    def get_frame_stamp(self, source_index, frame_index, subtract_background=True, *args, **kwargs):
+    def get_frame_stamp(self, source_index, frame_index,
+                        subtract_background=True, get_subtracted=True, *args, **kwargs):
         """ Get individual stamp for given source and frame
 
         Note:
@@ -333,14 +334,17 @@ class Observation(object):
         Returns:
             numpy.array: Array of data
         """
-        stamp_slice = self.get_source_slice(source_index, *args, **kwargs)
 
-        stamp = self.data_cube[frame_index, stamp_slice.row_slice, stamp_slice.col_slice]
+        try:
+            stamp = self._hdf5_subtracted['subtracted/{}'.format(source_index)][frame_index]
+        except KeyError:
+            stamp_slice = self.get_source_slice(source_index, *args, **kwargs)
+            stamp = self.data_cube[frame_index, stamp_slice.row_slice, stamp_slice.col_slice]
 
-        if subtract_background:
-            stamp = self.subtract_background(stamp, frame_index, mid_point=stamp_slice.mid_point)
+            if subtract_background:
+                stamp = self.subtract_background(stamp, frame_index, mid_point=stamp_slice.mid_point).astype(int)
 
-        return stamp.astype(int)
+        return stamp
 
     def get_frame_aperture(self, source_index, frame_index, width=6, height=6, *args, **kwargs):
         """Aperture for given frame from source
@@ -371,7 +375,7 @@ class Observation(object):
     def plot_stamp(self, source_index, frame_index, show_data=False, *args, **kwargs):
 
         stamp_slice = self.get_source_slice(source_index, *args, **kwargs)
-        stamp = self.get_frame_stamp(source_index, frame_index, *args, **kwargs)
+        stamp = self.get_frame_stamp(source_index, frame_index, get_subtracted=True, *args, **kwargs)
 
         fig = plt.figure(1)
         fig.set_size_inches(13, 15)
@@ -535,15 +539,15 @@ class Observation(object):
                     stamps_back_subtracted = np.array(stamps_back_subtracted)
 
                     # Store
-                    sub_dset = self._hdf5_subtracted.create_dataset(subtracted_group_name, data=stamps_back_subtracted)
+                    self._hdf5_subtracted.create_dataset(subtracted_group_name, data=stamps_back_subtracted)
 
                 except Exception as e:
                     self.logger.warning("Problem creating subtracted stamp for {}: {}".format(source_index, e))
 
         # Store stamp size
         try:
-            sub_dset.attrs['stamp_rows'] = ss.cutout.shape[0]
-            sub_dset.attrs['stamp_cols'] = ss.cutout.shape[1]
+            self._hdf5_subtracted.attrs['stamp_rows'] = ss.cutout.shape[0]
+            self._hdf5_subtracted.attrs['stamp_cols'] = ss.cutout.shape[1]
         except UnboundLocalError:
             pass
 

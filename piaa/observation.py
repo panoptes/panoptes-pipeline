@@ -319,7 +319,7 @@ class Observation(object):
         return fluxes
 
     def get_frame_stamp(self, source_index, frame_index,
-                        subtract_background=True, get_subtracted=True, *args, **kwargs):
+                        subtract_background=True, get_subtracted=True, reshape=False, *args, **kwargs):
         """ Get individual stamp for given source and frame
 
         Note:
@@ -336,7 +336,13 @@ class Observation(object):
         """
 
         try:
-            stamp = self._hdf5_subtracted['subtracted/{}'.format(source_index)][frame_index]
+            stamp = self._hdf5_subtracted[
+                'subtracted/{}'.format(source_index)][frame_index]
+
+            if reshape:
+                num_rows = self._hdf5_subtracted.attrs['stamp_rows']
+                num_cols = self._hdf5_subtracted.attrs['stamp_cols']
+                stamp = stamp.reshape(num_rows, num_cols)
         except KeyError:
             stamp_slice = self.get_source_slice(source_index, *args, **kwargs)
             stamp = self.data_cube[frame_index, stamp_slice.row_slice, stamp_slice.col_slice]
@@ -375,7 +381,7 @@ class Observation(object):
     def plot_stamp(self, source_index, frame_index, show_data=False, *args, **kwargs):
 
         stamp_slice = self.get_source_slice(source_index, *args, **kwargs)
-        stamp = self.get_frame_stamp(source_index, frame_index, get_subtracted=True, *args, **kwargs)
+        stamp = self.get_frame_stamp(source_index, frame_index, reshape=True, *args, **kwargs)
 
         fig = plt.figure(1)
         fig.set_size_inches(13, 15)

@@ -68,7 +68,7 @@ class Observation(object):
         self._stamps_cache = {}
 
         self._hdf5 = h5py.File(image_dir + '.hdf5')
-        self._hdf5_normalized = h5py.File(image_dir + '_normalized.hdf5')
+        self._hdf5_subtracted = h5py.File(image_dir + '_subtracted.hdf5')
 
         self._load_images()
 
@@ -482,11 +482,11 @@ class Observation(object):
         fig.tight_layout(rect=[0., 0., 1., 0.95])
         return fig
 
-    def create_normalized_stamps(self, remove_cube=False, *args, **kwargs):
-        """Create normalized stamps for entire data cube
+    def create_subtracted_stamps(self, remove_cube=False, *args, **kwargs):
+        """Create subtracted stamps for entire data cube
 
         Creates a slice through the cube corresponding to a stamp and stores the
-        normalized data in the hdf5 table with key `normalized/<index>`, where
+        subtracted data in the hdf5 table with key `subtracted/<index>`, where
         `<index>` is the source index from `point_sources`
 
         Args:
@@ -505,8 +505,8 @@ class Observation(object):
         for source_index in ProgressBar(self.point_sources.index,
                                         ipython_widget=kwargs.get('ipython_widget', False)):
 
-            group_name = 'normalized/{}'.format(source_index)
-            if group_name not in self._hdf5_normalized:
+            subtracted_group_name = 'subtracted/{}'.format(source_index)
+            if subtracted_group_name not in self._hdf5_subtracted:
 
                 try:
                     ss = self.get_source_slice(source_index)
@@ -534,16 +534,13 @@ class Observation(object):
 
                     stamps_back_subtracted = np.array(stamps_back_subtracted)
 
-                    # Normalize
-                    self.logger.debug("Normalizing")
-                    stamps_back_subtracted /= stamps_back_subtracted.sum()
-
                     # Store
-                    self._hdf5_normalized.create_dataset(group_name, data=stamps_back_subtracted)
-                except Exception as e:
-                    self.logger.warning("Problem creating normalized stamp for {}: {}".format(source_index, e))
+                    self._hdf5_subtracted.create_dataset(subtracted_group_name, data=stamps_back_subtracted)
 
-    def get_variance_for_target(self, target_index, *args, **kwargs):
+                except Exception as e:
+                    self.logger.warning("Problem creating subtracted stamp for {}: {}".format(source_index, e))
+
+    def get_variance_for_target(self, target_index, force_new=False, *args, **kwargs):
         """ Get all variances for given target
 
         Args:
@@ -552,16 +549,27 @@ class Observation(object):
         """
         num_sources = len(self.point_sources)
 
-        v = np.zeros((num_sources), dtype=np.float)
+        try:
+            vgrid_dset = self._hdf5_subtracted['vgrid']
+        except KeyError:
+            vgrid_dset = self._hdf5_subtracted.create_dataset('vgrid', (num_sources, num_sources))
 
-        stamp0 = np.array(self._hdf5_normalized['normalized/{}'.format(target_index)])
+        stamp0 = np.array(self._hdf5_subtracted['subtracted/{}'.format(target_index)])
+
+        # Normalize
+        self.logger.debug("Normalizing target")
+        stamp0 = stamp0 / stamp0.sum()
 
         for source_index in ProgressBar(range(num_sources), ipython_widget=kwargs.get('ipython_widget', False)):
-            stamp1 = np.array(self._hdf5_normalized['normalized/{}'.format(source_index)])
+            # Only compute if zero (which will re-compute target but that's fine)
+            if vgrid_dset[target_index, source_index] == 0. and vgrid_dset[source_index, target_index] == 0.:
+                stamp1 = np.array(self._hdf5_subtracted['subtracted/{}'.format(source_index)])
 
-            v[source_index] = ((stamp0 - stamp1) ** 2).sum()
+                # Normalize
+                stamp1 = stamp1 / stamp1.sum()
 
-        return v
+                # Store in the grid
+                vgrid_dset[target_index, source_index] = ((stamp0 - stamp1) ** 2).sum()
 
     def lookup_point_sources(self, image_num=0, sextractor_params=None, force_new=False):
         """ Extract point sources from image

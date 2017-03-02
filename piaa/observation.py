@@ -342,7 +342,7 @@ class Observation(object):
             if reshape:
                 num_rows = self._hdf5_subtracted.attrs['stamp_rows']
                 num_cols = self._hdf5_subtracted.attrs['stamp_cols']
-                stamp = stamp.reshape(num_rows, num_cols)
+                stamp = stamp.reshape(num_rows, num_cols).astype(int)
         except KeyError:
             stamp_slice = self.get_source_slice(source_index, *args, **kwargs)
             stamp = self.data_cube[frame_index, stamp_slice.row_slice, stamp_slice.col_slice]

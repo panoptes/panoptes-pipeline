@@ -523,10 +523,10 @@ class Observation(object):
                     stamps_back_subtracted = list()
                     for frame_index, s in enumerate(stamps):
                         try:
-                            stamps_back_subtracted.append(
-                                self.subtract_background(s, frame_index,
-                                                         r_mask=r_mask, g_mask=g_mask, b_mask=b_mask,
-                                                         mid_point=ss.mid_point, store_background=True))
+                            sub = self.subtract_background(s, frame_index,
+                                                           r_mask=r_mask, g_mask=g_mask, b_mask=b_mask,
+                                                           mid_point=ss.mid_point, store_background=True)
+                            stamps_back_subtracted.append(sub.flatten())
                         except Exception as e:
                             self.logger.warning(
                                 "Problem subtracting background {} frame {}: {}".format(
@@ -535,7 +535,13 @@ class Observation(object):
                     stamps_back_subtracted = np.array(stamps_back_subtracted)
 
                     # Store
-                    self._hdf5_subtracted.create_dataset(subtracted_group_name, data=stamps_back_subtracted)
+                    sub_dset = self._hdf5_subtracted.create_dataset(subtracted_group_name, data=stamps_back_subtracted)
+
+        else:  # Store once when loop is done
+            # Store stamp size
+            if 'stamp_rows' not in self._hdf5_subtracted.attrs:
+                sub_dset.attrs['stamp_rows'] = ss.cutout.shape[0]
+                sub_dset.attrs['stamp_cols'] = ss.cutout.shape[1]
 
                 except Exception as e:
                     self.logger.warning("Problem creating subtracted stamp for {}: {}".format(source_index, e))

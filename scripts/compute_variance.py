@@ -18,7 +18,8 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--image-dir', type=str, help="Image directory containing FITS files")
-    parser.add_argument('--target-index', type=int, help="Target index to compute variance for")
+    parser.add_argument('--target-index', type=int, default=None, help="Target index to compute variance for")
+    parser.add_argument('--all', action="store_true", default=False, help="Get variance for all targets")
     args = parser.parse_args()
 
     obs = Observation(args.image_dir)
@@ -32,10 +33,15 @@ if __name__ == '__main__':
     normal_done = Time.now()
     print("Normalization done: {:02f} seconds".format(((normal_done - start).sec)))
 
-    print("Getting variance for index {}".format(args.target_index))
-    print(obs.point_sources.iloc[args.target_index])
+    if args.target_index is not None:
+        print("Getting variance for index {}".format(args.target_index))
+        print(obs.point_sources.iloc[args.target_index])
 
-    obs.get_variance_for_target(args.target_index)
-    print("Variance done: {:02f} seconds".format(((Time.now() - normal_done).sec)))
+        obs.get_variance_for_target(args.target_index)
+        print("Variance done: {:02f} seconds".format(((Time.now() - normal_done).sec)))
+    elif args.all:
+        print("Getting variance for all sources")
+        for source_index in obs.point_sources.index:
+            obs.get_variance_for_target(source_index)
 
     print("Total time: {:02f} seconds".format(((Time.now() - start).sec)))

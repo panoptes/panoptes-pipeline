@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 from astropy.time import Time
+from astropy.utils.console import ProgressBar
 
 from piaa.observation import Observation
 
@@ -28,10 +29,10 @@ if __name__ == '__main__':
     print("Starting at  {}".format(start))
 
     # Normalize first
-    print("Normalizing stamps")
+    print("Creating background subtracted stamps")
     obs.create_subtracted_stamps()
     normal_done = Time.now()
-    print("Normalization done: {:02f} seconds".format(((normal_done - start).sec)))
+    print("Subtracting done: {:02f} seconds".format(((normal_done - start).sec)))
 
     if args.target_index is not None:
         print("Getting variance for index {}".format(args.target_index))
@@ -41,7 +42,7 @@ if __name__ == '__main__':
         print("Variance done: {:02f} seconds".format(((Time.now() - normal_done).sec)))
     elif args.all:
         print("Getting variance for all sources")
-        for source_index in obs.point_sources.index:
-            obs.get_variance_for_target(source_index)
+        for source_index in ProgressBar(obs.point_sources.index):
+            obs.get_variance_for_target(source_index, show_progress=False)
 
     print("Total time: {:02f} seconds".format(((Time.now() - start).sec)))

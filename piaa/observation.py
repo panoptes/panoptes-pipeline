@@ -547,7 +547,7 @@ class Observation(object):
         except UnboundLocalError:
             pass
 
-    def get_variance_for_target(self, target_index, force_new=False, *args, **kwargs):
+    def get_variance_for_target(self, target_index, force_new=False, show_progress=True, *args, **kwargs):
         """ Get all variances for given target
 
         Args:
@@ -567,7 +567,12 @@ class Observation(object):
         self.logger.debug("Normalizing target")
         stamp0 = stamp0 / stamp0.sum()
 
-        for source_index in ProgressBar(range(num_sources), ipython_widget=kwargs.get('ipython_widget', False)):
+        if show_progress:
+            iterator = ProgressBar(range(num_sources), ipython_widget=kwargs.get('ipython_widget', False))
+        else:
+            iterator = range(num_sources)
+
+        for source_index in iterator:
             # Only compute if zero (which will re-compute target but that's fine)
             if vgrid_dset[target_index, source_index] == 0. and vgrid_dset[source_index, target_index] == 0.:
                 stamp1 = np.array(self._hdf5_subtracted['subtracted/{}'.format(source_index)])

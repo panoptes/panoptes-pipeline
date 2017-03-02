@@ -541,8 +541,11 @@ class Observation(object):
                     self.logger.warning("Problem creating subtracted stamp for {}: {}".format(source_index, e))
 
         # Store stamp size
-        sub_dset.attrs['stamp_rows'] = ss.cutout.shape[0]
-        sub_dset.attrs['stamp_cols'] = ss.cutout.shape[1]
+        try:
+            sub_dset.attrs['stamp_rows'] = ss.cutout.shape[0]
+            sub_dset.attrs['stamp_cols'] = ss.cutout.shape[1]
+        except UnboundLocalError:
+            pass
 
     def get_variance_for_target(self, target_index, force_new=False, *args, **kwargs):
         """ Get all variances for given target

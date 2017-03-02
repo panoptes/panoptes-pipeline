@@ -537,14 +537,12 @@ class Observation(object):
                     # Store
                     sub_dset = self._hdf5_subtracted.create_dataset(subtracted_group_name, data=stamps_back_subtracted)
 
-        else:  # Store once when loop is done
-            # Store stamp size
-            if 'stamp_rows' not in self._hdf5_subtracted.attrs:
-                sub_dset.attrs['stamp_rows'] = ss.cutout.shape[0]
-                sub_dset.attrs['stamp_cols'] = ss.cutout.shape[1]
-
                 except Exception as e:
                     self.logger.warning("Problem creating subtracted stamp for {}: {}".format(source_index, e))
+
+        # Store stamp size
+        sub_dset.attrs['stamp_rows'] = ss.cutout.shape[0]
+        sub_dset.attrs['stamp_cols'] = ss.cutout.shape[1]
 
     def get_variance_for_target(self, target_index, force_new=False, *args, **kwargs):
         """ Get all variances for given target

@@ -238,6 +238,7 @@ class Observation(object):
         g_sigma = np.median(np.array(g_channel_background)[:, 2])
         b_sigma = np.median(np.array(b_channel_background)[:, 2])
 
+        self.logger.debug("Clipping background with 5-sigma: {} {} {}".format(r_sigma, g_sigma, b_sigma))
         np.clip(r_masked_data, r_back - 5 * r_sigma, r_back + 5 * r_sigma, r_masked_data)
         np.clip(g_masked_data, g_back - 5 * g_sigma, g_back + 5 * g_sigma, g_masked_data)
         np.clip(b_masked_data, b_back - 5 * b_sigma, b_back + 5 * b_sigma, b_masked_data)

@@ -34,11 +34,13 @@ Stamp = namedtuple('Stamp', ['row_slice', 'col_slice', 'mid_point', 'cutout'])
 
 class Observation(object):
 
-    def __init__(self, image_dir, aperture_size=6, camera_bias=1024):
+    def __init__(self, image_dir, aperture_size=6, camera_bias=1024, log_level='INFO', *args, **kwargs):
         """ A sequence of images to be processed as one observation """
         assert os.path.exists(image_dir), "Specified directory does not exist"
 
-        logging.basicConfig(filename='/var/panoptes/logs/piaa.log', level=logging.DEBUG)
+        log_level = getattr(logging, log_level, 'INFO')
+
+        logging.basicConfig(filename='/var/panoptes/logs/piaa.log', level=log_level)
         self.logger = logging
         self.logger.info('Setting up Observation for analysis')
 

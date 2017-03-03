@@ -21,9 +21,10 @@ if __name__ == '__main__':
     parser.add_argument('--image-dir', type=str, help="Image directory containing FITS files")
     parser.add_argument('--target-index', type=int, default=None, help="Target index to compute variance for")
     parser.add_argument('--all', action="store_true", default=False, help="Get variance for all targets")
+    parser.add_argument('--log-level', default='INFO', help="Log level: INFO or DEBUG")
     args = parser.parse_args()
 
-    obs = Observation(args.image_dir)
+    obs = Observation(args.image_dir, log_level=args.log_level)
 
     start = Time.now()
     print("Starting at  {}".format(start))

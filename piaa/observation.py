@@ -202,33 +202,30 @@ class Observation(object):
                 self._stamp_masks = utils.make_masks(stamp)
                 r_mask, g_mask, b_mask = self._stamp_masks
 
-            method_lookup = {
-                'mean': 0,
-                'median': 1,
-            }
-            method_idx = method_lookup[background_sub_method]
-
             self.logger.debug("Determining backgrounds")
             r_masked_data = np.ma.array(stamp, mask=np.logical_or(source_mask, ~r_mask))
             r_stats = sigma_clipped_stats(r_masked_data, sigma=3.)
-            r_back = r_stats[method_idx]
-            r_channel_background.append(r_back)
+            r_channel_background.append(r_stats)
 
             g_masked_data = np.ma.array(stamp, mask=np.logical_or(source_mask, ~g_mask))
             g_stats = sigma_clipped_stats(g_masked_data, sigma=3.)
-            g_back = g_stats[method_idx]
-            g_channel_background.append(g_back)
+            g_channel_background.append(g_stats)
 
             b_masked_data = np.ma.array(stamp, mask=np.logical_or(source_mask, ~b_mask))
             b_stats = sigma_clipped_stats(b_masked_data, sigma=3.)
-            b_back = b_stats[method_idx]
-            b_channel_background.append(b_back)
+            b_channel_background.append(b_stats)
+
+        method_lookup = {
+            'mean': 0,
+            'median': 1,
+        }
+        method_idx = method_lookup[background_sub_method]
 
         # Use average of others
-        self.logger.debug("Subtracting mean backgrounds")
-        r_back = np.median(r_channel_background)
-        g_back = np.median(g_channel_background)
-        b_back = np.median(b_channel_background)
+        self.logger.debug("Subtracting backgrounds")
+        r_back = np.median(r_channel_background[:, method_idx])
+        g_back = np.median(g_channel_background[:, method_idx])
+        b_back = np.median(b_channel_background[:, method_idx])
 
         self.logger.debug("Background subtraction: Region {} {}\t{}\t{}".format(
             background_region_id, r_back, g_back, b_back))
@@ -236,12 +233,17 @@ class Observation(object):
         g_masked_data = np.ma.array(stamp, mask=~g_mask) - int(g_back)
         b_masked_data = np.ma.array(stamp, mask=~b_mask) - int(b_back)
 
+        # Clip outliers
+        r_sigma = np.median(r_channel_background[:, 2])
+        g_sigma = np.median(g_channel_background[:, 2])
+        b_sigma = np.median(b_channel_background[:, 2])
+
+        np.clip(r_masked_data, -5 * r_sigma, 5 * r_sigma, r_masked_data)
+        np.clip(g_masked_data, -5 * g_sigma, 5 * g_sigma, g_masked_data)
+        np.clip(b_masked_data, -5 * b_sigma, 5 * b_sigma, b_masked_data)
+
         # self.logger.debug("Combining channels")
         subtracted_data = r_masked_data.filled(0) + g_masked_data.filled(0) + b_masked_data.filled(0)
-
-        # self.logger.debug("Removing saturated")
-        subtracted_data[subtracted_data < 0] = 1e-5
-        subtracted_data[subtracted_data > 1e4] = 1e-5
 
         return subtracted_data
 

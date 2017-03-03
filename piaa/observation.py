@@ -227,7 +227,7 @@ class Observation(object):
         g_back = np.median(np.array(g_channel_background)[:, method_idx])
         b_back = np.median(np.array(b_channel_background)[:, method_idx])
 
-        self.logger.debug("Background subtraction: Region {}\{}\t{}\t{}".format(
+        self.logger.debug("Background subtraction: Region {}\t{}\t{}\t{}".format(
             background_region_id, r_back, g_back, b_back))
         r_masked_data = np.ma.array(stamp, mask=~r_mask) - int(r_back)
         g_masked_data = np.ma.array(stamp, mask=~g_mask) - int(g_back)

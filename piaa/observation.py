@@ -26,7 +26,6 @@ from matplotlib import patches
 from matplotlib import pyplot as plt
 
 from . import utils
-from pocs.utils import error
 
 
 Stamp = namedtuple('Stamp', ['row_slice', 'col_slice', 'mid_point', 'cutout'])
@@ -623,7 +622,7 @@ class Observation(object):
             if sextractor is None:
                 sextractor = shutil.which('sex')
                 if sextractor is None:
-                    raise error.InvalidSystemCommand('sextractor not found')
+                    raise Exception('sextractor not found')
 
             if sextractor_params is None:
                 sextractor_params = [

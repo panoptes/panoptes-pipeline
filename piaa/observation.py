@@ -223,24 +223,24 @@ class Observation(object):
 
         # Use average of others
         self.logger.debug("Subtracting backgrounds")
-        r_back = np.median(r_channel_background[:][method_idx])
-        g_back = np.median(g_channel_background[:][method_idx])
-        b_back = np.median(b_channel_background[:][method_idx])
+        r_back = np.median(np.array(r_channel_background)[:, method_idx])
+        g_back = np.median(np.array(g_channel_background)[:, method_idx])
+        b_back = np.median(np.array(b_channel_background)[:, method_idx])
 
-        self.logger.debug("Background subtraction: Region {} {}\t{}\t{}".format(
+        self.logger.debug("Background subtraction: Region {}\{}\t{}\t{}".format(
             background_region_id, r_back, g_back, b_back))
         r_masked_data = np.ma.array(stamp, mask=~r_mask) - int(r_back)
         g_masked_data = np.ma.array(stamp, mask=~g_mask) - int(g_back)
         b_masked_data = np.ma.array(stamp, mask=~b_mask) - int(b_back)
 
         # Clip outliers
-        r_sigma = np.median(r_channel_background[:][2])
-        g_sigma = np.median(g_channel_background[:][2])
-        b_sigma = np.median(b_channel_background[:][2])
+        r_sigma = np.median(np.array(r_channel_background)[:, 2])
+        g_sigma = np.median(np.array(g_channel_background)[:, 2])
+        b_sigma = np.median(np.array(b_channel_background)[:, 2])
 
-        np.clip(r_masked_data, -5 * r_sigma, 5 * r_sigma, r_masked_data)
-        np.clip(g_masked_data, -5 * g_sigma, 5 * g_sigma, g_masked_data)
-        np.clip(b_masked_data, -5 * b_sigma, 5 * b_sigma, b_masked_data)
+        np.clip(r_masked_data, r_back - 5 * r_sigma, r_back + 5 * r_sigma, r_masked_data)
+        np.clip(g_masked_data, g_back - 5 * g_sigma, g_back + 5 * g_sigma, g_masked_data)
+        np.clip(b_masked_data, b_back - 5 * b_sigma, b_back + 5 * b_sigma, b_masked_data)
 
         # self.logger.debug("Combining channels")
         subtracted_data = r_masked_data.filled(0) + g_masked_data.filled(0) + b_masked_data.filled(0)

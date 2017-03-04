@@ -222,29 +222,34 @@ class Observation(object):
         }
         method_idx = method_lookup[background_sub_method]
 
-        # Use average of others
-        self.logger.debug("Subtracting backgrounds")
-        r_back = np.median(np.array(r_channel_background)[:, method_idx])
-        g_back = np.median(np.array(g_channel_background)[:, method_idx])
-        b_back = np.median(np.array(b_channel_background)[:, method_idx])
-
+        self.logger.debug("Getting background values")
+        r_background = np.median(np.array(r_channel_background)[:, method_idx])
+        g_background = np.median(np.array(g_channel_background)[:, method_idx])
+        b_background = np.median(np.array(b_channel_background)[:, method_idx])
         self.logger.debug("Background subtraction: Region {}\t{}\t{}\t{}".format(
-            background_region_id, r_back, g_back, b_back))
-        r_masked_data = np.ma.array(stamp, mask=~r_mask) - int(r_back)
-        g_masked_data = np.ma.array(stamp, mask=~g_mask) - int(g_back)
-        b_masked_data = np.ma.array(stamp, mask=~b_mask) - int(b_back)
+            background_region_id, r_background, g_background, b_background))
 
-        # Clip outliers
+        self.logger.debug("Getting sigma values")
         r_sigma = np.median(np.array(r_channel_background)[:, 2])
         g_sigma = np.median(np.array(g_channel_background)[:, 2])
         b_sigma = np.median(np.array(b_channel_background)[:, 2])
 
-        self.logger.debug("Clipping background with 5-sigma: {} {} {}".format(r_sigma, g_sigma, b_sigma))
-        np.clip(r_masked_data, r_back - 5 * r_sigma, r_back + 5 * r_sigma, r_masked_data)
-        np.clip(g_masked_data, g_back - 5 * g_sigma, g_back + 5 * g_sigma, g_masked_data)
-        np.clip(b_masked_data, b_back - 5 * b_sigma, b_back + 5 * b_sigma, b_masked_data)
+        self.logger.debug("Getting RGB data")
+        r_masked_data = np.ma.array(stamp, mask=~r_mask)
+        g_masked_data = np.ma.array(stamp, mask=~g_mask)
+        b_masked_data = np.ma.array(stamp, mask=~b_mask)
 
-        # self.logger.debug("Combining channels")
+        self.logger.debug("Clipping RGB values with 5-sigma: {} {} {}".format(r_sigma, g_sigma, b_sigma))
+        np.ma.clip(r_masked_data, r_background - 5 * r_sigma, r_background + 5 * r_sigma, r_masked_data)
+        np.ma.clip(g_masked_data, g_background - 5 * g_sigma, g_background + 5 * g_sigma, g_masked_data)
+        np.ma.clip(b_masked_data, b_background - 5 * b_sigma, b_background + 5 * b_sigma, b_masked_data)
+
+        self.logger.debug("Subtracting backgrounds")
+        r_masked_data -= r_background
+        g_masked_data -= g_background
+        b_masked_data -= b_background
+
+        self.logger.debug("Combining channels")
         subtracted_data = r_masked_data.filled(0) + g_masked_data.filled(0) + b_masked_data.filled(0)
 
         return subtracted_data

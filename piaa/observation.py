@@ -44,6 +44,7 @@ class Observation(object):
 
         logging.basicConfig(filename='/var/panoptes/logs/piaa.log', level=log_level)
         self.logger = logging
+        self.logger.info('*' * 80)
         self.logger.info('Setting up Observation for analysis')
 
         super(Observation, self).__init__()
@@ -58,8 +59,8 @@ class Observation(object):
         self._img_w = 5208
 
         # Background estimation boxes
-        self.background_box_h = 234 * 2
-        self.background_box_w = 158 * 2
+        self.background_box_h = 316
+        self.background_box_w = 434
         self.background_estimates = dict()
 
         self.background_region = {}
@@ -301,13 +302,12 @@ class Observation(object):
                 self.rgb_masks = utils.make_masks(data)
 
             for color, mask in zip(['R', 'G', 'B'], self.rgb_masks):
-                bkg = Background2D(data, (self.background_box_w, self.background_box_h), filter_size=(3, 3),
+                bkg = Background2D(data, (self.background_box_h, self.background_box_w), filter_size=(3, 3),
                                    sigma_clip=sigma_clip, bkg_estimator=bkg_estimator, mask=~mask)
 
                 self.logger.debug("\t{} Background\t Value: {:.02f}\t RMS: {:.02f}".format(
                     color, bkg.background_median, bkg.background_rms_median))
 
-                self.logger.debug("\tGetting mask data")
                 background_masked_data = np.ma.array(bkg.background, mask=~mask)
 
                 data -= background_masked_data.filled(0)

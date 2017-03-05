@@ -288,6 +288,10 @@ class Observation(object):
         bkg_estimator = MedianBackground()
 
         for frame_index in frames:
+
+            if frame_index in self.background_estimates:
+                continue
+
             self.logger.debug("Frame: {}".format(frame_index))
             # Get the bias subtracted data for the first frame
             data = self.data_cube[frame_index, :, :-60]
@@ -304,8 +308,8 @@ class Observation(object):
                                    sigma_clip=sigma_clip, bkg_estimator=bkg_estimator, mask=~mask)
                 frame_backgrounds.append(bkg)
 
-                self.logger.debug("\t{} Background    : {:.02f}".format(color, bkg.background_median))
-                self.logger.debug("\t{} Background RMS: {:.02f}".format(color, bkg.background_rms_median))
+                self.logger.debug("\t{} Background\t Value: {:.02f}\t RMS: {:.02f}".format(
+                    color, bkg.background_median, bkg.background_rms_median))
 
             self.background_estimates[frame_index] = frame_backgrounds
 
@@ -412,6 +416,9 @@ class Observation(object):
             stamp = self.data_cube[frame_index, stamp_slice.row_slice, stamp_slice.col_slice]
 
             if subtract_background:
+
+                # NEED TO FIGURE OUT THE RGB MASKS FOR STAMP
+
                 stamp = self.subtract_background(stamp, frame_index, mid_point=stamp_slice.mid_point).astype(int)
 
         return stamp

@@ -260,8 +260,8 @@ class Observation(object):
 
         return subtracted_data
 
-    def get_background_estimates(self):
-        """ Get background estimates for all frames for each color channel
+    def get_background_estimates(self, frames=None):
+        """Get background estimates for all frames for each color channel
 
         The first step is to figure out a box size for the background calculations.
         This should be larger enough to encompass background variations while also
@@ -276,11 +276,18 @@ class Observation(object):
         We use a 3 sigma median background clipped estimator.
         The built-in camera bias (1024) has already been removed from the data.
 
+        Args:
+            frames (list, optional): List of frames to get estimates for, defaults
+                to all frames
+
         """
+        if frames is None:
+            frames = range(len(self.files))
+
         sigma_clip = SigmaClip(sigma=3., iters=10)
         bkg_estimator = MedianBackground()
 
-        for frame_index in range(len(self.files)):
+        for frame_index in frames:
             self.logger.debug("Frame: {}".format(frame_index))
             # Get the bias subtracted data for the first frame
             data = self.data_cube[frame_index, :, :-60]
@@ -292,7 +299,7 @@ class Observation(object):
 
             frame_backgrounds = list()
 
-            for color, mask in zip(['R', 'G', 'B'], rgb_masks):
+            for color, mask in zip(['R', 'G', 'B'], self.rgb_masks):
                 bkg = Background2D(data, (self.background_box_w, self.background_box_h), filter_size=(3, 3),
                                    sigma_clip=sigma_clip, bkg_estimator=bkg_estimator, mask=~mask)
                 frame_backgrounds.append(bkg)

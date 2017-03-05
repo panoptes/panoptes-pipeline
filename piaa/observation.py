@@ -70,7 +70,7 @@ class Observation(object):
         self._point_sources = None
         self._pixel_locations = None
 
-        self.rgb_masks = None  # These are trimmed, see `get_background_estimates`
+        self.rgb_masks = None  # These are trimmed, see `subtract_background`
 
         self._stamp_masks = (None, None, None)
         self._stamps_cache = {}
@@ -260,7 +260,7 @@ class Observation(object):
 
         return subtracted_data
 
-    def get_background_estimates(self, frames=None):
+    def subtract_background(self, frames=None):
         """Get background estimates for all frames for each color channel
 
         The first step is to figure out a box size for the background calculations.
@@ -288,34 +288,29 @@ class Observation(object):
         sigma_clip = SigmaClip(sigma=3., iters=10)
         bkg_estimator = MedianBackground()
 
-        back_dset = self._hdf5_subtracted.create_dataset('background_estimates', (len(self.files), 2))
         for frame_index in frames:
 
-            if frame_index in self.background_estimates:
-                continue
-
             self.logger.debug("Frame: {}".format(frame_index))
-            # Get the bias subtracted data for the first frame
-            data = self.data_cube[frame_index, :, :-60]
+
+            # Get the bias subtracted data for the frame
+            data = self.data_cube[frame_index]
 
             if self.rgb_masks is None:
                 # Create RGB masks
                 self.logger.debug("Making RGB masks")
                 self.rgb_masks = utils.make_masks(data)
 
-            frame_backgrounds = list()
-
             for color, mask in zip(['R', 'G', 'B'], self.rgb_masks):
                 bkg = Background2D(data, (self.background_box_w, self.background_box_h), filter_size=(3, 3),
                                    sigma_clip=sigma_clip, bkg_estimator=bkg_estimator, mask=~mask)
-                frame_backgrounds.append(bkg)
 
                 self.logger.debug("\t{} Background\t Value: {:.02f}\t RMS: {:.02f}".format(
                     color, bkg.background_median, bkg.background_rms_median))
 
-            self.background_estimates[frame_index] = frame_backgrounds
-            back_dset[frame_index, 0] = bkg.background_median
-            back_dset[frame_index, 1] = bkg.background_rms_median
+                self.logger.debug("\tGetting mask data")
+                background_masked_data = np.ma.array(bkg.background, mask=~mask)
+
+                data -= background_masked_data.filled(0)
 
     def get_source_slice(self, source_index, force_new=False, cache=True, *args, **kwargs):
         """ Create a stamp (stamp) of the data
@@ -572,32 +567,6 @@ class Observation(object):
 
         fig.tight_layout(rect=[0., 0., 1., 0.95])
         return fig
-
-    def subtract_background_from_cube(self):
-        # Get background estimates for the entire frame
-        self.get_background_estimates()
-
-        # Reset the RGB masks
-        self.rgb_masks = None
-
-        # Loop through the frames of cube and subtract the background
-        self.logger.debug("Subtracting RGB data")
-        for frame_index, frame_data in enumerate(self.data_cube):
-            if self.rgb_masks is None:
-                self.rgb_masks = utils.make_masks(frame_data)
-
-            self.logger.debug("\tGetting RGB data")
-            r_masked_data = np.ma.array(frame_data, mask=~self.rgb_masks[0])
-            g_masked_data = np.ma.array(frame_data, mask=~self.rgb_masks[1])
-            b_masked_data = np.ma.array(frame_data, mask=~self.rgb_masks[2])
-
-            self.logger.debug("\tSubtracting backgrounds")
-            r_masked_data -= self.background_estimates[frame_index][0].background
-            g_masked_data -= self.background_estimates[frame_index][1].background
-            b_masked_data -= self.background_estimates[frame_index][2].background
-
-            self.logger.debug("Combining channels")
-            frame_data = r_masked_data.filled(0) + g_masked_data.filled(0) + b_masked_data.filled(0)
 
     def create_stamps(self, remove_cube=False, *args, **kwargs):
         """Create subtracted stamps for entire data cube

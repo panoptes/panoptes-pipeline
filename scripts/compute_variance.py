@@ -31,7 +31,7 @@ if __name__ == '__main__':
 
     # Normalize first
     print("Creating background estimates")
-    obs.subtract_background_from_cube()
+    obs.subtract_background()
     subtracting_done = Time.now()
     print("Subtracting done: {:02f} seconds".format(((subtracting_done - start).sec)))
 

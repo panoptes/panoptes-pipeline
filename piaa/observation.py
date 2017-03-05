@@ -642,7 +642,10 @@ class Observation(object):
                 stamp1 = stamp1 / stamp1.sum()
 
                 # Store in the grid
-                vgrid_dset[target_index, source_index] = ((stamp0 - stamp1) ** 2).sum()
+                try:
+                    vgrid_dset[target_index, source_index] = ((stamp0 - stamp1) ** 2).sum()
+                except ValueError:
+                    self.logger.debug("Skipping invalid stamp for source {}".format(source_index))
 
     def lookup_point_sources(self, image_num=0, sextractor_params=None, force_new=False):
         """ Extract point sources from image

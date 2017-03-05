@@ -150,9 +150,9 @@ class Observation(object):
 
         return cube_dset
 
-    def subtract_background(self, stamp, frame_index,
-                            r_mask=None, g_mask=None, b_mask=None, mid_point=None,
-                            background_sub_method='median', store_background=False):
+    def subtract_frame_background(self, stamp, frame_index,
+                                  r_mask=None, g_mask=None, b_mask=None, mid_point=None,
+                                  background_sub_method='median', store_background=False):
         """ Perform RGB background subtraction
 
         Args:
@@ -281,6 +281,7 @@ class Observation(object):
                 to all frames
 
         """
+        self.logger.debug("Getting background estimates")
         if frames is None:
             frames = range(len(self.files))
 
@@ -572,7 +573,33 @@ class Observation(object):
         fig.tight_layout(rect=[0., 0., 1., 0.95])
         return fig
 
-    def create_subtracted_stamps(self, remove_cube=False, *args, **kwargs):
+    def subtract_background_from_cube(self):
+        # Get background estimates for the entire frame
+        self.get_background_estimates()
+
+        # Reset the RGB masks
+        self.rgb_masks = None
+
+        # Loop through the frames of cube and subtract the background
+        self.logger.debug("Subtracting RGB data")
+        for frame_index, frame_data in enumerate(self.data_cube):
+            if self.rgb_masks is None:
+                self.rgb_masks = utils.make_masks(frame_data)
+
+            self.logger.debug("\tGetting RGB data")
+            r_masked_data = np.ma.array(frame_data, mask=~self.rgb_masks[0])
+            g_masked_data = np.ma.array(frame_data, mask=~self.rgb_masks[1])
+            b_masked_data = np.ma.array(frame_data, mask=~self.rgb_masks[2])
+
+            self.logger.debug("\tSubtracting backgrounds")
+            r_masked_data -= self.background_estimates[frame_index][0].background
+            g_masked_data -= self.background_estimates[frame_index][1].background
+            b_masked_data -= self.background_estimates[frame_index][2].background
+
+            self.logger.debug("Combining channels")
+            frame_data = r_masked_data.filled(0) + g_masked_data.filled(0) + b_masked_data.filled(0)
+
+    def create_stamps(self, remove_cube=False, *args, **kwargs):
         """Create subtracted stamps for entire data cube
 
         Creates a slice through the cube corresponding to a stamp and stores the
@@ -588,10 +615,7 @@ class Observation(object):
 
         """
 
-        r_mask = None
-        g_mask = None
-        b_mask = None
-
+        self.logger.debug("Starting stamp creation")
         for source_index in ProgressBar(self.point_sources.index,
                                         ipython_widget=kwargs.get('ipython_widget', False)):
 
@@ -602,30 +626,8 @@ class Observation(object):
                     ss = self.get_source_slice(source_index)
                     stamps = np.array(self.data_cube[:, ss.row_slice, ss.col_slice])
 
-                    if r_mask is None:
-                        r_mask, g_mask, b_mask = utils.make_masks(stamps[0])
-
-                    self.logger.debug("Performing bias subtraction")
-                    # Bias and background subtraction
-                    stamps -= self.camera_bias
-
-                    self.logger.debug("Performing background subtraction: Source {}".format(source_index))
-                    stamps_back_subtracted = list()
-                    for frame_index, s in enumerate(stamps):
-                        try:
-                            sub = self.subtract_background(s, frame_index,
-                                                           r_mask=r_mask, g_mask=g_mask, b_mask=b_mask,
-                                                           mid_point=ss.mid_point, store_background=True)
-                            stamps_back_subtracted.append(sub.flatten())
-                        except Exception as e:
-                            self.logger.warning(
-                                "Problem subtracting background {} frame {}: {}".format(
-                                    source_index, frame_index, e))
-
-                    stamps_back_subtracted = np.array(stamps_back_subtracted)
-
                     # Store
-                    self._hdf5_subtracted.create_dataset(subtracted_group_name, data=stamps_back_subtracted)
+                    self._hdf5_subtracted.create_dataset(subtracted_group_name, data=stamps)
 
                 except Exception as e:
                     self.logger.warning("Problem creating subtracted stamp for {}: {}".format(source_index, e))

@@ -30,17 +30,22 @@ if __name__ == '__main__':
     print("Starting at  {}".format(start))
 
     # Normalize first
-    print("Creating background subtracted stamps")
-    obs.create_subtracted_stamps()
-    normal_done = Time.now()
-    print("Subtracting done: {:02f} seconds".format(((normal_done - start).sec)))
+    print("Creating background estimates")
+    obs.subtract_background_from_cube()
+    subtracting_done = Time.now()
+    print("Subtracting done: {:02f} seconds".format(((subtracting_done - start).sec)))
+
+    print("Creating stamps for point sources")
+    obs.create_stamps()
+    stamps_done = Time.now()
+    print("Stamp creationg done: {:02f} seconds".format(((stamps_done - start).sec)))
 
     if args.target_index is not None:
         print("Getting variance for index {}".format(args.target_index))
         print(obs.point_sources.iloc[args.target_index])
 
         obs.get_variance_for_target(args.target_index)
-        print("Variance done: {:02f} seconds".format(((Time.now() - normal_done).sec)))
+        print("Variance done: {:02f} seconds".format(((Time.now() - stamps_done).sec)))
     elif args.all:
         print("Getting variance for all sources")
         for source_index in ProgressBar(obs.point_sources.index):

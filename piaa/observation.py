@@ -310,7 +310,7 @@ class Observation(object):
 
                 background_masked_data = np.ma.array(bkg.background, mask=~mask)
 
-                data -= background_masked_data.filled(0)
+                self.data_cube[frame_index] -= background_masked_data.filled(0)
 
     def get_source_slice(self, source_index, force_new=False, cache=True, *args, **kwargs):
         """ Create a stamp (stamp) of the data

@@ -13,7 +13,10 @@ from astropy.table import Table
 from astropy.utils.console import ProgressBar
 from astropy.wcs import WCS
 
+from photutils import Background2D
+from photutils import MedianBackground
 from photutils import RectangularAperture
+from photutils import SigmaClip
 from photutils import aperture_photometry
 from photutils import make_source_mask
 
@@ -53,9 +56,11 @@ class Observation(object):
 
         self._img_h = 3476
         self._img_w = 5208
-        # Background regions
-        self._back_h = int(self._img_h // 5)
-        self._back_w = int(self._img_w // 5)
+
+        # Background estimation boxes
+        self.background_box_h = 234 * 2
+        self.background_box_w = 158 * 2
+        self.background_estimates = dict()
 
         self.background_region = {}
 
@@ -64,6 +69,8 @@ class Observation(object):
 
         self._point_sources = None
         self._pixel_locations = None
+
+        self.rgb_masks = None  # These are trimmed, see `get_background_estimates`
 
         self._stamp_masks = (None, None, None)
         self._stamps_cache = {}
@@ -135,12 +142,11 @@ class Observation(object):
     def data_cube(self):
         try:
             cube_dset = self._hdf5['cube']
-            self.logger.debug("Getting existing data cube")
         except KeyError:
             self.logger.debug("Creating data cube")
             cube_dset = self._hdf5.create_dataset('cube', (len(self.files), self._img_h, self._img_w))
             for i, f in enumerate(self.files):
-                cube_dset[i] = fits.getdata(f)
+                cube_dset[i] = fits.getdata(f) - self.camera_bias
 
         return cube_dset
 
@@ -229,20 +235,20 @@ class Observation(object):
         self.logger.debug("Background subtraction: Region {}\t{}\t{}\t{}".format(
             background_region_id, r_background, g_background, b_background))
 
-        self.logger.debug("Getting sigma values")
-        r_sigma = np.median(np.array(r_channel_background)[:, 2])
-        g_sigma = np.median(np.array(g_channel_background)[:, 2])
-        b_sigma = np.median(np.array(b_channel_background)[:, 2])
+        # self.logger.debug("Getting sigma values")
+        # r_sigma = np.median(np.array(r_channel_background)[:, 2])
+        # g_sigma = np.median(np.array(g_channel_background)[:, 2])
+        # b_sigma = np.median(np.array(b_channel_background)[:, 2])
 
         self.logger.debug("Getting RGB data")
         r_masked_data = np.ma.array(stamp, mask=~r_mask)
         g_masked_data = np.ma.array(stamp, mask=~g_mask)
         b_masked_data = np.ma.array(stamp, mask=~b_mask)
 
-        self.logger.debug("Clipping RGB values with 5-sigma: {} {} {}".format(r_sigma, g_sigma, b_sigma))
-        np.ma.clip(r_masked_data, r_background - 5 * r_sigma, r_background + 5 * r_sigma, r_masked_data)
-        np.ma.clip(g_masked_data, g_background - 5 * g_sigma, g_background + 5 * g_sigma, g_masked_data)
-        np.ma.clip(b_masked_data, b_background - 5 * b_sigma, b_background + 5 * b_sigma, b_masked_data)
+        # self.logger.debug("Clipping RGB values with 5-sigma: {} {} {}".format(r_sigma, g_sigma, b_sigma))
+        # np.ma.clip(r_masked_data, r_background - 5 * r_sigma, r_background + 5 * r_sigma, r_masked_data)
+        # np.ma.clip(g_masked_data, g_background - 5 * g_sigma, g_background + 5 * g_sigma, g_masked_data)
+        # np.ma.clip(b_masked_data, b_background - 5 * b_sigma, b_background + 5 * b_sigma, b_masked_data)
 
         self.logger.debug("Subtracting backgrounds")
         r_masked_data -= r_background
@@ -253,6 +259,48 @@ class Observation(object):
         subtracted_data = r_masked_data.filled(0) + g_masked_data.filled(0) + b_masked_data.filled(0)
 
         return subtracted_data
+
+    def get_background_estimates(self):
+        """ Get background estimates for all frames for each color channel
+
+        The first step is to figure out a box size for the background calculations.
+        This should be larger enough to encompass background variations while also
+        being an even multiple of the image dimensions. We also want them to be
+        multiples of a superpixel (2x2 regular pixel) in each dimension.
+        The camera for `PAN001` has image dimensions of 5208 x 3476, so
+        in order to get an even multiple in both dimensions we remove 60 pixels
+        from the width of the image, leaving us with dimensions of 5148 x 3476,
+        allowing us to use a box size of 468 x 316, which will create 11
+        boxes in each direction.
+
+        We use a 3 sigma median background clipped estimator.
+        The built-in camera bias (1024) has already been removed from the data.
+
+        """
+        sigma_clip = SigmaClip(sigma=3., iters=10)
+        bkg_estimator = MedianBackground()
+
+        for frame_index in range(len(self.files)):
+            self.logger.debug("Frame: {}".format(frame_index))
+            # Get the bias subtracted data for the first frame
+            data = self.data_cube[frame_index, :, :-60]
+
+            if self.rgb_masks is None:
+                # Create RGB masks
+                self.logger.debug("Making RGB masks")
+                self.rgb_masks = utils.make_masks(data)
+
+            frame_backgrounds = list()
+
+            for color, mask in zip(['R', 'G', 'B'], rgb_masks):
+                bkg = Background2D(data, (self.background_box_w, self.background_box_h), filter_size=(3, 3),
+                                   sigma_clip=sigma_clip, bkg_estimator=bkg_estimator, mask=~mask)
+                frame_backgrounds.append(bkg)
+
+                self.logger.debug("\t{} Background    : {:.02f}".format(color, bkg.background_median))
+                self.logger.debug("\t{} Background RMS: {:.02f}".format(color, bkg.background_rms_median))
+
+            self.background_estimates[frame_index] = frame_backgrounds
 
     def get_source_slice(self, source_index, force_new=False, cache=True, *args, **kwargs):
         """ Create a stamp (stamp) of the data
@@ -274,7 +322,7 @@ class Observation(object):
             cutout = Cutout2D(
                 fits.getdata(self.files[0]),
                 (mid_pos[0], mid_pos[1]),
-                (self._nearest_10(height) + 8, self._nearest_10(width) + 4)
+                (self._pad_super_pixel(height) + 8, self._pad_super_pixel(width) + 4)
             )
 
             xs, ys = cutout.bbox_original
@@ -442,6 +490,8 @@ class Observation(object):
         ax1.set_yticklabels([])
         ax1.set_title("Full Stamp", fontsize=16)
 
+        # RGB values plot
+
         # Show numbers
         for i, val in np.ndenumerate(aperture_data):
             #     print(i[0] / 10, i[1] / 10, val)
@@ -479,6 +529,8 @@ class Observation(object):
         ax2.imshow(np.ma.array(np.ones((10, 10)), mask=~b_a_mask), cmap='Blues', vmin=0, vmax=4., )
         ax2.set_title("Values", fontsize=16)
 
+        # Contour Plot of aperture
+
         ax3.contourf(aperture_data, cmap='cubehelix_r')
         ax3.add_patch(patches.Rectangle(
             (1.5, 1.5),
@@ -492,6 +544,8 @@ class Observation(object):
         ax3.set_ylim(-0.5, 9.5)
         ax3.set_xticklabels([])
         ax3.set_yticklabels([])
+        ax3.grid(False)
+        ax3.set_facecolor('white')
         ax3.set_title("Contour", fontsize=16)
 
         fig.suptitle("Source {} Frame {} Aperture Flux: {}".format(source_index,
@@ -617,7 +671,7 @@ class Observation(object):
             error.InvalidSystemCommand: Description
         """
         # Write the sextractor catalog to a file
-        source_file = '{}/test{:02d}.cat'.format(self.image_dir, image_num)
+        source_file = '{}/point_sources_{:02d}.cat'.format(self.image_dir, image_num)
         self.logger.debug("Point source catalog: {}".format(source_file))
 
         if not os.path.exists(source_file) or force_new:
@@ -656,7 +710,7 @@ class Observation(object):
         # w, h = data[0].shape
         w, h = (3476, 5208)
 
-        stamp_size = 50
+        stamp_size = 60
 
         top = point_sources['Y'] > stamp_size
         bottom = point_sources['Y'] < w - stamp_size
@@ -740,16 +794,19 @@ class Observation(object):
         elif color == 'G1':
             y -= 1
         elif color == 'B':
-            pass
+            x -= 1
         elif color == 'R':
             x += 1
             y += 1
 
+        y += 4
+        x -= 2
+
         return (x, y)
 
-    def _nearest_10(self, num):
+    def _pad_super_pixel(self, num):
         """ Get the nearest 10 block """
-        return int(np.ceil(np.abs(num) / 10)) * 10
+        return int(np.ceil(np.abs(num) / 8)) * 8
 
     def _load_images(self, remove_pointing=True):
         seq_files = glob("{}/*.fits".format(self.image_dir))

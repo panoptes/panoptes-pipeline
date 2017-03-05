@@ -287,6 +287,7 @@ class Observation(object):
         sigma_clip = SigmaClip(sigma=3., iters=10)
         bkg_estimator = MedianBackground()
 
+        back_dset = self._hdf5_subtracted.create_dataset('background_estimates', (len(self.files), 2))
         for frame_index in frames:
 
             if frame_index in self.background_estimates:
@@ -312,6 +313,8 @@ class Observation(object):
                     color, bkg.background_median, bkg.background_rms_median))
 
             self.background_estimates[frame_index] = frame_backgrounds
+            back_dset[frame_index, 0] = bkg.background_median
+            back_dset[frame_index, 1] = bkg.background_rms_median
 
     def get_source_slice(self, source_index, force_new=False, cache=True, *args, **kwargs):
         """ Create a stamp (stamp) of the data

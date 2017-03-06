@@ -42,7 +42,7 @@ class Observation(object):
 
         log_level = getattr(logging, log_level, 'INFO')
 
-        logging.basicConfig(filename='/var/panoptes/logs/piaa.log', level=log_level)
+        logging.basicConfig(filename='{}/piaa.log'.format(image_dir), level=log_level)
         self.logger = logging
         self.logger.info('*' * 80)
         self.logger.info('Setting up Observation for analysis')

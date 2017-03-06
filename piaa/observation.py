@@ -534,7 +534,7 @@ class Observation(object):
             ls='dashed',
             edgecolor='blue',
         ))
-        ax3.add_patch(patches.Rectangle(
+        ax2.add_patch(patches.Rectangle(
             (0, 0),
             9, 9,
             fill=False,

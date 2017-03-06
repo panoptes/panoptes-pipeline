@@ -534,6 +534,14 @@ class Observation(object):
             ls='dashed',
             edgecolor='blue',
         ))
+        ax3.add_patch(patches.Rectangle(
+            (0, 0),
+            9, 9,
+            fill=False,
+            lw=1,
+            ls='solid',
+            edgecolor='black',
+        ))
 
         r_a_mask, g_a_mask, b_a_mask = utils.make_masks(aperture_data)
 
@@ -548,7 +556,7 @@ class Observation(object):
 
         # Contour Plot of aperture
 
-        ax3.contourf(aperture_data, cmap='cubehelix_r')
+        ax3.contourf(aperture_data, cmap='cubehelix_r', vmin=stamp.min(), vmax=stamp.max())
         ax3.add_patch(patches.Rectangle(
             (1.5, 1.5),
             6, 6,
@@ -556,6 +564,14 @@ class Observation(object):
             lw=2,
             ls='dashed',
             edgecolor='blue',
+        ))
+        ax3.add_patch(patches.Rectangle(
+            (0, 0),
+            9, 9,
+            fill=False,
+            lw=1,
+            ls='solid',
+            edgecolor='black',
         ))
         ax3.set_xlim(-0.5, 9.5)
         ax3.set_ylim(-0.5, 9.5)

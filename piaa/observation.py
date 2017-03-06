@@ -11,6 +11,8 @@ from astropy.nddata.utils import Cutout2D
 from astropy.stats import sigma_clipped_stats
 from astropy.table import Table
 from astropy.utils.console import ProgressBar
+from astropy.visualization import SqrtStretch
+from astropy.visualization.mpl_normalize import ImageNormalize
 from astropy.wcs import WCS
 
 from photutils import Background2D
@@ -450,6 +452,8 @@ class Observation(object):
 
     def plot_stamp(self, source_index, frame_index, show_data=False, *args, **kwargs):
 
+        norm = ImageNormalize(stretch=SqrtStretch())
+
         stamp_slice = self.get_source_slice(source_index, *args, **kwargs)
         stamp = self.get_frame_stamp(source_index, frame_index, reshape=True, *args, **kwargs)
 
@@ -473,7 +477,7 @@ class Observation(object):
         if show_data:
             print(np.flipud(aperture_data))  # Flip the data to match plot
 
-        cax1 = ax1.imshow(stamp, cmap='cubehelix_r', vmin=0., vmax=aperture_data.max())
+        cax1 = ax1.imshow(stamp, cmap='cubehelix_r', norm=norm)
         plt.colorbar(cax1, ax=ax1)
 
         aperture.plot(color='b', ls='--', lw=2, ax=ax1)

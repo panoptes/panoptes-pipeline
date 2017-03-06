@@ -42,18 +42,18 @@ class Observation(object):
         """ A sequence of images to be processed as one observation """
         assert os.path.exists(image_dir), "Specified directory does not exist"
 
+        if image_dir.endswith('/'):
+            image_dir = image_dir[:-1]
+        self._image_dir = image_dir
+
         log_level = getattr(logging, log_level, 'INFO')
 
-        logging.basicConfig(filename='{}/piaa.log'.format(image_dir), level=log_level)
+        logging.basicConfig(filename='{}_piaa.log'.format(self.image_dir), level=log_level)
         self.logger = logging
         self.logger.info('*' * 80)
         self.logger.info('Setting up Observation for analysis')
 
         super(Observation, self).__init__()
-
-        if image_dir.endswith('/'):
-            image_dir = image_dir[:-1]
-        self._image_dir = image_dir
 
         self.camera_bias = camera_bias
 

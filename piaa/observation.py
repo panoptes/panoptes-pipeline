@@ -314,7 +314,7 @@ class Observation(object):
 
                 self.data_cube[frame_index] -= background_masked_data.filled(0)
 
-    def get_source_slice(self, source_index, force_new=False, cache=True, *args, **kwargs):
+    def get_source_slice(self, source_index, force_new=False, cache=True, height=None, width=None, *args, **kwargs):
         """ Create a stamp (stamp) of the data
 
         This uses the start and end points from the source drift to figure out
@@ -329,7 +329,8 @@ class Observation(object):
             mid_pos = self._adjust_stamp_midpoint(mid_pos)
 
             # Get the width and height of data region
-            width, height = (start_pos - end_pos)
+            if height is None and width is None:
+                width, height = (start_pos - end_pos)
 
             cutout = Cutout2D(
                 fits.getdata(self.files[0]),
@@ -597,6 +598,22 @@ class Observation(object):
         """
 
         self.logger.debug("Starting stamp creation")
+
+        # We want to ensure consistent stamp size, so we do a pre-search for all of them
+        self.logger.debug("Getting stamp size")
+        heights = list()
+        widths = list()
+        for source_index in self.point_sources.index:
+            start_pos, mid_pos, end_pos = self._get_stamp_points(source_index)
+
+            # Get the width and height of data region
+            width, height = (start_pos - end_pos)
+            widths.append(width)
+            heights.append(height)
+
+        heights = np.array(heights)
+        widths = np.array(widths)
+
         for source_index in ProgressBar(self.point_sources.index,
                                         ipython_widget=kwargs.get('ipython_widget', False)):
 
@@ -604,7 +621,7 @@ class Observation(object):
             if subtracted_group_name not in self._hdf5_subtracted:
 
                 try:
-                    ss = self.get_source_slice(source_index)
+                    ss = self.get_source_slice(source_index, height=heights.max(), width=widths.max())
                     stamps = np.array(self.data_cube[:, ss.row_slice, ss.col_slice])
 
                     # Store

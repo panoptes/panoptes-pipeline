@@ -21,6 +21,9 @@ if __name__ == '__main__':
     parser.add_argument('--image-dir', type=str, help="Image directory containing FITS files")
     parser.add_argument('--target-index', type=int, default=None, help="Target index to compute variance for")
     parser.add_argument('--all', action="store_true", default=False, help="Get variance for all targets")
+    parser.add_argument('--subtract', action="store_true", default=False, help="Subtract background from data cube")
+    parser.add_argument('--create-stamps', action="store_true", default=False,
+                        help="Create the stamps for each source")
     parser.add_argument('--log-level', default='INFO', help="Log level: INFO or DEBUG")
     args = parser.parse_args()
 
@@ -30,15 +33,17 @@ if __name__ == '__main__':
     print("Starting at  {}".format(start))
 
     # Normalize first
-    print("Creating background estimates")
-    obs.subtract_background()
-    subtracting_done = Time.now()
-    print("Subtracting done: {:02f} seconds".format(((subtracting_done - start).sec)))
+    if args.subtract:
+        print("Creating background estimates")
+        obs.subtract_background()
+        subtracting_done = Time.now()
+        print("Subtracting done: {:02f} seconds".format(((subtracting_done - start).sec)))
 
-    print("Creating stamps for point sources")
-    obs.create_stamps()
-    stamps_done = Time.now()
-    print("Stamp creationg done: {:02f} seconds".format(((stamps_done - start).sec)))
+    if args.create_stamps:
+        print("Creating stamps for point sources")
+        obs.create_stamps()
+        stamps_done = Time.now()
+        print("Stamp creationg done: {:02f} seconds".format(((stamps_done - start).sec)))
 
     if args.target_index is not None:
         print("Getting variance for index {}".format(args.target_index))

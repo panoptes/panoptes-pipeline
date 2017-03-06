@@ -534,14 +534,6 @@ class Observation(object):
             ls='dashed',
             edgecolor='blue',
         ))
-        ax2.add_patch(patches.Rectangle(
-            (0, 0),
-            9, 9,
-            fill=False,
-            lw=1,
-            ls='solid',
-            edgecolor='black',
-        ))
 
         r_a_mask, g_a_mask, b_a_mask = utils.make_masks(aperture_data)
 

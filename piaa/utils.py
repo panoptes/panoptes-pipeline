@@ -1,5 +1,8 @@
 import numpy as np
 
+from decimal import Decimal
+from decimal import ROUND_HALF_UP
+
 from astropy.io import fits
 from astropy.wcs import WCS
 
@@ -47,7 +50,20 @@ def show_aperture_stamps(seq_files, point_sources):
 
 
 def get_index(x):
-    return int(round(x - 1))
+    """ Find corresponding index position of `x` pixel position
+
+    Note:
+        Due to the standard rounding policy of python that will round half integers
+        to their nearest even whole integer, we instead use a `Decimal` with correct
+        round up policy.
+
+    Args:
+        x (float): x coordinate position
+
+    Returns:
+        int: Index position for zero-based index
+    """
+    return int(Decimal(x - 1).to_integral_value(ROUND_HALF_UP))
 
 
 def pixel_color(col, row, zero_based=False):

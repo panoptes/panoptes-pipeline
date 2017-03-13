@@ -3,6 +3,8 @@ import numpy as np
 from decimal import Decimal
 from decimal import ROUND_HALF_UP
 
+from astropy import units as u
+from astropy.coordinates import Angle
 from astropy.io import fits
 from astropy.wcs import WCS
 
@@ -183,3 +185,27 @@ def make_masks(data):
     ).reshape(w, h))
 
     return red_mask, green_mask, blue_mask
+
+
+def get_fov_plot(ra, dec, width=15, height=10):
+    """ Get points for rectangle corresponding to FOV centered around ra, dec """
+    ra = Angle(ra)
+    ra = ra.wrap_at(180 * u.degree)
+    dec = Angle(dec)
+
+    width = 15 * u.degree
+    height = 10 * u.degree
+
+    ra_bl = ra - (width / 2)
+    ra_br = ra + (width / 2)
+    ra_tl = ra - (width / 2)
+    ra_tr = ra + (width / 2)
+    x = np.array([ra_bl.radian, ra_br.radian, ra_tr.radian, ra_tl.radian, ra_bl.radian])
+
+    dec_bl = dec - (height / 2)
+    dec_br = dec - (height / 2)
+    dec_tl = dec + (height / 2)
+    dec_tr = dec + (height / 2)
+    y = np.array([dec_bl.radian, dec_br.radian, dec_tr.radian, dec_tl.radian, dec_bl.radian])
+
+    return x, y

@@ -187,10 +187,15 @@ def make_masks(data):
     return red_mask, green_mask, blue_mask
 
 
-def get_fov_plot(ra, dec, width=15, height=10):
+def get_fov_plot(ra, dec, width=15, height=10, org=0):
     """ Get points for rectangle corresponding to FOV centered around ra, dec """
-    ra = Angle(ra)
-    ra = ra.wrap_at(180 * u.degree)
+    x = np.remainder(ra + (360 * u.degree) - org, (360 * u.degree))  # shift RA values
+    ind = x > (180 * u.degree)
+    x[ind] -= (360 * u.degree)    # scale conversion to [-180, 180]
+    x = -x    # reverse the scale: East to the left
+
+    ra = Angle(x)
+#     ra = ra.wrap_at(180 * u.degree)
     dec = Angle(dec)
 
     width = width * u.degree

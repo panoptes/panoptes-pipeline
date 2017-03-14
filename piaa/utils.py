@@ -226,13 +226,13 @@ def get_fov_plot(observation=None, coords=None, width=15, height=10, org=0, retu
         dec = [Angle(d * u.degree) for d in dec]
 
         ra_bl = ra[0]
-        ra_br = ra[1]
-        ra_tl = ra[2]
+        ra_br = ra[2]
+        ra_tl = ra[1]
         ra_tr = ra[3]
 
         dec_bl = dec[0]
-        dec_br = dec[1]
-        dec_tl = dec[2]
+        dec_br = dec[2]
+        dec_tl = dec[1]
         dec_tr = dec[3]
 
     x = np.array([ra_bl.radian, ra_br.radian, ra_tr.radian, ra_tl.radian, ra_bl.radian])

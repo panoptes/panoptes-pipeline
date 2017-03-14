@@ -220,8 +220,8 @@ def get_fov_plot(observation=None, coords=None, width=15, height=10, org=0, retu
 
     if observation is not None:
         ra, dec = observation.wcs.all_pix2world(
-            [0, observation._img_h, observation._img_h, 0],
-            [0, 0, observation._img_w, observation._img_w], 0
+            [observation._img_h, observation._img_h, 0, 0],
+            [0, observation._img_w, observation._img_w, 0], 0
         )
 
         ra = [Angle(r * u.degree) for r in ra]

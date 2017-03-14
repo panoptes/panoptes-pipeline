@@ -8,6 +8,8 @@ from astropy.coordinates import Angle
 from astropy.io import fits
 from astropy.wcs import WCS
 
+from shapely.geometry import Polygon
+
 from matplotlib import pyplot as plt
 from photutils import RectangularAperture
 
@@ -30,7 +32,7 @@ def show_aperture_stamps(seq_files, point_sources):
 
             loc = point_sources.iloc[i]
 
-            coords = wcs.all_world2pix(loc['ALPHA_J2000'], loc['DELTA_J2000'], 1)
+            coords = wcs.all_world2pix(loc['ALPHA_J2000'], loc['DELTA_J2000'], 0)
     #         coords = wcs.all_world2pix(target.ra.value, target.dec.value, 1)
 
             color = pixel_color(coords[0], coords[1])
@@ -42,7 +44,6 @@ def show_aperture_stamps(seq_files, point_sources):
             y1 = 4.5
 
             ax[f][i].imshow(c0)
-            #ax[f][i].plot(coords[0] % 10, coords[1] % 10, color='red', marker='+', ms=3, mew=30)
             ax[f][i].set_title("Image: {} Ref: {} - {}".format(f, loc.name, color))
             apertures = RectangularAperture((x1, y1), w=6, h=6, theta=0)
             # annulus = RectangularAnnulus((x1, y1), w_in=4, w_out=10, h_out=10, theta=0)
@@ -187,30 +188,65 @@ def make_masks(data):
     return red_mask, green_mask, blue_mask
 
 
-def get_fov_plot(ra, dec, width=15, height=10, org=0):
-    """ Get points for rectangle corresponding to FOV centered around ra, dec """
-    x = np.remainder(ra + (360 * u.degree) - org, (360 * u.degree))  # shift RA values
+def shift_coord(x, org=0):
+    x = np.remainder(x + (360 * u.degree) - org, (360 * u.degree))  # shift RA values
     ind = x > (180 * u.degree)
     x[ind] -= (360 * u.degree)    # scale conversion to [-180, 180]
     x = -x    # reverse the scale: East to the left
+    return x
 
-    ra = Angle(x)
-#     ra = ra.wrap_at(180 * u.degree)
-    dec = Angle(dec)
 
-    width = width * u.degree
-    height = height * u.degree
+def get_fov_plot(observation=None, coords=None, width=15, height=10, org=0, return_polygon=False):
+    """ Get points for rectangle corresponding to FOV centered around ra, dec """
+    if coords is not None:
+        ra = shift_coord(coords[0], org)
+        dec = coords[1]
 
-    ra_bl = ra - (width / 2)
-    ra_br = ra + (width / 2)
-    ra_tl = ra - (width / 2)
-    ra_tr = ra + (width / 2)
+        ra = Angle(ra)
+        dec = Angle(dec)
+
+        width = width * u.degree
+        height = height * u.degree
+
+        ra_bl = ra - (width / 2)
+        ra_br = ra + (width / 2)
+        ra_tl = ra - (width / 2)
+        ra_tr = ra + (width / 2)
+
+        dec_bl = dec - (height / 2)
+        dec_br = dec - (height / 2)
+        dec_tl = dec + (height / 2)
+        dec_tr = dec + (height / 2)
+
+    if observation is not None:
+        ra, dec = observation.wcs.all_pix2world(
+            [0, observation._img_w, observation._img_w, 0], [0, 0, observation._img_h, observation._img_h], 0)
+
+        ra = [Angle(r) for r in ra]
+        dec = [Angle(d) for d in dec]
+
+        ra_bl = ra[0]
+        ra_br = ra[1]
+        ra_tl = ra[2]
+        ra_tr = ra[3]
+
+        dec_bl = dec[0]
+        dec_br = dec[1]
+        dec_tl = dec[2]
+        dec_tr = dec[3]
+
     x = np.array([ra_bl.radian, ra_br.radian, ra_tr.radian, ra_tl.radian, ra_bl.radian])
-
-    dec_bl = dec - (height / 2)
-    dec_br = dec - (height / 2)
-    dec_tl = dec + (height / 2)
-    dec_tr = dec + (height / 2)
     y = np.array([dec_bl.radian, dec_br.radian, dec_tr.radian, dec_tl.radian, dec_bl.radian])
+
+    if return_polygon:
+        polygon = Polygon([
+            (ra_bl.value, dec_bl.value),
+            (ra_br.value, dec_br.value),
+            (ra_tr.value, dec_tr.value),
+            (ra_tl.value, dec_tl.value),
+        ])
+        return x, y, polygon
+    else:
+        return x, y
 
     return x, y

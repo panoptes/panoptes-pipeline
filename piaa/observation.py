@@ -73,6 +73,8 @@ class Observation(object):
         self._point_sources = None
         self._pixel_locations = None
 
+        self._total_integration_time = None
+
         self.rgb_masks = None  # These are trimmed, see `subtract_background`
 
         self._stamp_masks = (None, None, None)
@@ -105,6 +107,14 @@ class Observation(object):
     @image_dir.setter
     def image_dir(self, directory):
         self._load_images()
+
+    @property
+    def total_integration_time(self):
+        if self._total_integration_time is None:
+            self._total_integration_time = np.array(
+                [np.round(float(fits.getval(f, 'EXPTIME'))) for f in self.files]).sum()
+
+        return self._total_integration_time
 
     @property
     def pixel_locations(self):

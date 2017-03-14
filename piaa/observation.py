@@ -75,6 +75,8 @@ class Observation(object):
 
         self._total_integration_time = None
 
+        self._wcs = None
+
         self.rgb_masks = None  # These are trimmed, see `subtract_background`
 
         self._stamp_masks = (None, None, None)
@@ -127,7 +129,7 @@ class Observation(object):
 
             for f in self.files:
                 wcs = WCS(f)
-                xy = np.array(wcs.all_world2pix(ra, dec, 1, ra_dec_order=True))
+                xy = np.array(wcs.all_world2pix(ra, dec, 0, ra_dec_order=True))
 
                 # Transpose
                 locs.append(xy.T)
@@ -140,6 +142,13 @@ class Observation(object):
     @property
     def stamps(self):
         return self._stamps_cache
+
+    @property
+    def wcs(self):
+        if self._wcs is None:
+            self._wcs = WCS(self.files[0])
+
+        return self._wcs
 
     # @property
     # def num_frames(self):

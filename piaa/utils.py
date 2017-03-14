@@ -193,8 +193,8 @@ def get_fov_plot(ra, dec, width=15, height=10):
     ra = ra.wrap_at(180 * u.degree)
     dec = Angle(dec)
 
-    width = 15 * u.degree
-    height = 10 * u.degree
+    width = width * u.degree
+    height = height * u.degree
 
     ra_bl = ra - (width / 2)
     ra_br = ra + (width / 2)

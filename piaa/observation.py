@@ -82,10 +82,24 @@ class Observation(object):
         self._stamp_masks = (None, None, None)
         self._stamps_cache = {}
 
-        self._hdf5 = h5py.File(image_dir + '.hdf5')
-        self._hdf5_subtracted = h5py.File(image_dir + '_subtracted.hdf5')
+        self._hdf5 = None
+        self._hdf5_subtracted = None
 
         self._load_images()
+
+    @property
+    def hdf5(self):
+        if self._hdf5 is None:
+            self._hdf5 = h5py.File(self.image_dir + '.hdf5')
+
+        return self._hdf5
+
+    @property
+    def hdf5_subtracted(self):
+        if self._hdf5_subtracted is None:
+            self._hdf5_subtracted = h5py.File(self.image_dir + '_subtracted.hdf5')
+
+        return self._hdf5_subtracted
 
     @property
     def point_sources(self):
@@ -163,10 +177,10 @@ class Observation(object):
     @property
     def data_cube(self):
         try:
-            cube_dset = self._hdf5['cube']
+            cube_dset = self.hdf5['cube']
         except KeyError:
             self.logger.debug("Creating data cube")
-            cube_dset = self._hdf5.create_dataset('cube', (len(self.files), self._img_h, self._img_w))
+            cube_dset = self.hdf5.create_dataset('cube', (len(self.files), self._img_h, self._img_w))
             for i, f in enumerate(self.files):
                 cube_dset[i] = fits.getdata(f) - self.camera_bias
 
@@ -377,36 +391,6 @@ class Observation(object):
 
         return stamp
 
-    def get_source_fluxes(self, source_index):
-        """ Get fluxes for given source
-
-        Args:
-            source_index (int): Index of the source from `point_sources`
-
-        Returns:
-            numpy.array: 1-D array of fluxes
-        """
-        fluxes = []
-
-        stamps = self.get_source_stamps(source_index)
-
-        # Get aperture photometry
-        for i in self.pixel_locations:
-            x = int(self.pixel_locations[i, source_index, 0] - stamps[i].origin_original[0]) - 0.5
-            y = int(self.pixel_locations[i, source_index, 1] - stamps[i].origin_original[1]) - 0.5
-
-            aperture = RectangularAperture((x, y), w=6, h=6, theta=0)
-
-            phot_table = aperture_photometry(stamps[i].data, aperture)
-
-            flux = phot_table['aperture_sum'][0]
-
-            fluxes.append(flux)
-
-        fluxes = np.array(fluxes)
-
-        return fluxes
-
     def get_frame_stamp(self, source_index, frame_index,
                         subtract_background=True, get_subtracted=True, reshape=False, *args, **kwargs):
         """ Get individual stamp for given source and frame
@@ -425,12 +409,12 @@ class Observation(object):
         """
 
         try:
-            stamp = self._hdf5_subtracted[
+            stamp = self.hdf5_subtracted[
                 'subtracted/{}'.format(source_index)][frame_index]
 
             if reshape:
-                num_rows = self._hdf5_subtracted.attrs['stamp_rows']
-                num_cols = self._hdf5_subtracted.attrs['stamp_cols']
+                num_rows = self.hdf5_subtracted.attrs['stamp_rows']
+                num_cols = self.hdf5_subtracted.attrs['stamp_cols']
                 stamp = stamp.reshape(num_rows, num_cols).astype(int)
         except KeyError:
             stamp_slice = self.get_source_slice(source_index, *args, **kwargs)
@@ -637,22 +621,22 @@ class Observation(object):
                                         ipython_widget=kwargs.get('ipython_widget', False)):
 
             subtracted_group_name = 'subtracted/{}'.format(source_index)
-            if subtracted_group_name not in self._hdf5_subtracted:
+            if subtracted_group_name not in self.hdf5_subtracted:
 
                 try:
                     ss = self.get_source_slice(source_index, height=heights.max(), width=widths.max())
                     stamps = np.array(self.data_cube[:, ss.row_slice, ss.col_slice])
 
                     # Store
-                    self._hdf5_subtracted.create_dataset(subtracted_group_name, data=stamps)
+                    self.hdf5_subtracted.create_dataset(subtracted_group_name, data=stamps)
 
                 except Exception as e:
                     self.logger.warning("Problem creating subtracted stamp for {}: {}".format(source_index, e))
 
         # Store stamp size
         try:
-            self._hdf5_subtracted.attrs['stamp_rows'] = ss.cutout.shape[0]
-            self._hdf5_subtracted.attrs['stamp_cols'] = ss.cutout.shape[1]
+            self.hdf5_subtracted.attrs['stamp_rows'] = ss.cutout.shape[0]
+            self.hdf5_subtracted.attrs['stamp_cols'] = ss.cutout.shape[1]
         except UnboundLocalError:
             pass
 
@@ -666,11 +650,11 @@ class Observation(object):
         num_sources = len(self.point_sources)
 
         try:
-            vgrid_dset = self._hdf5_subtracted['vgrid']
+            vgrid_dset = self.hdf5_subtracted['vgrid']
         except KeyError:
-            vgrid_dset = self._hdf5_subtracted.create_dataset('vgrid', (num_sources, num_sources))
+            vgrid_dset = self.hdf5_subtracted.create_dataset('vgrid', (num_sources, num_sources))
 
-        stamp0 = np.array(self._hdf5_subtracted['subtracted/{}'.format(target_index)])
+        stamp0 = np.array(self.hdf5_subtracted['subtracted/{}'.format(target_index)])
 
         # Normalize
         self.logger.debug("Normalizing target")
@@ -684,7 +668,7 @@ class Observation(object):
         for source_index in iterator:
             # Only compute if zero (which will re-compute target but that's fine)
             if vgrid_dset[target_index, source_index] == 0. and vgrid_dset[source_index, target_index] == 0.:
-                stamp1 = np.array(self._hdf5_subtracted['subtracted/{}'.format(source_index)])
+                stamp1 = np.array(self.hdf5_subtracted['subtracted/{}'.format(source_index)])
 
                 # Normalize
                 stamp1 = stamp1 / stamp1.sum()
@@ -759,59 +743,6 @@ class Observation(object):
         self._point_sources = point_sources[top & bottom & right & left].to_pandas()
 
         return self._point_sources
-
-    # def build_all_psc(self):
-    #     # Make a data cube for the entire observation
-    #     cube = list()
-
-    #     for i, f in enumerate(self.files):
-    #         with fits.open(f) as hdu:
-    #             d0 = hdu[0].data
-
-    #             stamps = [utils.make_postage_stamp(d0, ps['X'], ps['Y'], padding=self.stamp_padding).flatten()
-    #                       for ps in self.point_sources]
-
-    #             cube.append(stamps)
-
-    #             hdu.close()
-
-    #     self.psc_collection = np.array(cube)
-
-    # def get_variance(self, frame, i, j):
-    #     """ Compare one stamp to another and get variance
-
-    #     Args:
-    #         stamps(np.array): Collection of stamps with axes: frame, PIC, pixels
-    #         frame(int): The frame number we want to compare
-    #         i(int): Index of target PIC
-    #         j(int): Index of PIC we want to compare target to
-    #     """
-
-    #     normal_target = self.psc_collection[frame, i] / self.psc_collection[frame, i].sum()
-    #     normal_compare = self.psc_collection[frame, j] / self.psc_collection[frame, j].sum()
-
-    #     normal_diff = (normal_target - normal_compare)**2
-
-    #     diff_sum = normal_diff.sum()
-
-    #     return diff_sum
-
-    # def get_all_variance(self, i):
-    #     """ Get all variances for given target
-
-    #     Args:
-    #         stamps(np.array): Collection of stamps with axes: frame, PIC, pixels
-    #         i(int): Index of target PIC
-    #     """
-
-    #     v = np.zeros((self.num_stars))
-
-    #     for m in range(self.num_frames):
-    #         for j in range(self.num_stars):
-    #             v[j] += self.get_variance(m, i, j)
-
-    #     s = pd.Series(v)
-    #     return s
 
     def _get_stamp_points(self, idx):
         # Print beginning, middle, and end positions

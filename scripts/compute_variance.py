@@ -18,7 +18,7 @@ if __name__ == '__main__':
     import argparse
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('--image-dir', type=str, help="Image directory containing FITS files")
+    parser.add_argument('--image-dir', required=True, type=str, help="Image directory containing FITS files")
     parser.add_argument('--target-index', type=int, default=None, help="Target index to compute variance for")
     parser.add_argument('--all', action="store_true", default=False, help="Get variance for all targets")
     parser.add_argument('--subtract', action="store_true", default=False, help="Subtract background from data cube")

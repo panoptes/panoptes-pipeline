@@ -20,7 +20,6 @@ from photutils import MedianBackground
 from photutils import RectangularAperture
 from photutils import SigmaClip
 from photutils import aperture_photometry
-from photutils import make_source_mask
 
 import h5py
 import numpy as np
@@ -83,7 +82,7 @@ class Observation(object):
         self._stamps_cache = {}
 
         self._hdf5 = None
-        self._hdf5_subtracted = None
+        self._hdf5_stamps = None
 
         self._load_images()
 
@@ -95,11 +94,11 @@ class Observation(object):
         return self._hdf5
 
     @property
-    def hdf5_subtracted(self):
-        if self._hdf5_subtracted is None:
-            self._hdf5_subtracted = h5py.File(self.image_dir + '_subtracted.hdf5')
+    def hdf5_stamps(self):
+        if self._hdf5_stamps is None:
+            self._hdf5_stamps = h5py.File(self.image_dir + '_stamps.hdf5')
 
-        return self._hdf5_subtracted
+        return self._hdf5_stamps
 
     @property
     def point_sources(self):
@@ -119,10 +118,6 @@ class Observation(object):
             str: Path to image directory
         """
         return self._image_dir
-
-    @image_dir.setter
-    def image_dir(self, directory):
-        self._load_images()
 
     @property
     def total_integration_time(self):
@@ -164,15 +159,15 @@ class Observation(object):
 
         return self._wcs
 
-    # @property
-    # def num_frames(self):
-    #     assert self.psc_collection is not None
-    #     return self.psc_collection.shape[0]
+    @property
+    def num_frames(self):
+        assert self.psc_collection is not None
+        return self.psc_collection.shape[0]
 
-    # @property
-    # def num_stars(self):
-    #     assert self.psc_collection is not None
-    #     return self.psc_collection.shape[1]
+    @property
+    def num_point_sources(self):
+        assert self.psc_collection is not None
+        return self.psc_collection.shape[1]
 
     @property
     def data_cube(self):
@@ -186,115 +181,8 @@ class Observation(object):
 
         return cube_dset
 
-    def subtract_frame_background(self, stamp, frame_index,
-                                  r_mask=None, g_mask=None, b_mask=None, mid_point=None,
-                                  background_sub_method='median', store_background=False):
-        """ Perform RGB background subtraction
-
-        Args:
-            stamp (numpy.array): A stamp of the data
-            r_mask (numpy.ma.array, optional): A mask of the R channel
-            g_mask (numpy.ma.array, optional): A mask of the G channel
-            b_mask (numpy.ma.array, optional): A mask of the B channel
-            background_sub_method (str, optional): Subtraction method of `median` or `mean`
-
-        Returns:
-            numpy.array: The background subtracted data recomined into one array
-        """
-        # self.logger.debug("Subtracting background - {}".format(background_sub_method))
-
-        background_region_id = (int(mid_point[1] // self._back_w), int(mid_point[0] // self._back_h))
-        self.logger.debug("Background region: {}\tFrame: {}".format(background_region_id, frame_index))
-
-        try:
-            frame_background = self.background_region[frame_index]
-        except KeyError:
-            frame_background = dict()
-            self.background_region[frame_index] = frame_background
-
-        try:
-            background_region = frame_background[background_region_id]
-        except KeyError:
-            background_region = dict()
-            self.background_region[frame_index][background_region_id] = background_region
-
-        try:
-            r_channel_background = background_region['red']
-            g_channel_background = background_region['green']
-            b_channel_background = background_region['blue']
-        except KeyError:
-            r_channel_background = list()
-            g_channel_background = list()
-            b_channel_background = list()
-            if store_background:
-                self.background_region[frame_index][background_region_id]['red'] = r_channel_background
-                self.background_region[frame_index][background_region_id]['green'] = g_channel_background
-                self.background_region[frame_index][background_region_id]['blue'] = b_channel_background
-
-        self.logger.debug("R channel background {}".format(r_channel_background))
-        self.logger.debug("G channel background {}".format(g_channel_background))
-        self.logger.debug("B channel background {}".format(b_channel_background))
-
-        if len(r_channel_background) < 5:
-
-            self.logger.debug("Getting source mask {} {} {}".format(type(stamp), stamp.dtype, stamp.shape))
-            source_mask = make_source_mask(stamp, snr=3., npixels=2)
-
-            if r_mask is None or g_mask is None or b_mask is None:
-                self.logger.debug("Making RGB masks for data subtraction")
-                self._stamp_masks = utils.make_masks(stamp)
-                r_mask, g_mask, b_mask = self._stamp_masks
-
-            self.logger.debug("Determining backgrounds")
-            r_masked_data = np.ma.array(stamp, mask=np.logical_or(source_mask, ~r_mask))
-            r_stats = sigma_clipped_stats(r_masked_data, sigma=3.)
-            r_channel_background.append(r_stats)
-
-            g_masked_data = np.ma.array(stamp, mask=np.logical_or(source_mask, ~g_mask))
-            g_stats = sigma_clipped_stats(g_masked_data, sigma=3.)
-            g_channel_background.append(g_stats)
-
-            b_masked_data = np.ma.array(stamp, mask=np.logical_or(source_mask, ~b_mask))
-            b_stats = sigma_clipped_stats(b_masked_data, sigma=3.)
-            b_channel_background.append(b_stats)
-
-        method_lookup = {
-            'mean': 0,
-            'median': 1,
-        }
-        method_idx = method_lookup[background_sub_method]
-
-        self.logger.debug("Getting background values")
-        r_background = np.median(np.array(r_channel_background)[:, method_idx])
-        g_background = np.median(np.array(g_channel_background)[:, method_idx])
-        b_background = np.median(np.array(b_channel_background)[:, method_idx])
-        self.logger.debug("Background subtraction: Region {}\t{}\t{}\t{}".format(
-            background_region_id, r_background, g_background, b_background))
-
-        # self.logger.debug("Getting sigma values")
-        # r_sigma = np.median(np.array(r_channel_background)[:, 2])
-        # g_sigma = np.median(np.array(g_channel_background)[:, 2])
-        # b_sigma = np.median(np.array(b_channel_background)[:, 2])
-
-        self.logger.debug("Getting RGB data")
-        r_masked_data = np.ma.array(stamp, mask=~r_mask)
-        g_masked_data = np.ma.array(stamp, mask=~g_mask)
-        b_masked_data = np.ma.array(stamp, mask=~b_mask)
-
-        # self.logger.debug("Clipping RGB values with 5-sigma: {} {} {}".format(r_sigma, g_sigma, b_sigma))
-        # np.ma.clip(r_masked_data, r_background - 5 * r_sigma, r_background + 5 * r_sigma, r_masked_data)
-        # np.ma.clip(g_masked_data, g_background - 5 * g_sigma, g_background + 5 * g_sigma, g_masked_data)
-        # np.ma.clip(b_masked_data, b_background - 5 * b_sigma, b_background + 5 * b_sigma, b_masked_data)
-
-        self.logger.debug("Subtracting backgrounds")
-        r_masked_data -= r_background
-        g_masked_data -= g_background
-        b_masked_data -= b_background
-
-        self.logger.debug("Combining channels")
-        subtracted_data = r_masked_data.filled(0) + g_masked_data.filled(0) + b_masked_data.filled(0)
-
-        return subtracted_data
+    def get_header_value(self, frame_index, header):
+        return fits.getval(self.files[frame_index], header)
 
     def subtract_background(self, frames=None):
         """Get background estimates for all frames for each color channel
@@ -317,35 +205,73 @@ class Observation(object):
                 to all frames
 
         """
-        self.logger.debug("Getting background estimates")
-        if frames is None:
-            frames = range(len(self.files))
+        if self.hdf5.attrs['subtracted'] is not True:
+            self.logger.debug("Getting background estimates")
+            if frames is None:
+                frames = range(len(self.files))
 
-        sigma_clip = SigmaClip(sigma=3., iters=10)
-        bkg_estimator = MedianBackground()
+            sigma_clip = SigmaClip(sigma=3., iters=10)
+            bkg_estimator = MedianBackground()
 
-        for frame_index in frames:
+            for frame_index in frames:
 
-            self.logger.debug("Frame: {}".format(frame_index))
+                self.logger.debug("Frame: {}".format(frame_index))
 
-            # Get the bias subtracted data for the frame
-            data = self.data_cube[frame_index]
+                background_data = self.get_frame_background(
+                    frame_index, sigma_clip=sigma_clip, bkg_estimator=bkg_estimator)
 
-            if self.rgb_masks is None:
-                # Create RGB masks
-                self.logger.debug("Making RGB masks")
-                self.rgb_masks = utils.make_masks(data)
+                self.data_cube[frame_index] -= background_data
 
-            for color, mask in zip(['R', 'G', 'B'], self.rgb_masks):
-                bkg = Background2D(data, (self.background_box_h, self.background_box_w), filter_size=(3, 3),
-                                   sigma_clip=sigma_clip, bkg_estimator=bkg_estimator, mask=~mask)
+            self.hdf5.attrs['subtracted'] = True
 
-                self.logger.debug("\t{} Background\t Value: {:.02f}\t RMS: {:.02f}".format(
-                    color, bkg.background_median, bkg.background_rms_median))
+    def get_frame_background(self, frame_index, sigma_clip=None, bkg_estimator=None, summary=False):
+        self.logger.debug("Getting background for frame {}".format(frame_index))
 
-                background_masked_data = np.ma.array(bkg.background, mask=~mask)
+        if sigma_clip is None:
+            sigma_clip = SigmaClip(sigma=3., iters=10)
 
-                self.data_cube[frame_index] -= background_masked_data.filled(0)
+        if bkg_estimator is None:
+            bkg_estimator = MedianBackground()
+
+        # Get existing backgrounds summary
+        try:
+            background_dset = self.hdf5['background']
+        except KeyError:
+            self.logger.debug("Creating background dataset")
+            # Create dataset that will hold the mmedian and the rms_median for 3 channels for all frames
+            background_dset = self.hdf5.create_dataset('background', (len(self.files), 3, 2))
+
+        if summary and background_dset[frame_index, 2, 0] > 0.:
+            return background_dset[frame_index]
+
+        # Get the bias subtracted data for the frame
+        data = self.data_cube[frame_index]
+
+        if self.rgb_masks is None:
+            # Create RGB masks
+            self.logger.debug("Making RGB masks")
+            self.rgb_masks = utils.make_masks(data)
+
+        background_data = np.zeros_like(data)
+
+        for color_index, masks in enumerate(zip(['R', 'G', 'B'], self.rgb_masks)):
+            color = masks[0]
+            mask = masks[1]
+            bkg = Background2D(data, (self.background_box_h, self.background_box_w), filter_size=(3, 3),
+                               sigma_clip=sigma_clip, bkg_estimator=bkg_estimator, mask=~mask)
+
+            self.logger.debug("\t{} Background\t Value: {:.02f}\t RMS: {:.02f}".format(
+                color, bkg.background_median, bkg.background_rms_median))
+
+            background_masked_data = np.ma.array(bkg.background, mask=~mask)
+            background_dset[frame_index, color_index] = (bkg.background_median, bkg.background_rms_median)
+
+            background_data += background_masked_data.filled(0)
+
+        if summary:
+            return background_dset[frame_index]
+        else:
+            return background_data
 
     def get_source_slice(self, source_index, force_new=False, cache=True, height=None, width=None, *args, **kwargs):
         """ Create a stamp (stamp) of the data
@@ -409,12 +335,12 @@ class Observation(object):
         """
 
         try:
-            stamp = self.hdf5_subtracted[
+            stamp = self.hdf5_stamps[
                 'subtracted/{}'.format(source_index)][frame_index]
 
             if reshape:
-                num_rows = self.hdf5_subtracted.attrs['stamp_rows']
-                num_cols = self.hdf5_subtracted.attrs['stamp_cols']
+                num_rows = self.hdf5_stamps.attrs['stamp_rows']
+                num_cols = self.hdf5_stamps.attrs['stamp_cols']
                 stamp = stamp.reshape(num_rows, num_cols).astype(int)
         except KeyError:
             stamp_slice = self.get_source_slice(source_index, *args, **kwargs)
@@ -621,22 +547,22 @@ class Observation(object):
                                         ipython_widget=kwargs.get('ipython_widget', False)):
 
             subtracted_group_name = 'subtracted/{}'.format(source_index)
-            if subtracted_group_name not in self.hdf5_subtracted:
+            if subtracted_group_name not in self.hdf5_stamps:
 
                 try:
                     ss = self.get_source_slice(source_index, height=heights.max(), width=widths.max())
                     stamps = np.array(self.data_cube[:, ss.row_slice, ss.col_slice])
 
                     # Store
-                    self.hdf5_subtracted.create_dataset(subtracted_group_name, data=stamps)
+                    self.hdf5_stamps.create_dataset(subtracted_group_name, data=stamps)
 
                 except Exception as e:
                     self.logger.warning("Problem creating subtracted stamp for {}: {}".format(source_index, e))
 
         # Store stamp size
         try:
-            self.hdf5_subtracted.attrs['stamp_rows'] = ss.cutout.shape[0]
-            self.hdf5_subtracted.attrs['stamp_cols'] = ss.cutout.shape[1]
+            self.hdf5_stamps.attrs['stamp_rows'] = ss.cutout.shape[0]
+            self.hdf5_stamps.attrs['stamp_cols'] = ss.cutout.shape[1]
         except UnboundLocalError:
             pass
 
@@ -650,11 +576,11 @@ class Observation(object):
         num_sources = len(self.point_sources)
 
         try:
-            vgrid_dset = self.hdf5_subtracted['vgrid']
+            vgrid_dset = self.hdf5_stamps['vgrid']
         except KeyError:
-            vgrid_dset = self.hdf5_subtracted.create_dataset('vgrid', (num_sources, num_sources))
+            vgrid_dset = self.hdf5_stamps.create_dataset('vgrid', (num_sources, num_sources))
 
-        stamp0 = np.array(self.hdf5_subtracted['subtracted/{}'.format(target_index)])
+        stamp0 = np.array(self.hdf5_stamps['subtracted/{}'.format(target_index)])
 
         # Normalize
         self.logger.debug("Normalizing target")
@@ -668,7 +594,7 @@ class Observation(object):
         for source_index in iterator:
             # Only compute if zero (which will re-compute target but that's fine)
             if vgrid_dset[target_index, source_index] == 0. and vgrid_dset[source_index, target_index] == 0.:
-                stamp1 = np.array(self.hdf5_subtracted['subtracted/{}'.format(source_index)])
+                stamp1 = np.array(self.hdf5_stamps['subtracted/{}'.format(source_index)])
 
                 # Normalize
                 stamp1 = stamp1 / stamp1.sum()

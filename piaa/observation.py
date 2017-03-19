@@ -8,7 +8,6 @@ from glob import glob
 
 from astropy.io import fits
 from astropy.nddata.utils import Cutout2D
-from astropy.stats import sigma_clipped_stats
 from astropy.table import Table
 from astropy.utils.console import ProgressBar
 from astropy.visualization import SqrtStretch

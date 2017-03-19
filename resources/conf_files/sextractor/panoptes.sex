@@ -40,21 +40,21 @@ FLAG_TYPE        OR             # flag pixel combination: OR, AND, MIN, MAX
 
 #------------------------------ Photometry -----------------------------------
  
-PHOT_APERTURES   5              # MAG_APER aperture diameter(s) in pixels
+PHOT_APERTURES   6              # MAG_APER aperture diameter(s) in pixels
 PHOT_AUTOPARAMS  2.5, 3.5       # MAG_AUTO parameters: <Kron_fact>,<min_radius>
 PHOT_PETROPARAMS 2.0, 3.5       # MAG_PETRO parameters: <Petrosian_fact>,
                                 # <min_radius>
 PHOT_AUTOAPERS   0.0,0.0        # <estimation>,<measurement> minimum apertures
                                 # for MAG_AUTO and MAG_PETRO
 
-SATUR_LEVEL      50000.0        # level (in ADUs) at which arises saturation
+SATUR_LEVEL      13583.0        # level (in ADUs) at which arises saturation
 SATUR_KEY        SATURATE       # keyword for saturation level (in ADUs)
  
 MAG_ZEROPOINT    25.0            # magnitude zero-point
 MAG_GAMMA        4.0            # gamma of emulsion (for photographic scans)
-GAIN             0.0            # detector gain in e-/ADU
+GAIN             1.56            # detector gain in e-/ADU
 GAIN_KEY         GAIN           # keyword for detector gain in e-/ADU
-PIXEL_SCALE      0            # size of pixel in arcsec (0=use FITS WCS info)
+PIXEL_SCALE      10.3            # size of pixel in arcsec (0=use FITS WCS info)
  
 #------------------------- Star/Galaxy Separation ----------------------------
  

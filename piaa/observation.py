@@ -36,7 +36,8 @@ Stamp = namedtuple('Stamp', ['row_slice', 'col_slice', 'mid_point', 'cutout'])
 
 class Observation(object):
 
-    def __init__(self, image_dir, aperture_size=6, camera_bias=1024, log_level='INFO', *args, **kwargs):
+    def __init__(self, image_dir, aperture_size=6, camera_bias=1024,
+                 log_level='INFO', build_data_cube=True, *args, **kwargs):
         """ A sequence of images to be processed as one observation """
         assert os.path.exists(image_dir), "Specified directory does not exist"
 
@@ -84,6 +85,9 @@ class Observation(object):
         self._hdf5_stamps = None
 
         self._load_images()
+
+        if build_data_cube:
+            assert self.data_cube is not None
 
     @property
     def hdf5(self):

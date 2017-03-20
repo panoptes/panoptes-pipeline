@@ -178,6 +178,8 @@ class Observation(object):
             for i, f in enumerate(self.files):
                 cube_dset[i] = fits.getdata(f) - self.camera_bias
 
+            self.hdf5.create_dataset('subtracted', data=np.zeros(len(self.files), dtype=np.bool))
+
         return cube_dset
 
     def get_header_value(self, frame_index, header):
@@ -204,24 +206,22 @@ class Observation(object):
                 to all frames
 
         """
-        if self.hdf5.attrs['subtracted'] is not True:
-            self.logger.debug("Getting background estimates")
-            if frames is None:
-                frames = range(len(self.files))
+        if frames is None:
+            frames = range(len(self.files))
 
-            sigma_clip = SigmaClip(sigma=3., iters=10)
-            bkg_estimator = MedianBackground()
+        sigma_clip = SigmaClip(sigma=3., iters=10)
+        bkg_estimator = MedianBackground()
 
-            for frame_index in frames:
-
-                self.logger.debug("Frame: {}".format(frame_index))
+        for frame_index in frames:
+            if bool(self.hdf5['subtracted'][frame_index]) is not True:
+                self.logger.debug("Getting background estimates for frame: {}".format(frame_index))
 
                 background_data = self.get_frame_background(
                     frame_index, sigma_clip=sigma_clip, bkg_estimator=bkg_estimator)
 
                 self.data_cube[frame_index] -= background_data
 
-            self.hdf5.attrs['subtracted'] = True
+            self.hdf5['subtracted'][frame_index] = True
 
     def get_frame_background(self, frame_index, sigma_clip=None, bkg_estimator=None, summary=False):
         self.logger.debug("Getting background for frame {}".format(frame_index))
@@ -316,8 +316,7 @@ class Observation(object):
 
         return stamp
 
-    def get_frame_stamp(self, source_index, frame_index,
-                        subtract_background=True, get_subtracted=True, reshape=False, *args, **kwargs):
+    def get_frame_stamp(self, source_index, frame_index, reshape=False, *args, **kwargs):
         """ Get individual stamp for given source and frame
 
         Note:
@@ -344,12 +343,6 @@ class Observation(object):
         except KeyError:
             stamp_slice = self.get_source_slice(source_index, *args, **kwargs)
             stamp = self.data_cube[frame_index, stamp_slice.row_slice, stamp_slice.col_slice]
-
-            if subtract_background:
-
-                # NEED TO FIGURE OUT THE RGB MASKS FOR STAMP
-
-                stamp = self.subtract_background(stamp, frame_index, mid_point=stamp_slice.mid_point).astype(int)
 
         return stamp
 
@@ -445,7 +438,7 @@ class Observation(object):
             y_loc = (i[0] / 10) + 0.05
 
             ax2.text(x=x_loc, y=y_loc,
-                     ha='center', va='center', s=val, fontsize=14, alpha=0.75, transform=ax2.transAxes)
+                     ha='center', va='center', s=int(val), fontsize=12, alpha=0.75, transform=ax2.transAxes)
 
         ax2.set_xticks(x_major_ticks)
         ax2.set_xticks(x_minor_ticks, minor=True)
@@ -653,6 +646,9 @@ class Observation(object):
         # Rename columns
         point_sources.rename_column('X_IMAGE', 'X')
         point_sources.rename_column('Y_IMAGE', 'Y')
+
+        # Add the SNR
+        point_sources['SNR'] = point_sources['FLUX_AUTO'] / point_sources['FLUXERR_AUTO']
 
         # Filter point sources near edge
         # w, h = data[0].shape

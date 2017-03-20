@@ -47,7 +47,7 @@ PHOT_PETROPARAMS 2.0, 3.5       # MAG_PETRO parameters: <Petrosian_fact>,
 PHOT_AUTOAPERS   0.0,0.0        # <estimation>,<measurement> minimum apertures
                                 # for MAG_AUTO and MAG_PETRO
 
-SATUR_LEVEL      13583.0        # level (in ADUs) at which arises saturation
+SATUR_LEVEL      12559.0        # level (in ADUs) at which arises saturation
 SATUR_KEY        SATURATE       # keyword for saturation level (in ADUs)
  
 MAG_ZEROPOINT    25.0            # magnitude zero-point

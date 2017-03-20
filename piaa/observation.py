@@ -185,7 +185,7 @@ class Observation(object):
     def get_header_value(self, frame_index, header):
         return fits.getval(self.files[frame_index], header)
 
-    def subtract_background(self, frames=None):
+    def subtract_background(self, frames=None, display_progress=False):
         """Get background estimates for all frames for each color channel
 
         The first step is to figure out a box size for the background calculations.
@@ -212,7 +212,12 @@ class Observation(object):
         sigma_clip = SigmaClip(sigma=3., iters=10)
         bkg_estimator = MedianBackground()
 
-        for frame_index in frames:
+        if display_progress:
+            frames_iter = ProgressBar(frames, ipython_widget=True)
+        else:
+            frames_iter = frames
+
+        for frame_index in frames_iter:
             if bool(self.hdf5['subtracted'][frame_index]) is not True:
                 self.logger.debug("Getting background estimates for frame: {}".format(frame_index))
 

@@ -752,8 +752,8 @@ class Observation(object):
         """ Get the nearest 10 block """
         return int(np.ceil(np.abs(num) / 8)) * 8
 
-    def _load_images(self, remove_pointing=True):
-        seq_files = glob("{}/*.fits".format(self.image_dir))
+    def _load_images(self):
+        seq_files = glob("{}/*T*.fits".format(self.image_dir))
         seq_files.sort()
 
         self.files = seq_files

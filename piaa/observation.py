@@ -1,4 +1,3 @@
-import logging
 import os
 import shutil
 import subprocess
@@ -36,21 +35,21 @@ Stamp = namedtuple('Stamp', ['row_slice', 'col_slice', 'mid_point', 'cutout'])
 
 class Observation(object):
 
-    def __init__(self, image_dir, aperture_size=6, camera_bias=1024,
+    def __init__(self, image_dir, aperture_size=6, camera_bias=2048,
                  log_level='INFO', build_data_cube=True, *args, **kwargs):
         """ A sequence of images to be processed as one observation """
         assert os.path.exists(image_dir), "Specified directory does not exist"
+
+        self.verbose = False
+        if kwargs.get('verbose', False):
+            self.verbose = True
 
         if image_dir.endswith('/'):
             image_dir = image_dir[:-1]
         self._image_dir = image_dir
 
-        log_level = getattr(logging, log_level, 'INFO')
-
-        logging.basicConfig(filename='{}_piaa.log'.format(self.image_dir), level=log_level)
-        self.logger = logging
-        self.logger.info('*' * 80)
-        self.logger.info('Setting up Observation for analysis')
+        self.log('*' * 80)
+        self.log('Setting up Observation for analysis')
 
         super(Observation, self).__init__()
 
@@ -62,7 +61,6 @@ class Observation(object):
         # Background estimation boxes
         self.background_box_h = 316
         self.background_box_w = 434
-        self.background_estimates = dict()
 
         self.background_region = {}
 
@@ -177,14 +175,25 @@ class Observation(object):
         try:
             cube_dset = self.hdf5['cube']
         except KeyError:
-            self.logger.debug("Creating data cube")
+            if self.verbose:
+                self.log("Creating data cube", end='')
             cube_dset = self.hdf5.create_dataset('cube', (len(self.files), self._img_h, self._img_w))
             for i, f in enumerate(self.files):
+                if self.verbose and i % 10 == 0:
+                    self.log('.', end='')
+
                 cube_dset[i] = fits.getdata(f) - self.camera_bias
 
-            self.hdf5.create_dataset('subtracted', data=np.zeros(len(self.files), dtype=np.bool))
+            self.log('Done')
 
         return cube_dset
+
+    def log(self, msg, **kwargs):
+        if self.verbose:
+            if 'end' in kwargs:
+                print(msg, end=kwargs['end'])
+            else:
+                print(msg)
 
     def get_header_value(self, frame_index, header):
         return fits.getval(self.files[frame_index], header)
@@ -203,7 +212,7 @@ class Observation(object):
         boxes in each direction.
 
         We use a 3 sigma median background clipped estimator.
-        The built-in camera bias (1024) has already been removed from the data.
+        The built-in camera bias (2048) has already been removed from the data.
 
         Args:
             frames (list, optional): List of frames to get estimates for, defaults
@@ -222,18 +231,55 @@ class Observation(object):
             frames_iter = frames
 
         for frame_index in frames_iter:
-            if bool(self.hdf5['subtracted'][frame_index]) is not True:
-                self.logger.debug("Getting background estimates for frame: {}".format(frame_index))
+            frame_key = 'frame_{}'.format(frame_index)
+
+            # Figure out if we have already subtracted this frame
+            try:
+                already_subtracted = bool(self.data_cube.attrs[frame_key])
+            except KeyError:
+                already_subtracted = False
+
+            if already_subtracted is not True:
+                self.log("Getting background estimates for frame: {}".format(frame_index))
 
                 background_data = self.get_frame_background(
                     frame_index, sigma_clip=sigma_clip, bkg_estimator=bkg_estimator)
 
                 self.data_cube[frame_index] -= background_data
 
-            self.hdf5['subtracted'][frame_index] = True
+                self.data_cube.attrs[frame_key] = True
 
-    def get_frame_background(self, frame_index, sigma_clip=None, bkg_estimator=None, summary=False):
-        self.logger.debug("Getting background for frame {}".format(frame_index))
+    def get_frame_background(self, frame_index, sigma_clip=None,
+                             bkg_estimator=None, summary=False, background_obj=False):
+        frame_key = 'frame_{}'.format(frame_index)
+
+        # Figure out if we have already subtracted this frame
+        try:
+            already_subtracted = bool(self.data_cube.attrs[frame_key])
+        except KeyError:
+            already_subtracted = False
+
+        # Return error if trying to return already subtracted background
+        if summary is False and already_subtracted:
+            raise Exception("Cannot get already subtracted background")
+
+        # Figure out if we have already have a summary
+        try:
+            have_summary = bool(self.hdf5['background'].attrs[frame_key])
+        except KeyError:
+            have_summary = False
+
+        # Get backgrounds dataset or create
+        try:
+            background_dset = self.hdf5['background']
+        except KeyError:
+            self.log("Creating background dataset")
+            # Create dataset that will hold the mmedian and the rms_median for 3 channels for all frames
+            background_dset = self.hdf5.create_dataset('background', (len(self.files), 3, 2))
+
+        # If we just want the summary have it, return
+        if summary and have_summary:
+            return background_dset[frame_index]
 
         if sigma_clip is None:
             sigma_clip = SigmaClip(sigma=3., iters=10)
@@ -241,26 +287,17 @@ class Observation(object):
         if bkg_estimator is None:
             bkg_estimator = MedianBackground()
 
-        # Get existing backgrounds summary
-        try:
-            background_dset = self.hdf5['background']
-        except KeyError:
-            self.logger.debug("Creating background dataset")
-            # Create dataset that will hold the mmedian and the rms_median for 3 channels for all frames
-            background_dset = self.hdf5.create_dataset('background', (len(self.files), 3, 2))
-
-        if summary and background_dset[frame_index, 2, 0] > 0.:
-            return background_dset[frame_index]
-
         # Get the bias subtracted data for the frame
         data = self.data_cube[frame_index]
 
         if self.rgb_masks is None:
             # Create RGB masks
-            self.logger.debug("Making RGB masks")
+            self.log("Making RGB masks")
             self.rgb_masks = utils.make_masks(data)
 
+        # Create holder for the actual background
         background_data = np.zeros_like(data)
+        background_objs = dict()
 
         for color_index, masks in enumerate(zip(['R', 'G', 'B'], self.rgb_masks)):
             color = masks[0]
@@ -268,7 +305,9 @@ class Observation(object):
             bkg = Background2D(data, (self.background_box_h, self.background_box_w), filter_size=(3, 3),
                                sigma_clip=sigma_clip, bkg_estimator=bkg_estimator, mask=~mask)
 
-            self.logger.debug("\t{} Background\t Value: {:.02f}\t RMS: {:.02f}".format(
+            background_objs[color] = bkg
+
+            self.log("\t{} Background\t Value: {:.02f}\t RMS: {:.02f}".format(
                 color, bkg.background_median, bkg.background_rms_median))
 
             background_masked_data = np.ma.array(bkg.background, mask=~mask)
@@ -276,8 +315,13 @@ class Observation(object):
 
             background_data += background_masked_data.filled(0)
 
+        # Mark that we already have summary
+        self.hdf5['background'].attrs[frame_key] = True
+
         if summary:
             return background_dset[frame_index]
+        elif background_obj is True:
+            return background_objs
         else:
             return background_data
 
@@ -374,8 +418,8 @@ class Observation(object):
         """
         stamp_slice = self.get_source_slice(source_index, *args, **kwargs)
 
-        x = int(self.pixel_locations[frame_index, source_index, 0] - stamp_slice.cutout.origin_original[0]) - 0.5
-        y = int(self.pixel_locations[frame_index, source_index, 1] - stamp_slice.cutout.origin_original[1]) - 0.5
+        x = int(self.pixel_locations[frame_index, source_index, 0] - stamp_slice.cutout.origin_original[0]) - 0.5 + 1
+        y = int(self.pixel_locations[frame_index, source_index, 1] - stamp_slice.cutout.origin_original[1]) - 0.5 + 1
 
         aperture = RectangularAperture((x, y), w=width, h=height, theta=0)
 
@@ -527,10 +571,10 @@ class Observation(object):
 
         """
 
-        self.logger.debug("Starting stamp creation")
+        self.log("Starting stamp creation")
 
         # We want to ensure consistent stamp size, so we do a pre-search for all of them
-        self.logger.debug("Getting stamp size")
+        self.log("Getting stamp size")
         heights = list()
         widths = list()
         for source_index in self.point_sources.index:
@@ -558,7 +602,7 @@ class Observation(object):
                     self.hdf5_stamps.create_dataset(subtracted_group_name, data=stamps)
 
                 except Exception as e:
-                    self.logger.warning("Problem creating subtracted stamp for {}: {}".format(source_index, e))
+                    self.log("Problem creating subtracted stamp for {}: {}".format(source_index, e))
 
         # Store stamp size
         try:
@@ -584,7 +628,7 @@ class Observation(object):
         stamp0 = np.array(self.hdf5_stamps['subtracted/{}'.format(target_index)])
 
         # Normalize
-        self.logger.debug("Normalizing target")
+        self.log("Normalizing target")
         stamp0 = stamp0 / stamp0.sum()
 
         if show_progress:
@@ -604,7 +648,7 @@ class Observation(object):
                 try:
                     vgrid_dset[target_index, source_index] = ((stamp0 - stamp1) ** 2).sum()
                 except ValueError:
-                    self.logger.debug("Skipping invalid stamp for source {}".format(source_index))
+                    self.log("Skipping invalid stamp for source {}".format(source_index))
 
     def lookup_point_sources(self, image_num=0, sextractor_params=None, force_new=False):
         """ Extract point sources from image
@@ -622,10 +666,10 @@ class Observation(object):
         """
         # Write the sextractor catalog to a file
         source_file = '{}/point_sources_{:02d}.cat'.format(self.image_dir, image_num)
-        self.logger.debug("Point source catalog: {}".format(source_file))
+        self.log("Point source catalog: {}".format(source_file))
 
         if not os.path.exists(source_file) or force_new:
-            self.logger.debug("No catalog found, building from sextractor")
+            self.log("No catalog found, building from sextractor")
             # Build catalog of point sources
             sextractor = shutil.which('sextractor')
             if sextractor is None:
@@ -639,9 +683,9 @@ class Observation(object):
                     '-CATALOG_NAME', source_file,
                 ]
 
-            self.logger.debug("Running sextractor...")
+            self.log("Running sextractor...")
             cmd = [sextractor, *sextractor_params, self.files[image_num]]
-            self.logger.debug(cmd)
+            self.log(cmd)
             subprocess.run(cmd)
 
         # Read catalog
@@ -708,8 +752,8 @@ class Observation(object):
         """ Get the nearest 10 block """
         return int(np.ceil(np.abs(num) / 8)) * 8
 
-    def _load_images(self, remove_pointing=True):
-        seq_files = glob("{}/*.fits".format(self.image_dir))
+    def _load_images(self):
+        seq_files = glob("{}/*T*.fits".format(self.image_dir))
         seq_files.sort()
 
         self.files = seq_files

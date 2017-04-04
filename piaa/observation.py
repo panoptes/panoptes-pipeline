@@ -391,13 +391,14 @@ class Observation(object):
             stamp = self.hdf5_stamps[
                 'subtracted/{}'.format(source_index)][frame_index]
 
-            if reshape:
-                num_rows = self.hdf5_stamps.attrs['stamp_rows']
-                num_cols = self.hdf5_stamps.attrs['stamp_cols']
-                stamp = stamp.reshape(num_rows, num_cols).astype(int)
         except KeyError:
             stamp_slice = self.get_source_slice(source_index, *args, **kwargs)
             stamp = self.data_cube[frame_index, stamp_slice.row_slice, stamp_slice.col_slice]
+
+        if reshape:
+            num_rows = self.hdf5_stamps.attrs['stamp_rows']
+            num_cols = self.hdf5_stamps.attrs['stamp_cols']
+            stamp = stamp.reshape(num_rows, num_cols).astype(int)
 
         if replace_cosmicray:
             stamp = cosmicray_median(stamp, rbox=11)[0]
@@ -601,7 +602,11 @@ class Observation(object):
 
                 try:
                     ss = self.get_source_slice(source_index, height=heights.max(), width=widths.max())
-                    stamps = np.array(self.data_cube[:, ss.row_slice, ss.col_slice])
+                    stamps = list()
+                    for frame_index in range(len(self.files)):
+                        stamps.append(self.get_frame_stamp(source_index, frame_index))
+
+                    stamps = np.array(stamps)
 
                     # Store
                     self.hdf5_stamps.create_dataset(subtracted_group_name, data=stamps)

@@ -19,8 +19,6 @@ from photutils import RectangularAperture
 from photutils import SigmaClip
 from photutils import aperture_photometry
 
-from ccdproc import cosmicray_median
-
 import h5py
 import numpy as np
 import pandas as pd
@@ -371,7 +369,7 @@ class Observation(object):
 
         return stamp
 
-    def get_frame_stamp(self, source_index, frame_index, reshape=False, replace_cosmicray=True, *args, **kwargs):
+    def get_frame_stamp(self, source_index, frame_index, reshape=False, *args, **kwargs):
         """ Get individual stamp for given source and frame
 
         Note:
@@ -399,9 +397,6 @@ class Observation(object):
             num_rows = self.hdf5_stamps.attrs['stamp_rows']
             num_cols = self.hdf5_stamps.attrs['stamp_cols']
             stamp = stamp.reshape(num_rows, num_cols).astype(int)
-
-        if replace_cosmicray:
-            stamp = cosmicray_median(stamp, rbox=11)[0]
 
         return stamp
 
@@ -602,11 +597,7 @@ class Observation(object):
 
                 try:
                     ss = self.get_source_slice(source_index, height=heights.max(), width=widths.max())
-                    stamps = list()
-                    for frame_index in range(len(self.files)):
-                        stamps.append(self.get_frame_stamp(source_index, frame_index))
-
-                    stamps = np.array(stamps)
+                    stamps = np.array(self.data_cube[:, ss.row_slice, ss.col_slice])
 
                     # Store
                     self.hdf5_stamps.create_dataset(subtracted_group_name, data=stamps)

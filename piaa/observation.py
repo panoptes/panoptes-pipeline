@@ -19,6 +19,8 @@ from photutils import RectangularAperture
 from photutils import SigmaClip
 from photutils import aperture_photometry
 
+from ccdproc import cosmicray_median
+
 import h5py
 import numpy as np
 import pandas as pd
@@ -369,7 +371,7 @@ class Observation(object):
 
         return stamp
 
-    def get_frame_stamp(self, source_index, frame_index, reshape=False, *args, **kwargs):
+    def get_frame_stamp(self, source_index, frame_index, reshape=False, replace_cosmicray=True, *args, **kwargs):
         """ Get individual stamp for given source and frame
 
         Note:
@@ -396,6 +398,9 @@ class Observation(object):
         except KeyError:
             stamp_slice = self.get_source_slice(source_index, *args, **kwargs)
             stamp = self.data_cube[frame_index, stamp_slice.row_slice, stamp_slice.col_slice]
+
+        if replace_cosmicray:
+            stamp = cosmicray_median(stamp, rbox=11)[0]
 
         return stamp
 
@@ -611,7 +616,7 @@ class Observation(object):
         except UnboundLocalError:
             pass
 
-    def get_variance_for_target(self, target_index, force_new=False, show_progress=True, *args, **kwargs):
+    def get_variance_for_target(self, target_index, show_progress=True, *args, **kwargs):
         """ Get all variances for given target
 
         Args:

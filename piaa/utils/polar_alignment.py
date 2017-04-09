@@ -59,7 +59,7 @@ def plot_center(pole_fn, rotate_fn, pole_center, rotate_center):
     pole_cx, pole_cy = pole_center
     rotate_cx, rotate_cy = rotate_center
 
-    fig, ax = plt.subplots(ncols=1, nrows=1, figsize=(20, 18))
+    fig, ax = plt.subplots(ncols=1, nrows=1, figsize=(20, 14))
 
     ax.scatter(pole_cx, pole_cy, color='r', marker='x', lw=5)
     ax.scatter(rotate_cx, rotate_cy, color='r', marker='x', lw=5)

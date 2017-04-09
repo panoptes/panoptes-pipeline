@@ -25,6 +25,7 @@ if __name__ == '__main__':
     parser.add_argument('--create-stamps', action="store_true", default=False,
                         help="Create the stamps for each source")
     parser.add_argument('--log-level', default='INFO', help="Log level: INFO or DEBUG")
+    parser.add_argument('--verbose', action="store_true", default=False, help="Show output")
     args = parser.parse_args()
 
     obs = Observation(args.image_dir, log_level=args.log_level)
@@ -41,9 +42,9 @@ if __name__ == '__main__':
 
     if args.create_stamps:
         print("Creating stamps for point sources")
-        obs.create_stamps()
+        obs.create_stamps(ipython_widget=args.verbose)
         stamps_done = Time.now()
-        print("Stamp creationg done: {:02f} seconds".format(((stamps_done - start).sec)))
+        print("Stamp creation done: {:02f} seconds".format(((stamps_done - start).sec)))
 
     if args.target_index is not None:
         print("Getting variance for index {}".format(args.target_index))

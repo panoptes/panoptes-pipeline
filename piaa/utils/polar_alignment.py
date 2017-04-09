@@ -48,7 +48,7 @@ def analyze_ra_rotation(rotate_fn):
     return d1.to_original_position((rotate_cx[-1], rotate_cy[-1]))
 
 
-def plot_center(pole_fn, rotate_fn, pole_center, rotate_center, plot_fn=None):
+def plot_center(pole_fn, rotate_fn, pole_center, rotate_center):
 
     d0 = fits.getdata(pole_fn) - 2048.
     d1 = fits.getdata(rotate_fn) - 2048.
@@ -68,8 +68,5 @@ def plot_center(pole_fn, rotate_fn, pole_center, rotate_center, plot_fn=None):
 
     ax.imshow(d0 + d1, cmap='Greys_r', norm=norm)
     ax.arrow(rotate_cx, rotate_cy, pole_cx - rotate_cx, pole_cy - rotate_cy, fc='r', ec='r')
-
-    if plot_fn is not None:
-        fig.savefig(plot_fn)
 
     return fig

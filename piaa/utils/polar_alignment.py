@@ -66,7 +66,7 @@ def plot_center(pole_fn, rotate_fn, pole_center, rotate_center):
 
     norm = ImageNormalize(stretch=SqrtStretch())
 
-    ax.imshow(d0 + d1, cmap='Greys_r', norm=norm)
+    ax.imshow(d0 + d1, cmap='Greys_r', norm=norm, origin='lower')
     ax.arrow(rotate_cx, rotate_cy, pole_cx - rotate_cx, pole_cy - rotate_cy, fc='r', ec='r')
 
     return fig

@@ -198,7 +198,7 @@ class Observation(object):
     def get_header_value(self, frame_index, header):
         return fits.getval(self.files[frame_index], header)
 
-    def subtract_background(self, frames=None, display_progress=False):
+    def subtract_background(self, frames=None, display_progress=False, **kwargs):
         """Get background estimates for all frames for each color channel
 
         The first step is to figure out a box size for the background calculations.
@@ -226,7 +226,7 @@ class Observation(object):
         bkg_estimator = MedianBackground()
 
         if display_progress:
-            frames_iter = ProgressBar(frames, ipython_widget=True)
+            frames_iter = ProgressBar(frames, ipython_widget=kwargs.get('ipython_widget', False))
         else:
             frames_iter = frames
 
@@ -556,7 +556,7 @@ class Observation(object):
         fig.tight_layout(rect=[0., 0., 1., 0.95])
         return fig
 
-    def create_stamps(self, remove_cube=False, *args, **kwargs):
+    def create_stamps(self, remove_cube=False, display_progress=False, *args, **kwargs):
         """Create subtracted stamps for entire data cube
 
         Creates a slice through the cube corresponding to a stamp and stores the
@@ -589,8 +589,12 @@ class Observation(object):
         height = np.array(heights).max()
         width = np.array(widths).max()
 
-        for source_index in ProgressBar(self.point_sources.index,
-                                        ipython_widget=kwargs.get('ipython_widget', False)):
+        if display_progress:
+            iterator = ProgressBar(self.point_sources.index, ipython_widget=kwargs.get('ipython_widget', False))
+        else:
+            iterator = self.point_sources.index
+
+        for source_index in iterator:
 
             subtracted_group_name = 'subtracted/{}'.format(source_index)
             if subtracted_group_name not in self.hdf5_stamps:
@@ -612,7 +616,7 @@ class Observation(object):
         except UnboundLocalError:
             pass
 
-    def get_variance_for_target(self, target_index, show_progress=True, *args, **kwargs):
+    def get_variance_for_target(self, target_index, display_progress=True, *args, **kwargs):
         """ Get all variances for given target
 
         Args:
@@ -632,7 +636,7 @@ class Observation(object):
         self.log("Normalizing target")
         stamp0 = stamp0 / stamp0.sum()
 
-        if show_progress:
+        if display_progress:
             iterator = ProgressBar(range(num_sources), ipython_widget=kwargs.get('ipython_widget', False))
         else:
             iterator = range(num_sources)

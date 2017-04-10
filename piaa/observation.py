@@ -346,7 +346,7 @@ class Observation(object):
             cutout = Cutout2D(
                 fits.getdata(self.files[0]),
                 (mid_pos[0], mid_pos[1]),
-                (self._pad_super_pixel(height) + 8, self._pad_super_pixel(width) + 4)
+                (self._pad_super_pixel(height), self._pad_super_pixel(width))
             )
 
             xs, ys = cutout.bbox_original
@@ -583,11 +583,11 @@ class Observation(object):
 
             # Get the width and height of data region
             width, height = (start_pos - end_pos)
-            widths.append(width)
-            heights.append(height)
+            widths.append(round(abs(width)))
+            heights.append(round(abs(height)))
 
-        heights = np.array(heights)
-        widths = np.array(widths)
+        height = np.array(heights).max()
+        width = np.array(widths).max()
 
         for source_index in ProgressBar(self.point_sources.index,
                                         ipython_widget=kwargs.get('ipython_widget', False)):
@@ -596,7 +596,7 @@ class Observation(object):
             if subtracted_group_name not in self.hdf5_stamps:
 
                 try:
-                    ss = self.get_source_slice(source_index, height=heights.max(), width=widths.max())
+                    ss = self.get_source_slice(source_index, height=height, width=width)
                     stamps = np.array(self.data_cube[:, ss.row_slice, ss.col_slice])
 
                     # Store

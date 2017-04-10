@@ -36,13 +36,13 @@ if __name__ == '__main__':
     # Normalize first
     if args.subtract:
         print("Creating background estimates")
-        obs.subtract_background()
+        obs.subtract_background(display_progress=args.verbose)
         subtracting_done = Time.now()
         print("Subtracting done: {:02f} seconds".format(((subtracting_done - start).sec)))
 
     if args.create_stamps:
         print("Creating stamps for point sources")
-        obs.create_stamps(ipython_widget=args.verbose)
+        obs.create_stamps(display_progress=args.verbose)
         stamps_done = Time.now()
         print("Stamp creation done: {:02f} seconds".format(((stamps_done - start).sec)))
 
@@ -55,6 +55,6 @@ if __name__ == '__main__':
     elif args.all:
         print("Getting variance for all sources")
         for source_index in ProgressBar(obs.point_sources.index):
-            obs.get_variance_for_target(source_index, show_progress=False)
+            obs.get_variance_for_target(source_index, display_progress=args.verbose)
 
     print("Total time: {:02f} seconds".format(((Time.now() - start).sec)))

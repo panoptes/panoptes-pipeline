@@ -198,7 +198,7 @@ class Observation(object):
     def get_header_value(self, frame_index, header):
         return fits.getval(self.files[frame_index], header)
 
-    def subtract_background(self, frames=None, display_progress=False, **kwargs):
+    def subtract_background(self, frames=None, display_progress=False, clip_sigma=3., clip_iters=5, **kwargs):
         """Get background estimates for all frames for each color channel
 
         The first step is to figure out a box size for the background calculations.
@@ -222,7 +222,7 @@ class Observation(object):
         if frames is None:
             frames = range(len(self.files))
 
-        sigma_clip = SigmaClip(sigma=3., iters=10)
+        sigma_clip = SigmaClip(sigma=clip_sigma, iters=clip_iters)
         bkg_estimator = MedianBackground()
 
         if display_progress:
@@ -231,7 +231,7 @@ class Observation(object):
             frames_iter = frames
 
         for frame_index in frames_iter:
-            frame_key = 'frame_{}'.format(frame_index)
+            frame_key = 'frame/{}'.format(frame_index)
 
             # Figure out if we have already subtracted this frame
             try:
@@ -250,8 +250,8 @@ class Observation(object):
                 self.data_cube.attrs[frame_key] = True
 
     def get_frame_background(self, frame_index, sigma_clip=None,
-                             bkg_estimator=None, summary=False, background_obj=False):
-        frame_key = 'frame_{}'.format(frame_index)
+                             bkg_estimator=None, summary=False, background_obj=False, clip_iters=5, clip_sigma=3.):
+        frame_key = 'frame/{}'.format(frame_index)
 
         # Figure out if we have already subtracted this frame
         try:
@@ -263,12 +263,6 @@ class Observation(object):
         if summary is False and already_subtracted:
             raise Exception("Cannot get already subtracted background")
 
-        # Figure out if we have already have a summary
-        try:
-            have_summary = bool(self.hdf5['background'].attrs[frame_key])
-        except KeyError:
-            have_summary = False
-
         # Get backgrounds dataset or create
         try:
             background_dset = self.hdf5['background']
@@ -277,12 +271,19 @@ class Observation(object):
             # Create dataset that will hold the mmedian and the rms_median for 3 channels for all frames
             background_dset = self.hdf5.create_dataset('background', (len(self.files), 3, 2))
 
+        # Figure out if we have already have a summary
+        try:
+            have_summary = bool(background_dset.attrs[frame_key])
+        except KeyError:
+            have_summary = False
+
         # If we just want the summary have it, return
         if summary and have_summary:
             return background_dset[frame_index]
 
+        # Get clip and estimator objects
         if sigma_clip is None:
-            sigma_clip = SigmaClip(sigma=3., iters=10)
+            sigma_clip = SigmaClip(sigma=clip_sigma, iters=clip_iters)
 
         if bkg_estimator is None:
             bkg_estimator = MedianBackground()
@@ -344,9 +345,9 @@ class Observation(object):
                 width, height = (start_pos - end_pos)
 
             cutout = Cutout2D(
-                fits.getdata(self.files[0]),
+                self.data_cube[0],
                 (mid_pos[0], mid_pos[1]),
-                (self._pad_super_pixel(height), self._pad_super_pixel(width))
+                (height, width)
             )
 
             xs, ys = cutout.bbox_original
@@ -596,7 +597,7 @@ class Observation(object):
 
         for source_index in iterator:
 
-            subtracted_group_name = 'subtracted/{}'.format(source_index)
+            subtracted_group_name = 'stamp/{}'.format(source_index)
             if subtracted_group_name not in self.hdf5_stamps:
 
                 try:
@@ -607,7 +608,7 @@ class Observation(object):
                     self.hdf5_stamps.create_dataset(subtracted_group_name, data=stamps)
 
                 except Exception as e:
-                    self.log("Problem creating subtracted stamp for {}: {}".format(source_index, e))
+                    self.log("Problem creating stamp for {}: {}".format(source_index, e))
 
         # Store stamp size
         try:

@@ -2,6 +2,8 @@ import os
 import shutil
 import subprocess
 
+from warnings import warn
+
 from collections import namedtuple
 from glob import glob
 
@@ -387,12 +389,10 @@ class Observation(object):
         """
 
         try:
-            stamp = self.hdf5_stamps[
-                'stamp/{}'.format(source_index)][frame_index]
+            stamp = self.hdf5_stamps['stamp/{}'.format(source_index)][frame_index]
 
         except KeyError:
-            stamp_slice = self.get_source_slice(source_index, *args, **kwargs)
-            stamp = self.data_cube[frame_index, stamp_slice.row_slice, stamp_slice.col_slice]
+            raise Exception("You must run create_stamps first")
 
         if reshape:
             num_rows = self.hdf5_stamps.attrs['stamp_rows']
@@ -598,15 +598,15 @@ class Observation(object):
 
         for source_index in iterator:
 
-            subtracted_group_name = 'stamp/{}'.format(source_index)
-            if subtracted_group_name not in self.hdf5_stamps:
+            stamp_group_name = 'stamp/{}'.format(source_index)
+            if stamp_group_name not in self.hdf5_stamps:
 
                 try:
                     r_min, r_max, c_min, c_max = self.get_stamp_bounds(source_index)
                     stamps = np.array(self.data_cube[:, r_min:r_max, c_min:c_max])
 
                     # Store
-                    self.hdf5_stamps.create_dataset(subtracted_group_name, data=stamps)
+                    self.hdf5_stamps.create_dataset(stamp_group_name, data=stamps)
 
                 except Exception as e:
                     self.log("Problem creating stamp for {}: {}".format(source_index, e))

@@ -557,6 +557,25 @@ class Observation(object):
         fig.tight_layout(rect=[0., 0., 1., 0.95])
         return fig
 
+    def get_stamp_size(self):
+        # We want to ensure consistent stamp size, so we do a pre-search for all of them
+        self.log("Getting stamp size")
+        heights = list()
+        widths = list()
+        for source_index in self.point_sources.index:
+            r_min, r_max, c_min, c_max = self.get_stamp_bounds(source_index)
+
+            height = abs(r_max - r_min)
+            width = abs(c_max - c_min)
+
+            widths.append(round(abs(width)))
+            heights.append(round(abs(height)))
+
+        height = np.array(heights).max()
+        width = np.array(widths).max()
+
+        return height, width
+
     def create_stamps(self, remove_cube=False, display_progress=False, *args, **kwargs):
         """Create subtracted stamps for entire data cube
 
@@ -574,22 +593,7 @@ class Observation(object):
         """
 
         self.log("Starting stamp creation")
-
-        # We want to ensure consistent stamp size, so we do a pre-search for all of them
-        self.log("Getting stamp size")
-        heights = list()
-        widths = list()
-        for source_index in self.point_sources.index:
-            r_min, r_max, c_min, c_max = self.get_stamp_bounds(source_index)
-
-            height = abs(r_max - r_min)
-            width = abs(c_max - c_min)
-
-            widths.append(round(abs(width)))
-            heights.append(round(abs(height)))
-
-        height = np.array(heights).max()
-        width = np.array(widths).max()
+        height, width = self.get_stamp_size()
 
         if display_progress:
             iterator = ProgressBar(self.point_sources.index, ipython_widget=kwargs.get('ipython_widget', False))

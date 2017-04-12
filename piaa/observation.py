@@ -388,7 +388,7 @@ class Observation(object):
 
         try:
             stamp = self.hdf5_stamps[
-                'subtracted/{}'.format(source_index)][frame_index]
+                'stamp/{}'.format(source_index)][frame_index]
 
         except KeyError:
             stamp_slice = self.get_source_slice(source_index, *args, **kwargs)
@@ -561,7 +561,7 @@ class Observation(object):
         """Create subtracted stamps for entire data cube
 
         Creates a slice through the cube corresponding to a stamp and stores the
-        subtracted data in the hdf5 table with key `subtracted/<index>`, where
+        subtracted data in the hdf5 table with key `stamp/<index>`, where
         `<index>` is the source index from `point_sources`
 
         Args:
@@ -631,7 +631,7 @@ class Observation(object):
         except KeyError:
             vgrid_dset = self.hdf5_stamps.create_dataset('vgrid', (num_sources, num_sources))
 
-        stamp0 = np.array(self.hdf5_stamps['subtracted/{}'.format(target_index)])
+        stamp0 = np.array(self.hdf5_stamps['stamp/{}'.format(target_index)])
 
         # Normalize
         self.log("Normalizing target")
@@ -645,7 +645,7 @@ class Observation(object):
         for source_index in iterator:
             # Only compute if zero (which will re-compute target but that's fine)
             if vgrid_dset[target_index, source_index] == 0. and vgrid_dset[source_index, target_index] == 0.:
-                stamp1 = np.array(self.hdf5_stamps['subtracted/{}'.format(source_index)])
+                stamp1 = np.array(self.hdf5_stamps['stamp/{}'.format(source_index)])
 
                 # Normalize
                 stamp1 = stamp1 / stamp1.sum()

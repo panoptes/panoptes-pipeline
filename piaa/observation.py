@@ -655,7 +655,7 @@ class Observation(object):
             stamps(np.array): Collection of stamps with axes: frame, PIC, pixels
             i(int): Index of target PIC
         """
-        num_sources = len(self.point_sources)
+        num_sources = self.num_point_sources
 
         try:
             vgrid_dset = self.hdf5_stamps['vgrid']
@@ -666,7 +666,8 @@ class Observation(object):
 
         # Normalize
         self.log("Normalizing target")
-        psc0 = psc0 / psc0.sum()
+        for frame_index in range(self.num_frames):
+            psc0[frame_index] /= psc0[frame_index].sum()
 
         if display_progress:
             iterator = ProgressBar(range(num_sources), ipython_widget=kwargs.get('ipython_widget', False))
@@ -679,7 +680,8 @@ class Observation(object):
                 psc1 = self.get_psc(source_index)
 
                 # Normalize
-                psc1 = psc1 / psc1.sum()
+                for frame_index in range(self.num_frames):
+                    psc1[frame_index] /= psc1[frame_index].sum()
 
                 # Store in the grid
                 try:

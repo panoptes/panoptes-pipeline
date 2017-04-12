@@ -164,13 +164,11 @@ class Observation(object):
 
     @property
     def num_frames(self):
-        assert self.psc_collection is not None
-        return self.psc_collection.shape[0]
+        return len(self.files)
 
     @property
     def num_point_sources(self):
-        assert self.psc_collection is not None
-        return self.psc_collection.shape[1]
+        return len(self.point_sources.index)
 
     @property
     def data_cube(self):
@@ -580,7 +578,7 @@ class Observation(object):
 
         return height, width
 
-    def create_stamps(self, source_index=None, remove_cube=False, display_progress=False, *args, **kwargs):
+    def create_stamps(self, target_index, display_progress=False, *args, **kwargs):
         """Create subtracted stamps for entire data cube
 
         Creates a slice through the cube corresponding to a stamp and stores the
@@ -598,32 +596,34 @@ class Observation(object):
 
         self.log("Starting stamp creation")
 
-        if source_index is not None:
-            r_min, r_max, c_min, c_max = self.get_stamp_bounds(source_index)
-            height = r_max - r_min
-            width = c_max - c_min
-        else:
-            height, width = self.get_stamp_size()
+        r_min, r_max, c_min, c_max = self.get_stamp_bounds(target_index)
+        height = r_max - r_min
+        width = c_max - c_min
 
         if display_progress:
             iterator = ProgressBar(self.point_sources.index, ipython_widget=kwargs.get('ipython_widget', False))
         else:
             iterator = self.point_sources.index
 
+        try:
+            del self.hdf5_stamps['stamps']
+        except Exception:
+            pass
+
+        stamp_dset = self.hdf5_stamps.create_dataset('stamps',
+                                                     (self.num_point_sources, self.num_frames, height, width))
+
         for source_index in iterator:
 
-            stamp_group_name = 'stamp/{}'.format(source_index)
-            if stamp_group_name not in self.hdf5_stamps:
+            try:
+                r_min, r_max, c_min, c_max = self.get_stamp_bounds(source_index, height=height, width=width)
+                stamps = np.array(self.data_cube[:, r_min:r_max, c_min:c_max])
 
-                try:
-                    r_min, r_max, c_min, c_max = self.get_stamp_bounds(source_index, height=height, width=width)
-                    stamps = np.array(self.data_cube[:, r_min:r_max, c_min:c_max])
+                # Store
+                stamp_dset[source_index] = stamps
 
-                    # Store
-                    self.hdf5_stamps.create_dataset(stamp_group_name, data=stamps)
-
-                except Exception as e:
-                    self.log("Problem creating stamp for {}: {}".format(source_index, e))
+            except Exception as e:
+                self.log("Problem creating stamp for {}: {}".format(source_index, e))
 
         # Store stamp size
         self.hdf5_stamps.attrs['stamp_rows'] = height

@@ -41,10 +41,13 @@ if __name__ == '__main__':
         print("Subtracting done: {:02f} seconds".format(((subtracting_done - start).sec)))
 
     if args.create_stamps:
-        print("Creating stamps for point sources")
-        obs.create_stamps(display_progress=args.verbose)
-        stamps_done = Time.now()
-        print("Stamp creation done: {:02f} seconds".format(((stamps_done - start).sec)))
+        if args.target_index is None:
+            print("Target index required to create stamps")
+        else:
+            print("Creating stamps for point sources")
+            obs.create_stamps(args.target_index, display_progress=args.verbose)
+            stamps_done = Time.now()
+            print("Stamp creation done: {:02f} seconds".format(((stamps_done - start).sec)))
 
     if args.target_index is not None:
         print("Getting variance for index {}".format(args.target_index))

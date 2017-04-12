@@ -662,11 +662,11 @@ class Observation(object):
         except KeyError:
             vgrid_dset = self.hdf5_stamps.create_dataset('vgrid', (num_sources, num_sources))
 
-        stamp0 = np.array(self.hdf5_stamps['stamp/{}'.format(target_index)])
+        psc0 = self.get_psc(target_index)
 
         # Normalize
         self.log("Normalizing target")
-        stamp0 = stamp0 / stamp0.sum()
+        psc0 = psc0 / psc0.sum()
 
         if display_progress:
             iterator = ProgressBar(range(num_sources), ipython_widget=kwargs.get('ipython_widget', False))
@@ -676,14 +676,14 @@ class Observation(object):
         for source_index in iterator:
             # Only compute if zero (which will re-compute target but that's fine)
             if vgrid_dset[target_index, source_index] == 0. and vgrid_dset[source_index, target_index] == 0.:
-                stamp1 = np.array(self.hdf5_stamps['stamp/{}'.format(source_index)])
+                psc1 = self.get_psc(source_index)
 
                 # Normalize
-                stamp1 = stamp1 / stamp1.sum()
+                psc1 = psc1 / psc1.sum()
 
                 # Store in the grid
                 try:
-                    vgrid_dset[target_index, source_index] = ((stamp0 - stamp1) ** 2).sum()
+                    vgrid_dset[target_index, source_index] = ((psc0 - psc1) ** 2).sum()
                 except ValueError:
                     self.log("Skipping invalid stamp for source {}".format(source_index))
 

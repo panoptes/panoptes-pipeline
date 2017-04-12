@@ -580,7 +580,7 @@ class Observation(object):
 
         return height, width
 
-    def create_stamps(self, remove_cube=False, display_progress=False, *args, **kwargs):
+    def create_stamps(self, source_index=None, remove_cube=False, display_progress=False, *args, **kwargs):
         """Create subtracted stamps for entire data cube
 
         Creates a slice through the cube corresponding to a stamp and stores the
@@ -597,7 +597,13 @@ class Observation(object):
         """
 
         self.log("Starting stamp creation")
-        height, width = self.get_stamp_size()
+
+        if source_index is not None:
+            r_min, r_max, c_min, c_max = self.get_stamp_bounds(source_index)
+            height = r_max - r_min
+            width = c_max - c_min
+        else:
+            height, width = self.get_stamp_size()
 
         if display_progress:
             iterator = ProgressBar(self.point_sources.index, ipython_widget=kwargs.get('ipython_widget', False))
@@ -610,7 +616,7 @@ class Observation(object):
             if stamp_group_name not in self.hdf5_stamps:
 
                 try:
-                    r_min, r_max, c_min, c_max = self.get_stamp_bounds(source_index)
+                    r_min, r_max, c_min, c_max = self.get_stamp_bounds(source_index, height=height, width=width)
                     stamps = np.array(self.data_cube[:, r_min:r_max, c_min:c_max])
 
                     # Store
@@ -623,14 +629,22 @@ class Observation(object):
         self.hdf5_stamps.attrs['stamp_rows'] = height
         self.hdf5_stamps.attrs['stamp_cols'] = width
 
-    def get_stamp_bounds(self, target_index):
+    def get_stamp_bounds(self, target_index, height=None, width=None):
         pix = self.pixel_locations[:, target_index]
 
-        col_max = int(pix.iloc[0].max()) + 3
-        col_min = int(pix.iloc[0].min()) - 3
+        if width is None:
+            col_max = int(pix.iloc[0].max()) + 3
+            col_min = int(pix.iloc[0].min()) - 3
+        else:
+            col_max = int(pix.iloc[0].max()) + 3
+            col_min = col_max - width
 
-        row_max = int(pix.iloc[1].max()) + 3
-        row_min = int(pix.iloc[1].min()) - 3
+        if height is None:
+            row_max = int(pix.iloc[1].max()) + 3
+            row_min = int(pix.iloc[1].min()) - 3
+        else:
+            row_max = int(pix.iloc[1].max()) + 3
+            row_min = row_max - height
 
         return row_min, row_max, col_min, col_max
 

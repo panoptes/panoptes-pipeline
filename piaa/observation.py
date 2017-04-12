@@ -397,7 +397,7 @@ class Observation(object):
 
     def get_psc(self, source_index):
         try:
-            psc = self.hdf5_stamps['stamp/{}'.format(source_index)]
+            psc = self.hdf5_stamps['stamps'][source_index]
         except KeyError:
             raise Exception("You must run create_stamps first")
 

@@ -580,10 +580,11 @@ class Observation(object):
         heights = list()
         widths = list()
         for source_index in self.point_sources.index:
-            start_pos, mid_pos, end_pos = self._get_stamp_points(source_index)
+            r_min, r_max, c_min, c_max = self.get_stamp_bounds(source_index)
 
-            # Get the width and height of data region
-            width, height = (start_pos - end_pos)
+            height = abs(r_max - r_min)
+            width = abs(c_max - c_min)
+
             widths.append(round(abs(width)))
             heights.append(round(abs(height)))
 
@@ -601,8 +602,8 @@ class Observation(object):
             if subtracted_group_name not in self.hdf5_stamps:
 
                 try:
-                    ss = self.get_source_slice(source_index, height=height, width=width)
-                    stamps = np.array(self.data_cube[:, ss.row_slice, ss.col_slice])
+                    r_min, r_max, c_min, c_max = self.get_stamp_bounds(source_index)
+                    stamps = np.array(self.data_cube[:, r_min:r_max, c_min:c_max])
 
                     # Store
                     self.hdf5_stamps.create_dataset(subtracted_group_name, data=stamps)
@@ -611,11 +612,19 @@ class Observation(object):
                     self.log("Problem creating stamp for {}: {}".format(source_index, e))
 
         # Store stamp size
-        try:
-            self.hdf5_stamps.attrs['stamp_rows'] = ss.cutout.shape[0]
-            self.hdf5_stamps.attrs['stamp_cols'] = ss.cutout.shape[1]
-        except UnboundLocalError:
-            pass
+        self.hdf5_stamps.attrs['stamp_rows'] = height
+        self.hdf5_stamps.attrs['stamp_cols'] = width
+
+    def get_stamp_bounds(self, target_index):
+        pix = self.pixel_locations[:, target_index]
+
+        col_max = int(pix.iloc[0].max()) + 3
+        col_min = int(pix.iloc[0].min()) - 3
+
+        row_max = int(pix.iloc[1].max()) + 3
+        row_min = int(pix.iloc[1].min()) - 3
+
+        return row_min, row_max, col_min, col_max
 
     def get_variance_for_target(self, target_index, display_progress=True, *args, **kwargs):
         """ Get all variances for given target
@@ -749,8 +758,8 @@ class Observation(object):
             x += 1
             y += 1
 
-        y += 4
-        x -= 2
+        # y += 4
+        # x -= 2
 
         return (x, y)
 

@@ -388,11 +388,7 @@ class Observation(object):
             numpy.array: Array of data
         """
 
-        try:
-            stamp = self.hdf5_stamps['stamp/{}'.format(source_index)][frame_index]
-
-        except KeyError:
-            raise Exception("You must run create_stamps first")
+        stamp = self.get_psc(source_index)[frame_index]
 
         if reshape:
             num_rows = self.hdf5_stamps.attrs['stamp_rows']
@@ -400,6 +396,14 @@ class Observation(object):
             stamp = stamp.reshape(num_rows, num_cols).astype(int)
 
         return stamp
+
+    def get_psc(self, source_index):
+        try:
+            psc = self.hdf5_stamps['stamp/{}'.format(source_index)]
+        except KeyError:
+            raise Exception("You must run create_stamps first")
+
+        return psc
 
     def get_frame_aperture(self, source_index, frame_index, width=6, height=6, *args, **kwargs):
         """Aperture for given frame from source

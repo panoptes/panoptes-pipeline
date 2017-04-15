@@ -669,9 +669,11 @@ class Observation(object):
 
         # Normalize
         self.log("Normalizing target")
+        frames = []
         for frame_index in range(self.num_frames):
             try:
                 psc0[frame_index] /= psc0[frame_index].sum()
+                frames.append(frame_index)
             except RuntimeWarning:
                 warn("Skipping frame {}".format(frame_index))
 
@@ -686,7 +688,7 @@ class Observation(object):
                 psc1 = self.get_psc(source_index)
 
                 # Normalize
-                for frame_index in range(self.num_frames):
+                for frame_index in frames:
                     psc1[frame_index] /= psc1[frame_index].sum()
 
                 # Store in the grid

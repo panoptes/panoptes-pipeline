@@ -672,8 +672,9 @@ class Observation(object):
         frames = []
         for frame_index in range(self.num_frames):
             try:
-                psc0[frame_index] /= psc0[frame_index].sum()
-                frames.append(frame_index)
+                if psc0[frame_index].sum() > 0.:
+                    psc0[frame_index] /= psc0[frame_index].sum()
+                    frames.append(frame_index)
             except RuntimeWarning:
                 warn("Skipping frame {}".format(frame_index))
 

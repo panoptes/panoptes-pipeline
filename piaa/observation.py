@@ -733,7 +733,7 @@ class Observation(object):
                 print("Refs shape: {}".format(refs_frame.shape))
                 print("Refs other shape: {}".format(refs_all_but_frame.shape))
 
-            refs_coeffs = np.ones((refs_all_but_frame))
+            refs_coeffs = np.ones(len(refs_all_but_frame))
 
             if verbose:
                 print("Source coeffs shape: {}".format(refs_coeffs.shape))

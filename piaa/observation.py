@@ -20,10 +20,13 @@ from photutils import MedianBackground
 from photutils import RectangularAperture
 from photutils import SigmaClip
 from photutils import aperture_photometry
+from photutils import find_peaks
 
 import h5py
 import numpy as np
 import pandas as pd
+
+from scipy.optimize import least_squares
 
 from matplotlib import gridspec
 from matplotlib import patches
@@ -688,6 +691,88 @@ class Observation(object):
                     vgrid_dset[target_index, source_index] = ((psc0 - psc1) ** 2).sum()
                 except ValueError:
                     self.log("Skipping invalid stamp for source {}".format(source_index))
+
+    def get_stamp_collection(self, target_index, num_refs=25):
+        vary = self.hdf5_stamps['vgrid']
+
+        vary_series = pd.Series(vary[target_index])
+        vary_series.sort_values(inplace=True)
+
+        stamp_h = self.hdf5_stamps.attrs['stamp_rows']
+        stamp_w = self.hdf5_stamps.attrs['stamp_cols']
+
+        stamp_collection = np.array([self.get_psc(idx) for idx in vary_series.index[0:num_refs]]).reshape(
+            num_refs, self.num_frames, stamp_h * stamp_w)
+
+        return stamp_collection
+
+    def get_refpsf(self, stamp_collection, **kwargs):
+        verbose = kwargs.get('verbose', False)
+
+        coeffs = []
+
+        def minimize_func(refs_coeffs, refs_all_but_frame, target_all_but_frame):
+            measured = (refs_coeffs * refs_all_but_frame.T).T.sum(0)
+            model = target_all_but_frame
+
+            res = ((model - measured)**2).sum()
+
+            return res
+
+        for frame_index in range(self.num_frames):
+
+            target_frame = stamp_collection[0, frame_index]
+            target_all_but_frame = np.delete(stamp_collection[0], frame_index, 0)
+
+            refs_frame = stamp_collection[1:, frame_index]
+            refs_all_but_frame = np.delete(stamp_collection[1:], frame_index, 1)
+
+            if verbose:
+                print("Target frame shape: {}".format(target_frame.shape))
+                print("Target other shape: {}".format(target_all_but_frame.shape))
+                print("Refs shape: {}".format(refs_frame.shape))
+                print("Refs other shape: {}".format(refs_all_but_frame.shape))
+
+            refs_coeffs = np.ones((refs_all_but_frame))
+
+            if verbose:
+                print("Source coeffs shape: {}".format(refs_coeffs.shape))
+
+            res = least_squares(minimize_func, refs_coeffs, args=(refs_all_but_frame, target_all_but_frame))
+
+            coeffs.append(res.x)
+
+        return coeffs
+
+    def get_relative_flux(self, stamp_collection, coeffs, aperture_size=6):
+
+        stamp_h = self.hdf5_stamps.attrs['stamp_rows']
+        stamp_w = self.hdf5_stamps.attrs['stamp_cols']
+
+        depths = []
+
+        for frame_index in range(self.num_frames):
+            target_frame = stamp_collection[0, frame_index].reshape(stamp_w, stamp_h)
+            refs_frame = stamp_collection[1:, frame_index]
+            ref_frame = (refs_frame.T * coeffs[frame_index]).T.sum(0).reshape(stamp_w, stamp_h)
+
+            t0_peaks = find_peaks(target_frame, np.mean(target_frame) * 5)
+            t0_peaks.sort(keys=['peak_value'])
+            t0_peak = (t0_peaks['x_peak'][-1] - 0.5, t0_peaks['y_peak'][-1] + 0.5)
+
+            r0_peaks = find_peaks(ref_frame, np.mean(ref_frame) * 5)
+            r0_peaks.sort(keys=['peak_value'])
+
+            aperture = RectangularAperture(t0_peak, aperture_size, aperture_size, 0)
+
+            t0_flux = aperture.do_photometry(target_frame, method='subpixel')[0][0]
+            r0_flux = aperture.do_photometry(ref_frame, method='subpixel')[0][0]
+
+            a0 = t0_flux / r0_flux
+
+            depths.append(a0)
+
+        return depths
 
     def lookup_point_sources(self, image_num=0, sextractor_params=None, force_new=False):
         """ Extract point sources from image

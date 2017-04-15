@@ -670,7 +670,10 @@ class Observation(object):
         # Normalize
         self.log("Normalizing target")
         for frame_index in range(self.num_frames):
-            psc0[frame_index] /= psc0[frame_index].sum()
+            try:
+                psc0[frame_index] /= psc0[frame_index].sum()
+            except RuntimeWarning:
+                warn("Skipping frame {}".format(frame_index))
 
         if display_progress:
             iterator = ProgressBar(range(num_sources), ipython_widget=kwargs.get('ipython_widget', False))

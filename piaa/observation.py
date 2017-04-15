@@ -706,7 +706,7 @@ class Observation(object):
 
         return stamp_collection
 
-    def get_refpsf(self, stamp_collection, **kwargs):
+    def get_refpsf(self, stamp_collection, display_progress=False, **kwargs):
         verbose = kwargs.get('verbose', False)
 
         coeffs = []
@@ -719,7 +719,12 @@ class Observation(object):
 
             return res
 
-        for frame_index in range(self.num_frames):
+        if display_progress:
+            iterator = ProgressBar(range(self.num_frames), ipython_widget=kwargs.get('ipython_widget', False))
+        else:
+            iterator = range(self.num_frames)
+
+        for frame_index in iterator:
 
             target_frame = stamp_collection[0, frame_index]
             target_all_but_frame = np.delete(stamp_collection[0], frame_index, 0)

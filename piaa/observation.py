@@ -620,7 +620,7 @@ class Observation(object):
 
             try:
                 r_min, r_max, c_min, c_max = self.get_stamp_bounds(source_index, height=height, width=width)
-                stamps = np.array(self.data_cube[:self.num_frames + 1, r_min:r_max, c_min:c_max])
+                stamps = np.array(self.data_cube[:self.num_frames, r_min:r_max, c_min:c_max])
 
                 # Store
                 stamp_dset[source_index] = stamps

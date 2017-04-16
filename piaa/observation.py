@@ -774,7 +774,9 @@ class Observation(object):
         stamp_h = self.hdf5_stamps.attrs['stamp_rows']
         stamp_w = self.hdf5_stamps.attrs['stamp_cols']
 
-        depths = []
+        masks = self.get_stamp_mask(target_index)
+
+        depths = {}
 
         for frame_index in range(self.num_frames):
             target_frame = stamp_collection[0, frame_index].reshape(stamp_w, stamp_h)
@@ -790,12 +792,16 @@ class Observation(object):
 
             aperture = RectangularAperture(t0_peak, aperture_size, aperture_size, 0)
 
-            t0_flux = aperture.do_photometry(target_frame, method='subpixel')[0][0]
-            r0_flux = aperture.do_photometry(ref_frame, method='subpixel')[0][0]
+            for color, mask in zip(['R', 'G', 'B'], masks):
+                t0_flux = aperture.do_photometry(target_frame, method='subpixel', mask=mask)[0][0]
+                r0_flux = aperture.do_photometry(ref_frame, method='subpixel', mask=mask)[0][0]
 
-            a0 = t0_flux / r0_flux
+                a0 = t0_flux / r0_flux
 
-            depths.append(a0)
+                try:
+                    depths[color].append(a0)
+                except IndexError:
+                    depths[color] = [a0]
 
         return np.array(depths)
 

@@ -800,7 +800,7 @@ class Observation(object):
 
                 try:
                     depths[color].append(a0)
-                except IndexError:
+                except KeyError:
                     depths[color] = [a0]
 
         return np.array(depths)

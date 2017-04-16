@@ -690,8 +690,8 @@ class Observation(object):
             iterator = range(num_sources)
 
         for source_index in iterator:
-            # Only compute if zero (which will re-compute target but that's fine)
-            if vgrid_dset[target_index, source_index] == 0. and vgrid_dset[source_index, target_index] == 0.:
+            # Only compute if 99
+            if vgrid_dset[target_index, source_index] == 99. and vgrid_dset[source_index, target_index] == 99.:
                 psc1 = self.get_psc(source_index)
 
                 # Normalize

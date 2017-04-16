@@ -651,7 +651,7 @@ class Observation(object):
 
         return row_min, row_max, col_min, col_max
 
-    def get_variance_for_target(self, target_index, display_progress=True, *args, **kwargs):
+    def get_variance_for_target(self, target_index, display_progress=True, force_new=True, *args, **kwargs):
         """ Get all variances for given target
 
         Args:
@@ -664,6 +664,9 @@ class Observation(object):
         data = np.ones((num_sources, num_sources)) * 99
 
         try:
+            if force_new:
+                del self.hdf5_stamps['vgrid']
+
             vgrid_dset = self.hdf5_stamps['vgrid']
         except KeyError:
             vgrid_dset = self.hdf5_stamps.create_dataset('vgrid', data=data)

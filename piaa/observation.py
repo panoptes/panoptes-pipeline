@@ -769,7 +769,7 @@ class Observation(object):
 
         return masks
 
-    def get_relative_flux(self, stamp_collection, target_index, coeffs, aperture_size=6):
+    def get_relative_lightcurve(self, stamp_collection, target_index, coeffs, aperture_size=6):
 
         stamp_h = self.hdf5_stamps.attrs['stamp_rows']
         stamp_w = self.hdf5_stamps.attrs['stamp_cols']

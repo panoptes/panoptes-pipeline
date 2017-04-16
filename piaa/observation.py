@@ -660,10 +660,13 @@ class Observation(object):
         """
         num_sources = self.num_point_sources
 
+        # Assume no match
+        data = np.ones((num_sources, num_sources)) * 99
+
         try:
             vgrid_dset = self.hdf5_stamps['vgrid']
         except KeyError:
-            vgrid_dset = self.hdf5_stamps.create_dataset('vgrid', (num_sources, num_sources))
+            vgrid_dset = self.hdf5_stamps.create_dataset('vgrid', data=data)
 
         psc0 = self.get_psc(target_index)
 

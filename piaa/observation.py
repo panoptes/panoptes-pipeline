@@ -753,9 +753,23 @@ class Observation(object):
 
             coeffs.append(res.x)
 
-        return coeffs
+        return np.array(coeffs)
 
-    def get_relative_flux(self, stamp_collection, coeffs, aperture_size=6):
+    def get_stamp_mask(self, source_index):
+        if self.rgb_masks is None:
+            # Create RGB masks
+            self.log("Making RGB masks")
+            self.rgb_masks = utils.make_masks(self.data_cube[0])
+
+        r_min, r_max, c_min, c_max = self.get_stamp_bounds(source_index)
+
+        masks = []
+        for mask in self.rgb_masks:
+            masks.append(mask[r_min:r_max, c_min:c_max])
+
+        return masks
+
+    def get_relative_flux(self, stamp_collection, target_index, coeffs, aperture_size=6):
 
         stamp_h = self.hdf5_stamps.attrs['stamp_rows']
         stamp_w = self.hdf5_stamps.attrs['stamp_cols']
@@ -783,7 +797,7 @@ class Observation(object):
 
             depths.append(a0)
 
-        return depths
+        return np.array(depths)
 
     def lookup_point_sources(self, image_num=0, sextractor_params=None, force_new=False):
         """ Extract point sources from image

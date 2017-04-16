@@ -803,7 +803,7 @@ class Observation(object):
                 except KeyError:
                     depths[color] = [a0]
 
-        return np.array(depths)
+        return depths
 
     def lookup_point_sources(self, image_num=0, sextractor_params=None, force_new=False):
         """ Extract point sources from image

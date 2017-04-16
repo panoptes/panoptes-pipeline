@@ -779,9 +779,9 @@ class Observation(object):
         depths = {}
 
         for frame_index in range(self.num_frames):
-            target_frame = stamp_collection[0, frame_index].reshape(stamp_w, stamp_h)
+            target_frame = stamp_collection[0, frame_index].reshape(stamp_h, stamp_w)
             refs_frame = stamp_collection[1:, frame_index]
-            ref_frame = (refs_frame.T * coeffs[frame_index]).T.sum(0).reshape(stamp_w, stamp_h)
+            ref_frame = (refs_frame.T * coeffs[frame_index]).T.sum(0).reshape(stamp_h, stamp_w)
 
             t0_peaks = find_peaks(target_frame, np.mean(target_frame) * 5)
             t0_peaks.sort(keys=['peak_value'])

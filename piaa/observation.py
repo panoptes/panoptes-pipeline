@@ -26,7 +26,7 @@ import h5py
 import numpy as np
 import pandas as pd
 
-from scipy.optimize import least_squares
+from scipy.optimize import minimize
 
 from matplotlib import gridspec
 from matplotlib import patches
@@ -729,10 +729,12 @@ class Observation(object):
 
             return res
 
+        num_frames = stamp_collection.shape[1]
+
         if display_progress:
-            iterator = ProgressBar(range(self.num_frames), ipython_widget=kwargs.get('ipython_widget', False))
+            iterator = ProgressBar(range(num_frames), ipython_widget=kwargs.get('ipython_widget', False))
         else:
-            iterator = range(self.num_frames)
+            iterator = range(num_frames)
 
         for frame_index in iterator:
 
@@ -748,12 +750,15 @@ class Observation(object):
                 print("Refs shape: {}".format(refs_frame.shape))
                 print("Refs other shape: {}".format(refs_all_but_frame.shape))
 
-            refs_coeffs = np.ones(len(refs_all_but_frame))
+            try:
+                refs_coeffs = coeffs[-1]
+            except IndexError:
+                refs_coeffs = np.ones(len(refs_all_but_frame))
 
             if verbose:
                 print("Source coeffs shape: {}".format(refs_coeffs.shape))
 
-            res = least_squares(minimize_func, refs_coeffs, args=(refs_all_but_frame, target_all_but_frame))
+            res = minimize(minimize_func, refs_coeffs, args=(refs_all_but_frame, target_all_but_frame))
 
             coeffs.append(res.x)
 
@@ -782,7 +787,9 @@ class Observation(object):
 
         depths = {}
 
-        for frame_index in range(self.num_frames):
+        num_frames = stamp_collection.shape[1]
+
+        for frame_index in range(num_frames):
             target_frame = stamp_collection[0, frame_index].reshape(stamp_h, stamp_w)
             refs_frame = stamp_collection[1:, frame_index]
             ref_frame = (refs_frame.T * coeffs[frame_index]).T.sum(0).reshape(stamp_h, stamp_w)

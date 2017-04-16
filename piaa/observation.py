@@ -679,9 +679,9 @@ class Observation(object):
                 warn("Skipping frame {}".format(frame_index))
 
         if display_progress:
-            iterator = ProgressBar(range(num_sources - 1), ipython_widget=kwargs.get('ipython_widget', False))
+            iterator = ProgressBar(range(num_sources), ipython_widget=kwargs.get('ipython_widget', False))
         else:
-            iterator = range(num_sources - 1)
+            iterator = range(num_sources)
 
         for source_index in iterator:
             # Only compute if zero (which will re-compute target but that's fine)

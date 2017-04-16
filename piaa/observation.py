@@ -155,10 +155,6 @@ class Observation(object):
         return self._pixel_locations
 
     @property
-    def stamps(self):
-        return self._stamps_cache
-
-    @property
     def wcs(self):
         if self._wcs is None:
             self._wcs = WCS(self.files[0])
@@ -329,75 +325,6 @@ class Observation(object):
         else:
             return background_data
 
-    def get_source_slice(self, source_index, force_new=False, cache=True, height=None, width=None, *args, **kwargs):
-        """ Create a stamp (stamp) of the data
-
-        This uses the start and end points from the source drift to figure out
-        an appropriate size to stamp. Data is bias and background subtracted.
-        """
-        try:
-            if force_new:
-                del self._stamps_cache[source_index]
-            stamp = self._stamps_cache[source_index]
-        except KeyError:
-            start_pos, mid_pos, end_pos = self._get_stamp_points(source_index)
-            mid_pos = self._adjust_stamp_midpoint(mid_pos)
-
-            # Get the width and height of data region
-            if height is None and width is None:
-                width, height = (start_pos - end_pos)
-
-            cutout = Cutout2D(
-                self.data_cube[0],
-                (mid_pos[0], mid_pos[1]),
-                (height, width)
-            )
-
-            xs, ys = cutout.bbox_original
-
-            # Shared across all stamps
-            self.stamp_size = cutout.data.shape
-
-            # Don't carry around the data
-            cutout.data = []
-
-            stamp = Stamp(
-                row_slice=slice(xs[0], xs[1] + 1),
-                col_slice=slice(ys[0], ys[1] + 1),
-                mid_point=mid_pos,
-                cutout=cutout,
-            )
-
-            if cache:
-                self._stamps_cache[source_index] = stamp
-
-        return stamp
-
-    def get_frame_stamp(self, source_index, frame_index, reshape=False, *args, **kwargs):
-        """ Get individual stamp for given source and frame
-
-        Note:
-            Data is bias and background subtracted
-
-        Args:
-            source_index (int): Index of the source from `point_sources`
-            frame_index (int): Index of the frame from `files`
-            *args (TYPE): Description
-            **kwargs (TYPE): Description
-
-        Returns:
-            numpy.array: Array of data
-        """
-
-        stamp = self.get_psc(source_index)[frame_index]
-
-        if reshape:
-            num_rows = self.hdf5_stamps.attrs['stamp_rows']
-            num_cols = self.hdf5_stamps.attrs['stamp_cols']
-            stamp = stamp.reshape(num_rows, num_cols).astype(int)
-
-        return stamp
-
     def get_psc(self, source_index):
         try:
             psc = self.hdf5_stamps['stamps'][source_index]
@@ -405,32 +332,6 @@ class Observation(object):
             raise Exception("You must run create_stamps first")
 
         return psc
-
-    def get_frame_aperture(self, source_index, frame_index, width=6, height=6, *args, **kwargs):
-        """Aperture for given frame from source
-
-        Note:
-            `width` and `height` should be in multiples of 2 to get a super-pixel
-
-        Args:
-            source_index (int): Index of the source from `point_sources`
-            frame_index (int): Index of the frame from `files`
-            width (int, optional): Width of the aperture, defaults to 3x2=6
-            height (int, optional): Height of the aperture, defaults to 3x2=6
-            *args (TYPE): Description
-            **kwargs (TYPE): Description
-
-        Returns:
-            photutils.RectangularAperture: Aperture surrounding the frame
-        """
-        stamp_slice = self.get_source_slice(source_index, *args, **kwargs)
-
-        x = int(self.pixel_locations[frame_index, source_index, 0] - stamp_slice.cutout.origin_original[0]) - 0.5 + 1
-        y = int(self.pixel_locations[frame_index, source_index, 1] - stamp_slice.cutout.origin_original[1]) - 0.5 + 1
-
-        aperture = RectangularAperture((x, y), w=width, h=height, theta=0)
-
-        return aperture
 
     def plot_stamp(self, source_index, frame_index, show_data=False, *args, **kwargs):
 
@@ -561,25 +462,6 @@ class Observation(object):
 
         fig.tight_layout(rect=[0., 0., 1., 0.95])
         return fig
-
-    def get_stamp_size(self):
-        # We want to ensure consistent stamp size, so we do a pre-search for all of them
-        self.log("Getting stamp size")
-        heights = list()
-        widths = list()
-        for source_index in self.point_sources.index:
-            r_min, r_max, c_min, c_max = self.get_stamp_bounds(source_index)
-
-            height = abs(r_max - r_min)
-            width = abs(c_max - c_min)
-
-            widths.append(round(abs(width)))
-            heights.append(round(abs(height)))
-
-        height = np.array(heights).max()
-        width = np.array(widths).max()
-
-        return height, width
 
     def create_stamps(self, target_index, display_progress=False, *args, **kwargs):
         """Create subtracted stamps for entire data cube
@@ -883,40 +765,6 @@ class Observation(object):
         self._point_sources = point_sources[top & bottom & right & left].to_pandas()
 
         return self._point_sources
-
-    def _get_stamp_points(self, idx):
-        # Print beginning, middle, and end positions
-        start_pos = self.pixel_locations.iloc[0, idx]
-        mid_pos = self.pixel_locations.iloc[int(len(self.files) / 2), idx]
-        end_pos = self.pixel_locations.iloc[-1, idx]
-
-        return start_pos, mid_pos, end_pos
-
-    def _adjust_stamp_midpoint(self, mid_pos):
-        """ The midpoint pixel should always end up as Blue to accommodate slicing """
-        color = utils.pixel_color(mid_pos[0], mid_pos[1])
-
-        x = mid_pos[0]
-        y = mid_pos[1]
-
-        if color == 'G2':
-            x -= 1
-        elif color == 'G1':
-            y -= 1
-        elif color == 'B':
-            x -= 1
-        elif color == 'R':
-            x += 1
-            y += 1
-
-        # y += 4
-        # x -= 2
-
-        return (x, y)
-
-    def _pad_super_pixel(self, num):
-        """ Get the nearest 10 block """
-        return int(np.ceil(np.abs(num) / 8)) * 8
 
     def _load_images(self):
         seq_files = glob("{}/*T*.fits".format(self.image_dir))

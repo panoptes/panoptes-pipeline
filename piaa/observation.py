@@ -661,7 +661,7 @@ class Observation(object):
         num_sources = self.num_point_sources
 
         # Assume no match
-        data = np.ones((num_sources, num_sources)) * 99
+        data = np.ones((num_sources, num_sources)) * 99.
 
         try:
             if force_new:
@@ -690,19 +690,17 @@ class Observation(object):
             iterator = range(num_sources)
 
         for source_index in iterator:
-            # Only compute if zero (which will re-compute target but that's fine)
-            if vgrid_dset[target_index, source_index] == 0. and vgrid_dset[source_index, target_index] == 0.:
-                psc1 = self.get_psc(source_index)
+            psc1 = self.get_psc(source_index)
 
-                # Normalize
-                for frame_index in frames:
-                    psc1[frame_index] /= psc1[frame_index].sum()
+            # Normalize
+            for frame_index in frames:
+                psc1[frame_index] /= psc1[frame_index].sum()
 
-                # Store in the grid
-                try:
-                    vgrid_dset[target_index, source_index] = ((psc0 - psc1) ** 2).sum()
-                except ValueError:
-                    self.log("Skipping invalid stamp for source {}".format(source_index))
+            # Store in the grid
+            try:
+                vgrid_dset[target_index, source_index] = ((psc0 - psc1) ** 2).sum()
+            except ValueError:
+                self.log("Skipping invalid stamp for source {}".format(source_index))
 
     def get_stamp_collection(self, target_index, num_refs=25):
         vary = self.hdf5_stamps['vgrid']

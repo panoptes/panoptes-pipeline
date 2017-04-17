@@ -697,10 +697,10 @@ class Observation(object):
 
         depths = {}
 
-        num_frames = target_psc.shape[1]
+        num_frames = target_psc.data.shape[1]
 
         for frame_index in range(num_frames):
-            target_frame = target_psc[frame_index].reshape(stamp_h, stamp_w)
+            target_frame = target_psc.data[frame_index].reshape(stamp_h, stamp_w)
             ref_frame = refpsf_psc[frame_index].reshape(stamp_h, stamp_w)
 
             t0_peaks = find_peaks(target_frame, np.mean(target_frame) * 5)

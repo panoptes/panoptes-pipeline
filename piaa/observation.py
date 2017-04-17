@@ -34,7 +34,7 @@ from matplotlib import pyplot as plt
 from . import utils
 
 
-Stamp = namedtuple('Stamp', ['row_slice', 'col_slice', 'mid_point', 'cutout'])
+PSC = namedtuple('PSC', ['data', 'mask'])
 
 
 class Observation(object):
@@ -342,11 +342,31 @@ class Observation(object):
 
     def get_psc(self, source_index):
         try:
-            psc = self.hdf5_stamps['stamps'][source_index]
+            data = self.hdf5_stamps['stamps'][source_index]
+
+            masks = self.get_stamp_mask(source_index)
+
+            psc = PSC(data=data, mask=masks)
+
         except KeyError:
             raise Exception("You must run create_stamps first")
 
         return psc
+
+    def get_refpsf_psc(self, stamp_collection, coeffs):
+        stamp_h = self.hdf5_stamps.attrs['stamp_rows']
+        stamp_w = self.hdf5_stamps.attrs['stamp_cols']
+
+        num_frames = stamp_collection.shape[1]
+
+        ref_frames = []
+
+        for frame_index in range(num_frames):
+            refs_frame = stamp_collection[1:, frame_index]
+            ref_frame = (refs_frame.T * coeffs[frame_index]).T.sum(0).reshape(stamp_h, stamp_w)
+            ref_frames.append(ref_frame)
+
+        return np.array(ref_frames)
 
     def plot_stamp(self, source_index, frame_index, show_data=False, *args, **kwargs):
 
@@ -568,7 +588,7 @@ class Observation(object):
         except KeyError:
             vgrid_dset = self.hdf5_stamps.create_dataset('vgrid', data=data)
 
-        psc0 = self.get_psc(target_index)
+        psc0 = self.get_psc(target_index).data
 
         # Normalize
         self.log("Normalizing target")
@@ -587,7 +607,7 @@ class Observation(object):
             iterator = range(num_sources)
 
         for source_index in iterator:
-            psc1 = self.get_psc(source_index)
+            psc1 = self.get_psc(source_index).data
 
             # Normalize
             for frame_index in frames:
@@ -608,12 +628,12 @@ class Observation(object):
         stamp_h = self.hdf5_stamps.attrs['stamp_rows']
         stamp_w = self.hdf5_stamps.attrs['stamp_cols']
 
-        stamp_collection = np.array([self.get_psc(idx) for idx in vary_series.index[0:num_refs]]).reshape(
+        stamp_collection = np.array([self.get_psc(idx).data for idx in vary_series.index[0:num_refs]]).reshape(
             num_refs, self.num_frames, stamp_h * stamp_w)
 
         return stamp_collection
 
-    def get_refpsf(self, stamp_collection, display_progress=False, **kwargs):
+    def get_refpsf_coeffs(self, stamp_collection, display_progress=False, **kwargs):
         verbose = kwargs.get('verbose', False)
 
         coeffs = []
@@ -670,21 +690,18 @@ class Observation(object):
 
         return masks
 
-    def get_relative_lightcurve(self, stamp_collection, target_index, coeffs, aperture_size=6):
+    def get_relative_lightcurve(self, target_psc, refpsf_psc, aperture_size=6):
 
         stamp_h = self.hdf5_stamps.attrs['stamp_rows']
         stamp_w = self.hdf5_stamps.attrs['stamp_cols']
 
-        masks = self.get_stamp_mask(target_index)
-
         depths = {}
 
-        num_frames = stamp_collection.shape[1]
+        num_frames = target_psc.shape[1]
 
         for frame_index in range(num_frames):
-            target_frame = stamp_collection[0, frame_index].reshape(stamp_h, stamp_w)
-            refs_frame = stamp_collection[1:, frame_index]
-            ref_frame = (refs_frame.T * coeffs[frame_index]).T.sum(0).reshape(stamp_h, stamp_w)
+            target_frame = target_psc[frame_index].reshape(stamp_h, stamp_w)
+            ref_frame = refpsf_psc[frame_index].reshape(stamp_h, stamp_w)
 
             t0_peaks = find_peaks(target_frame, np.mean(target_frame) * 5)
             t0_peaks.sort(keys=['peak_value'])
@@ -695,7 +712,7 @@ class Observation(object):
 
             aperture = RectangularAperture(t0_peak, aperture_size, aperture_size, 0)
 
-            for color, mask in zip(['R', 'G', 'B'], masks):
+            for color, mask in zip(['R', 'G', 'B'], target_psc.mask):
                 t0_flux = aperture.do_photometry(target_frame, method='subpixel', mask=mask)[0][0]
                 r0_flux = aperture.do_photometry(ref_frame, method='subpixel', mask=mask)[0][0]
 

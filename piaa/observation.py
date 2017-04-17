@@ -678,7 +678,7 @@ class Observation(object):
 
             t0_peaks = find_peaks(target_frame, np.mean(target_frame) * 5)
             t0_peaks.sort(keys=['peak_value'])
-            t0_peak = (t0_peaks['x_peak'][-1] - 0.5, t0_peaks['y_peak'][-1] + 0.5)
+            t0_peak = (t0_peaks['x_peak'][-1], t0_peaks['y_peak'][-1])
 
             r0_peaks = find_peaks(ref_frame, np.mean(ref_frame) * 5)
             r0_peaks.sort(keys=['peak_value'])

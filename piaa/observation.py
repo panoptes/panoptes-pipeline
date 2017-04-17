@@ -713,8 +713,8 @@ class Observation(object):
             aperture = RectangularAperture(t0_peak, aperture_size, aperture_size, 0)
 
             for color, mask in zip(['R', 'G', 'B'], target_psc.mask):
-                t0_flux = aperture.do_photometry(target_frame, method='subpixel', mask=mask)[0][0]
-                r0_flux = aperture.do_photometry(ref_frame, method='subpixel', mask=mask)[0][0]
+                t0_flux = aperture.do_photometry(target_frame, method='subpixel', mask=~mask)[0][0]
+                r0_flux = aperture.do_photometry(ref_frame, method='subpixel', mask=~mask)[0][0]
 
                 a0 = t0_flux / r0_flux
 

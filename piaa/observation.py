@@ -15,6 +15,7 @@ from astropy.visualization.mpl_normalize import ImageNormalize
 from astropy.wcs import WCS
 
 from photutils import Background2D
+from photutils import BkgIDWInterpolator
 from photutils import RectangularAperture
 from photutils import SExtractorBackground
 from photutils import SigmaClip
@@ -63,8 +64,8 @@ class Observation(object):
         self._img_w = 5208
 
         # Background estimation boxes
-        self.background_box_h = 22
-        self.background_box_w = 24
+        self.background_box_h = 316
+        self.background_box_w = 434
 
         self.background_region = {}
 
@@ -318,7 +319,8 @@ class Observation(object):
             color = masks[0]
             mask = masks[1]
             bkg = Background2D(data, (self.background_box_h, self.background_box_w), filter_size=(3, 3),
-                               sigma_clip=sigma_clip, bkg_estimator=bkg_estimator, mask=~mask)
+                               sigma_clip=sigma_clip, bkg_estimator=bkg_estimator, mask=~mask,
+                               interpolator=BkgIDWInterpolator())
 
             background_objs[color] = bkg
 

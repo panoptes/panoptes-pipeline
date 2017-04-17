@@ -327,10 +327,10 @@ class Observation(object):
             self.log("\t{} Background\t Value: {:.02f}\t RMS: {:.02f}".format(
                 color, bkg.background_median, bkg.background_rms_median))
 
-            if summary or (background_obj is False):
-                background_masked_data = np.ma.array(bkg.background, mask=~mask)
+            if summary:
                 background_dset[frame_index, color_index] = (bkg.background_median, bkg.background_rms_median)
-
+            elif background_obj is False:
+                background_masked_data = np.ma.array(bkg.background, mask=~mask)
                 background_data += background_masked_data.filled(0)
 
         # Mark that we already have summary

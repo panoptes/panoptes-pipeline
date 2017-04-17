@@ -697,7 +697,7 @@ class Observation(object):
 
         depths = {}
 
-        num_frames = target_psc.data.shape[1]
+        num_frames = target_psc.data.shape[0]
 
         for frame_index in range(num_frames):
             target_frame = target_psc.data[frame_index].reshape(stamp_h, stamp_w)

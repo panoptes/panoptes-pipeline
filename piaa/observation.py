@@ -64,8 +64,11 @@ class Observation(object):
         self._img_w = 5208
 
         # Background estimation boxes
-        self.background_box_h = 11
-        self.background_box_w = 12
+        # self.background_box_h = 11
+        # self.background_box_w = 12
+
+        self.background_box_h = 316
+        self.background_box_w = 434
 
         self.background_region = {}
 

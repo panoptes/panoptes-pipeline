@@ -8,7 +8,6 @@ from collections import namedtuple
 from glob import glob
 
 from astropy.io import fits
-from astropy.nddata.utils import Cutout2D
 from astropy.table import Table
 from astropy.utils.console import ProgressBar
 from astropy.visualization import SqrtStretch
@@ -79,7 +78,7 @@ class Observation(object):
 
         self._wcs = None
 
-        self.rgb_masks = None  # These are trimmed, see `subtract_background`
+        self._rgb_masks = None
 
         self._stamp_masks = (None, None, None)
         self._stamps_cache = {}
@@ -187,6 +186,27 @@ class Observation(object):
 
         return cube_dset
 
+    @property
+    def rgb_masks(self):
+        """ RGB Mask arrays
+
+        Read the RGB masks from a stored file or generate and save to file accordingly
+
+        Returns:
+            numpy.MaskedArray: A 3xNxM array where the first axis corresponds to color
+                and the NxM is the full frame size
+        """
+        if self._rgb_masks is None:
+            rgb_mask_file = '{}/rgb_masks.numpy'.format(os.getenv('PANDIR'))
+            try:
+                self._rgb_masks = np.load(rgb_mask_file)
+            except FileNotFoundError:
+                self.log("Making RGB masks")
+                self._rgb_masks = np.array(utils.make_masks(self.data_cube[0]))
+                self._rgb_masks.dump(rgb_mask_file)
+
+        return self._rgb_masks
+
     def log(self, msg, **kwargs):
         if self.verbose:
             if 'end' in kwargs:
@@ -289,11 +309,6 @@ class Observation(object):
 
         # Get the bias subtracted data for the frame
         data = self.data_cube[frame_index]
-
-        if self.rgb_masks is None:
-            # Create RGB masks
-            self.log("Making RGB masks")
-            self.rgb_masks = utils.make_masks(data)
 
         # Create holder for the actual background
         background_data = np.zeros_like(data)
@@ -647,11 +662,6 @@ class Observation(object):
         return np.array(coeffs)
 
     def get_stamp_mask(self, source_index):
-        if self.rgb_masks is None:
-            # Create RGB masks
-            self.log("Making RGB masks")
-            self.rgb_masks = utils.make_masks(self.data_cube[0])
-
         r_min, r_max, c_min, c_max = self.get_stamp_bounds(source_index)
 
         masks = []

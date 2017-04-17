@@ -15,8 +15,9 @@ from astropy.visualization.mpl_normalize import ImageNormalize
 from astropy.wcs import WCS
 
 from photutils import Background2D
-from photutils import MedianBackground
+from photutils import BkgIDWInterpolator
 from photutils import RectangularAperture
+from photutils import SExtractorBackground
 from photutils import SigmaClip
 from photutils import aperture_photometry
 from photutils import find_peaks
@@ -242,7 +243,7 @@ class Observation(object):
             frames = range(len(self.files))
 
         sigma_clip = SigmaClip(sigma=clip_sigma, iters=clip_iters)
-        bkg_estimator = MedianBackground()
+        bkg_estimator = SExtractorBackground()
 
         if display_progress:
             frames_iter = ProgressBar(frames, ipython_widget=kwargs.get('ipython_widget', False))
@@ -305,7 +306,7 @@ class Observation(object):
             sigma_clip = SigmaClip(sigma=clip_sigma, iters=clip_iters)
 
         if bkg_estimator is None:
-            bkg_estimator = MedianBackground()
+            bkg_estimator = SExtractorBackground()
 
         # Get the bias subtracted data for the frame
         data = self.data_cube[frame_index]
@@ -318,7 +319,8 @@ class Observation(object):
             color = masks[0]
             mask = masks[1]
             bkg = Background2D(data, (self.background_box_h, self.background_box_w), filter_size=(3, 3),
-                               sigma_clip=sigma_clip, bkg_estimator=bkg_estimator, mask=~mask)
+                               sigma_clip=sigma_clip, bkg_estimator=bkg_estimator, mask=~mask,
+                               interpolator=BkgIDWInterpolator())
 
             background_objs[color] = bkg
 

@@ -672,18 +672,16 @@ class Observation(object):
             refs_frame = stamp_collection[1:, frame_index]
             refs_all_but_frame = np.delete(stamp_collection[1:], frame_index, 1)
 
-            if verbose:
-                print("Target frame shape: {}".format(target_frame.shape))
-                print("Target other shape: {}".format(target_all_but_frame.shape))
-                print("Refs shape: {}".format(refs_frame.shape))
-                print("Refs other shape: {}".format(refs_all_but_frame.shape))
-
             try:
                 refs_coeffs = coeffs[-1]
             except IndexError:
                 refs_coeffs = np.ones(len(refs_all_but_frame))
 
-            if verbose:
+            if verbose and frame_index == 0:
+                print("Target frame shape: {}".format(target_frame.shape))
+                print("Target other shape: {}".format(target_all_but_frame.shape))
+                print("Refs shape: {}".format(refs_frame.shape))
+                print("Refs other shape: {}".format(refs_all_but_frame.shape))
                 print("Source coeffs shape: {}".format(refs_coeffs.shape))
 
             res = minimize(func, refs_coeffs, args=(refs_all_but_frame, target_all_but_frame))

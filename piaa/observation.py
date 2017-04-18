@@ -552,7 +552,7 @@ class Observation(object):
         self.hdf5_stamps.attrs['stamp_rows'] = height
         self.hdf5_stamps.attrs['stamp_cols'] = width
 
-    def get_stamp_bounds(self, target_index, height=None, width=None, padding=3):
+    def get_stamp_bounds(self, target_index, height=None, width=None, padding=3, **kwargs):
         pix = self.pixel_locations[:, target_index]
 
         if width is None:

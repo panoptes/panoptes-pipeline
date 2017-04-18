@@ -641,7 +641,7 @@ class Observation(object):
 
         return stamp_collection
 
-    def get_refpsf_coeffs(self, stamp_collection, display_progress=False, **kwargs):
+    def get_refpsf_coeffs(self, stamp_collection, func=None, display_progress=False, **kwargs):
         verbose = kwargs.get('verbose', False)
 
         coeffs = []
@@ -660,6 +660,9 @@ class Observation(object):
             iterator = ProgressBar(range(num_frames), ipython_widget=kwargs.get('ipython_widget', False))
         else:
             iterator = range(num_frames)
+
+        if func is None:
+            func = minimize_func
 
         for frame_index in iterator:
 
@@ -683,7 +686,7 @@ class Observation(object):
             if verbose:
                 print("Source coeffs shape: {}".format(refs_coeffs.shape))
 
-            res = minimize(minimize_func, refs_coeffs, args=(refs_all_but_frame, target_all_but_frame))
+            res = minimize(func, refs_coeffs, args=(refs_all_but_frame, target_all_but_frame))
 
             coeffs.append(res.x)
 

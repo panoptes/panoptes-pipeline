@@ -642,8 +642,6 @@ class Observation(object):
         return stamp_collection
 
     def get_refpsf_coeffs(self, stamp_collection, func=None, display_progress=False, **kwargs):
-        verbose = kwargs.get('verbose', False)
-
         coeffs = []
 
         def minimize_func(refs_coeffs, refs_all_but_frame, target_all_but_frame):
@@ -677,7 +675,7 @@ class Observation(object):
             except IndexError:
                 refs_coeffs = np.ones(len(refs_all_but_frame))
 
-            if verbose and frame_index == 0:
+            if self.verbose and frame_index == 0:
                 print("Target frame shape: {}".format(target_frame.shape))
                 print("Target other shape: {}".format(target_all_but_frame.shape))
                 print("Refs shape: {}".format(refs_frame.shape))

@@ -557,8 +557,8 @@ class Observation(object):
         self.hdf5_stamps.attrs['stamp_rows'] = height
         self.hdf5_stamps.attrs['stamp_cols'] = width
 
-    def get_stamp_bounds(self, target_index, height=None, width=None, padding=0, **kwargs):
-        pix = self.pixel_locations[:, target_index]
+    def get_stamp_bounds(self, source_index, height=None, width=None, padding=0, **kwargs):
+        pix = self.pixel_locations[:, source_index]
 
         if width is None:
             col_max = int(pix.iloc[0].max()) + padding
@@ -693,7 +693,7 @@ class Observation(object):
 
         masks = []
         for mask in self.rgb_masks:
-            masks.append(mask[r_min:r_max, c_min:c_max])
+            masks.append(np.flipud(mask)[r_min:r_max, c_min:c_max])
 
         return masks
 

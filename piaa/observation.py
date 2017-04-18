@@ -345,7 +345,10 @@ class Observation(object):
         try:
             data = self.hdf5_stamps['stamps'][source_index]
 
-            masks = self.get_stamp_mask(source_index)
+            height = data.shape[1]
+            width = data.shape[2]
+
+            masks = self.get_stamp_mask(source_index, height=height, width=width)
 
             psc = PSC(data=data, mask=masks)
 
@@ -499,7 +502,7 @@ class Observation(object):
         fig.tight_layout(rect=[0., 0., 1., 0.95])
         return fig
 
-    def create_stamps(self, target_index, display_progress=False, *args, **kwargs):
+    def create_stamps(self, target_index, padding=3, display_progress=False, *args, **kwargs):
         """Create subtracted stamps for entire data cube
 
         Creates a slice through the cube corresponding to a stamp and stores the
@@ -517,7 +520,14 @@ class Observation(object):
 
         self.log("Starting stamp creation")
 
-        r_min, r_max, c_min, c_max = self.get_stamp_bounds(target_index, padding=kwargs.get('padding', 3))
+        r_min, r_max, c_min, c_max = self.get_stamp_bounds(target_index)
+
+        # Add the padding
+        r_max += padding
+        r_min -= padding
+        c_max += padding
+        c_min -= padding
+
         height = r_max - r_min
         width = c_max - c_min
 
@@ -551,29 +561,22 @@ class Observation(object):
         # Store stamp size
         self.hdf5_stamps.attrs['stamp_rows'] = height
         self.hdf5_stamps.attrs['stamp_cols'] = width
-        self.hdf5_stamps.attrs['padding'] = kwargs.get('padding', 3)
 
-    def get_stamp_bounds(self, target_index, height=None, width=None, padding=None, **kwargs):
+    def get_stamp_bounds(self, target_index, height=None, width=None, **kwargs):
         pix = self.pixel_locations[:, target_index]
 
-        if padding is None:
-            try:
-                padding = self.hdf5_stamps.attrs['padding']
-            except KeyError:
-                padding = 3
-
         if width is None:
-            col_max = int(pix.iloc[0].max()) + padding
-            col_min = int(pix.iloc[0].min()) - padding
+            col_max = int(pix.iloc[0].max())
+            col_min = int(pix.iloc[0].min())
         else:
-            col_max = int(pix.iloc[0].max()) + padding
+            col_max = int(pix.iloc[0].max())
             col_min = col_max - width
 
         if height is None:
-            row_max = int(pix.iloc[1].max()) + padding
-            row_min = int(pix.iloc[1].min()) - padding
+            row_max = int(pix.iloc[1].max())
+            row_min = int(pix.iloc[1].min())
         else:
-            row_max = int(pix.iloc[1].max()) + padding
+            row_max = int(pix.iloc[1].max())
             row_min = row_max - height
 
         return row_min, row_max, col_min, col_max

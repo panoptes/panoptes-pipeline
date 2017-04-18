@@ -517,7 +517,7 @@ class Observation(object):
 
         self.log("Starting stamp creation")
 
-        r_min, r_max, c_min, c_max = self.get_stamp_bounds(target_index, kwargs.get('padding', 3))
+        r_min, r_max, c_min, c_max = self.get_stamp_bounds(target_index, padding=kwargs.get('padding', 3))
         height = r_max - r_min
         width = c_max - c_min
 

@@ -517,7 +517,7 @@ class Observation(object):
 
         self.log("Starting stamp creation")
 
-        r_min, r_max, c_min, c_max = self.get_stamp_bounds(target_index, **kwargs)
+        r_min, r_max, c_min, c_max = self.get_stamp_bounds(target_index, kwargs.get('padding', 3))
         height = r_max - r_min
         width = c_max - c_min
 
@@ -551,9 +551,16 @@ class Observation(object):
         # Store stamp size
         self.hdf5_stamps.attrs['stamp_rows'] = height
         self.hdf5_stamps.attrs['stamp_cols'] = width
+        self.hdf5_stamps.attrs['padding'] = kwargs.get('padding', 3)
 
-    def get_stamp_bounds(self, target_index, height=None, width=None, padding=3, **kwargs):
+    def get_stamp_bounds(self, target_index, height=None, width=None, padding=None, **kwargs):
         pix = self.pixel_locations[:, target_index]
+
+        if padding is None:
+            try:
+                padding = self.hdf5_stamps.attrs['padding']
+            except KeyError:
+                padding = 3
 
         if width is None:
             col_max = int(pix.iloc[0].max()) + padding

@@ -520,13 +520,7 @@ class Observation(object):
 
         self.log("Starting stamp creation")
 
-        r_min, r_max, c_min, c_max = self.get_stamp_bounds(target_index)
-
-        # Add the padding
-        r_max += padding
-        r_min -= padding
-        c_max += padding
-        c_min -= padding
+        r_min, r_max, c_min, c_max = self.get_stamp_bounds(target_index, padding=padding)
 
         height = r_max - r_min
         width = c_max - c_min
@@ -549,7 +543,8 @@ class Observation(object):
         for source_index in iterator:
 
             try:
-                r_min, r_max, c_min, c_max = self.get_stamp_bounds(source_index, height=height, width=width)
+                r_min, r_max, c_min, c_max = self.get_stamp_bounds(
+                    source_index, height=height, width=width, padding=padding)
                 stamps = np.array(self.data_cube[:self.num_frames, r_min:r_max, c_min:c_max])
 
                 # Store
@@ -562,21 +557,21 @@ class Observation(object):
         self.hdf5_stamps.attrs['stamp_rows'] = height
         self.hdf5_stamps.attrs['stamp_cols'] = width
 
-    def get_stamp_bounds(self, target_index, height=None, width=None, **kwargs):
+    def get_stamp_bounds(self, target_index, height=None, width=None, padding=0, **kwargs):
         pix = self.pixel_locations[:, target_index]
 
         if width is None:
-            col_max = int(pix.iloc[0].max())
-            col_min = int(pix.iloc[0].min())
+            col_max = int(pix.iloc[0].max()) + padding
+            col_min = int(pix.iloc[0].min()) - padding
         else:
-            col_max = int(pix.iloc[0].max())
+            col_max = int(pix.iloc[0].max()) + padding
             col_min = col_max - width
 
         if height is None:
-            row_max = int(pix.iloc[1].max())
-            row_min = int(pix.iloc[1].min())
+            row_max = int(pix.iloc[1].max()) + padding
+            row_min = int(pix.iloc[1].min()) - padding
         else:
-            row_max = int(pix.iloc[1].max())
+            row_max = int(pix.iloc[1].max()) + padding
             row_min = row_max - height
 
         return row_min, row_max, col_min, col_max
@@ -694,8 +689,8 @@ class Observation(object):
 
         return np.array(coeffs)
 
-    def get_stamp_mask(self, source_index):
-        r_min, r_max, c_min, c_max = self.get_stamp_bounds(source_index)
+    def get_stamp_mask(self, source_index, **kwargs):
+        r_min, r_max, c_min, c_max = self.get_stamp_bounds(source_index, **kwargs)
 
         masks = []
         for mask in self.rgb_masks:

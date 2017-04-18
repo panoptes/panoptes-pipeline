@@ -517,9 +517,11 @@ class Observation(object):
 
         self.log("Starting stamp creation")
 
-        r_min, r_max, c_min, c_max = self.get_stamp_bounds(target_index)
+        r_min, r_max, c_min, c_max = self.get_stamp_bounds(target_index, **kwargs)
         height = r_max - r_min
         width = c_max - c_min
+
+        self.log("Stamp size: {} {}".format(height, width))
 
         if display_progress:
             iterator = ProgressBar(self.point_sources.index, ipython_widget=kwargs.get('ipython_widget', False))
@@ -550,21 +552,21 @@ class Observation(object):
         self.hdf5_stamps.attrs['stamp_rows'] = height
         self.hdf5_stamps.attrs['stamp_cols'] = width
 
-    def get_stamp_bounds(self, target_index, height=None, width=None):
+    def get_stamp_bounds(self, target_index, height=None, width=None, padding=3):
         pix = self.pixel_locations[:, target_index]
 
         if width is None:
-            col_max = int(pix.iloc[0].max()) + 3
-            col_min = int(pix.iloc[0].min()) - 3
+            col_max = int(pix.iloc[0].max()) + padding
+            col_min = int(pix.iloc[0].min()) - padding
         else:
-            col_max = int(pix.iloc[0].max()) + 3
+            col_max = int(pix.iloc[0].max()) + padding
             col_min = col_max - width
 
         if height is None:
-            row_max = int(pix.iloc[1].max()) + 3
-            row_min = int(pix.iloc[1].min()) - 3
+            row_max = int(pix.iloc[1].max()) + padding
+            row_min = int(pix.iloc[1].min()) - padding
         else:
-            row_max = int(pix.iloc[1].max()) + 3
+            row_max = int(pix.iloc[1].max()) + padding
             row_min = row_max - height
 
         return row_min, row_max, col_min, col_max

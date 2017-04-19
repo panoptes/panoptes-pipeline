@@ -277,6 +277,6 @@ def add_pixel_grid(ax1, grid_width, grid_height, show_axis_labels=True, show_sup
 
     ax1.grid(which='minor', color='r', lw='2', linestyle='--', alpha=0.25)
 
-    if show_axis_labels:
+    if show_axis_labels is False:
         ax1.set_xticklabels([])
-    ax1.set_yticklabels([])
+        ax1.set_yticklabels([])

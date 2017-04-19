@@ -342,11 +342,15 @@ class Observation(object):
         else:
             return background_data
 
-    def get_psc(self, source_index):
+    def get_psc(self, source_index, frames=None):
         try:
             ss = self.slices[source_index]
-            data = self.data_cube[:, ss[0], ss[1]]
-            masks = self.rgb_masks[:, ss[0], ss[1]]
+
+            if frames is None:
+                frame_slice = slice(0, self.num_frames)
+
+            data = self.data_cube[frame_slice, ss[0], ss[1]]
+            masks = self.rgb_masks[frame_slice, ss[0], ss[1]]
 
             psc = PSC(data=data, mask=masks)
 
@@ -421,8 +425,6 @@ class Observation(object):
             except Exception as e:
                 self.log("Problem creating stamp for {}: {}".format(source_index, e))
 
-        return self.slices
-
     def get_stamp_bounds(self, source_index, height=None, width=None, padding=0, **kwargs):
         pix = self.pixel_locations[:, source_index]
 
@@ -463,14 +465,16 @@ class Observation(object):
             vgrid_dset = self.hdf5_stamps.create_dataset('vgrid', data=data)
 
         psc0 = self.get_psc(target_index).data
+        num_frames = psc0.shape[0]
 
         # Normalize
-        self.log("Normalizing target")
+        self.log("Normalizing target for {} frames".format(num_frames))
         frames = []
-        for frame_index in range(self.num_frames):
+        normalized_psc0 = None
+        for frame_index in range(num_frames):
             try:
                 if psc0[frame_index].sum() > 0.:
-                    psc0[frame_index] /= psc0[frame_index].sum()
+                    normalized_psc0 = psc0[frame_index] / psc0[frame_index].sum()
                     frames.append(frame_index)
             except RuntimeWarning:
                 warn("Skipping frame {}".format(frame_index))
@@ -483,13 +487,15 @@ class Observation(object):
         for source_index in iterator:
             psc1 = self.get_psc(source_index).data
 
+            normalized_psc1 = np.zeros_like(psc1)
+
             # Normalize
             for frame_index in frames:
-                psc1[frame_index] /= psc1[frame_index].sum()
+                normalized_psc1[frame_index] = psc1[frame_index] / psc1[frame_index].sum()
 
             # Store in the grid
             try:
-                vgrid_dset[target_index, source_index] = ((psc0 - psc1) ** 2).sum()
+                vgrid_dset[target_index, source_index] = ((normalized_psc0 - normalized_psc1) ** 2).sum()
             except ValueError:
                 self.log("Skipping invalid stamp for source {}".format(source_index))
 

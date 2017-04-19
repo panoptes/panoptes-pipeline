@@ -449,7 +449,7 @@ class Observation(object):
         if frame_slice is None:
             frame_slice = slice(0, self.num_frames)
 
-        pix = self.pixel_locations[frame_slice, source_index]
+        pix = self.pixel_locations[frame_slice][:, source_index]
 
         if width is None:
             col_max = int(pix.iloc[0].max()) + padding

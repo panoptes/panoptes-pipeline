@@ -469,11 +469,11 @@ class Observation(object):
         # Normalize
         self.log("Normalizing target for {} frames".format(num_frames))
         frames = []
-        normalized_psc0 = None
+        normalized_psc0 = np.zeros_like(psc0)
         for frame_index in range(num_frames):
             try:
                 if psc0[frame_index].sum() > 0.:
-                    normalized_psc0 = psc0[frame_index] / psc0[frame_index].sum()
+                    normalized_psc0[frame_index] = psc0[frame_index] / psc0[frame_index].sum()
                     frames.append(frame_index)
             except RuntimeWarning:
                 warn("Skipping frame {}".format(frame_index))

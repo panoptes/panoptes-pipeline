@@ -393,6 +393,19 @@ class Observation(object):
 
         r_min, r_max, c_min, c_max = self.get_stamp_bounds(target_index, padding=padding)
 
+        color = utils.pixel_color(c_min, r_max, zero_based=True)
+        if color == 'B':
+            r_max += 1
+            r_min += 1
+        elif color == 'R':
+            c_min += 1
+            c_max += 1
+        elif color == 'G2':
+            c_min += 1
+            c_max += 1
+            r_max += 1
+            r_min += 1
+
         height = r_max - r_min
         width = c_max - c_min
 
@@ -418,6 +431,19 @@ class Observation(object):
             try:
                 r_min, r_max, c_min, c_max = self.get_stamp_bounds(
                     source_index, height=height, width=width, padding=padding)
+
+                color = utils.pixel_color(c_min, r_max, zero_based=True)
+                if color == 'B':
+                    r_max += 1
+                    r_min += 1
+                elif color == 'R':
+                    c_min += 1
+                    c_max += 1
+                elif color == 'G2':
+                    c_min += 1
+                    c_max += 1
+                    r_max += 1
+                    r_min += 1
 
                 self.slices[source_index] = [slice(r_min, r_max), slice(c_min, c_max)]
 

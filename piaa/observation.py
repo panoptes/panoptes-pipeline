@@ -463,7 +463,7 @@ class Observation(object):
         except KeyError:
             vgrid_dset = self.hdf5_stamps.create_dataset('vgrid', data=data)
 
-        psc0 = self.get_psc(target_index).data
+        psc0 = self.get_psc(target_index, frame_slice=kwargs.get('frame_slice', None)).data
         num_frames = psc0.shape[0]
 
         # Normalize
@@ -484,7 +484,7 @@ class Observation(object):
             iterator = range(num_sources)
 
         for source_index in iterator:
-            psc1 = self.get_psc(source_index).data
+            psc1 = self.get_psc(source_index, frame_slice=kwargs.get('frame_slice', None)).data
 
             normalized_psc1 = np.zeros_like(psc1)
 

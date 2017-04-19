@@ -350,7 +350,7 @@ class Observation(object):
                 frame_slice = slice(0, self.num_frames)
 
             data = self.data_cube[frame_slice, ss[0], ss[1]]
-            masks = self.rgb_masks[frame_slice, ss[0], ss[1]]
+            masks = self.rgb_masks[:, ss[0], ss[1]]
 
             psc = PSC(data=data, mask=masks)
 
@@ -359,11 +359,10 @@ class Observation(object):
 
         return psc
 
-    def get_ideal_psc(self, stamp_collection, coeffs):
-        stamp_h = self.hdf5_stamps.attrs['stamp_rows']
-        stamp_w = self.hdf5_stamps.attrs['stamp_cols']
-
-        num_frames = stamp_collection.shape[1]
+    def get_ideal_psc(self, stamp_collection, coeffs, target_psc):
+        num_frames = target_psc.data.shape[0]
+        stamp_h = target_psc.data.shape[1]
+        stamp_w = target_psc.data.shape[2]
 
         ref_frames = []
 

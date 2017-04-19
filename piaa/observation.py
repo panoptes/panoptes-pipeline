@@ -571,12 +571,12 @@ class Observation(object):
 
     def get_relative_lightcurve(self, target_psc, refpsf_psc, aperture_size=6):
 
-        stamp_h = self.hdf5_stamps.attrs['stamp_rows']
-        stamp_w = self.hdf5_stamps.attrs['stamp_cols']
-
         depths = {}
 
         num_frames = target_psc.data.shape[0]
+
+        stamp_h = target_psc.data.shape[1]
+        stamp_w = target_psc.data.shape[2]
 
         for frame_index in range(num_frames):
             target_frame = target_psc.data[frame_index].reshape(stamp_h, stamp_w)
@@ -586,8 +586,8 @@ class Observation(object):
             t0_peaks.sort(keys=['peak_value'])
             t0_peak = (t0_peaks['x_peak'][-1], t0_peaks['y_peak'][-1])
 
-            r0_peaks = find_peaks(ref_frame, np.mean(ref_frame) * 5)
-            r0_peaks.sort(keys=['peak_value'])
+            # r0_peaks = find_peaks(ref_frame, np.mean(ref_frame) * 5)
+            # r0_peaks.sort(keys=['peak_value'])
 
             aperture = RectangularAperture(t0_peak, aperture_size, aperture_size, 0)
 

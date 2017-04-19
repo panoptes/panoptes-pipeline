@@ -85,6 +85,7 @@ class Observation(object):
 
         self._hdf5 = None
         self._hdf5_stamps = None
+        self.slices = dict()
 
         self._load_images()
 
@@ -343,12 +344,9 @@ class Observation(object):
 
     def get_psc(self, source_index):
         try:
-            data = self.hdf5_stamps['stamps'][source_index]
-
-            height = data.shape[1]
-            width = data.shape[2]
-
-            masks = self.get_stamp_mask(source_index, height=height, width=width)
+            ss = self.slices[source_index]
+            data = self.data_cube[:, ss[0], ss[1]]
+            masks = self.rgb_masks[:, ss[0], ss[1]]
 
             psc = PSC(data=data, mask=masks)
 
@@ -372,7 +370,7 @@ class Observation(object):
 
         return np.array(ref_frames)
 
-    def create_stamps(self, target_index, padding=3, display_progress=False, *args, **kwargs):
+    def create_stamp_slices(self, target_index, padding=3, display_progress=False, *args, **kwargs):
         """Create subtracted stamps for entire data cube
 
         Creates a slice through the cube corresponding to a stamp and stores the
@@ -402,30 +400,28 @@ class Observation(object):
         else:
             iterator = self.point_sources.index
 
-        try:
-            del self.hdf5_stamps['stamps']
-        except Exception:
-            pass
+        # try:
+        #     del self.hdf5_stamps['stamps']
+        # except Exception:
+        #     pass
 
-        stamp_dset = self.hdf5_stamps.create_dataset('stamps',
-                                                     (self.num_point_sources, self.num_frames, height, width))
+        # stamp_dset = self.hdf5_stamps.create_dataset(
+            # 'stamps', (self.num_point_sources, self.num_frames, height, width))
+
+        self.slices = dict()
 
         for source_index in iterator:
 
             try:
                 r_min, r_max, c_min, c_max = self.get_stamp_bounds(
                     source_index, height=height, width=width, padding=padding)
-                stamps = np.array(self.data_cube[:self.num_frames, r_min:r_max, c_min:c_max])
 
-                # Store
-                stamp_dset[source_index] = stamps
+                self.slices[source_index] = [slice(r_min, r_max), slice(c_min, c_max)]
 
             except Exception as e:
                 self.log("Problem creating stamp for {}: {}".format(source_index, e))
 
-        # Store stamp size
-        self.hdf5_stamps.attrs['stamp_rows'] = height
-        self.hdf5_stamps.attrs['stamp_cols'] = width
+        return self.slices
 
     def get_stamp_bounds(self, source_index, height=None, width=None, padding=0, **kwargs):
         pix = self.pixel_locations[:, source_index]

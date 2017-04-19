@@ -357,7 +357,7 @@ class Observation(object):
 
         return psc
 
-    def get_refpsf_psc(self, stamp_collection, coeffs):
+    def get_ideal_psc(self, stamp_collection, coeffs):
         stamp_h = self.hdf5_stamps.attrs['stamp_rows']
         stamp_w = self.hdf5_stamps.attrs['stamp_cols']
 
@@ -371,136 +371,6 @@ class Observation(object):
             ref_frames.append(ref_frame)
 
         return np.array(ref_frames)
-
-    def plot_stamp(self, source_index, frame_index, show_data=False, *args, **kwargs):
-
-        norm = ImageNormalize(stretch=SqrtStretch())
-
-        stamp_slice = self.get_source_slice(source_index, *args, **kwargs)
-        stamp = self.get_frame_stamp(source_index, frame_index, reshape=True, *args, **kwargs)
-
-        fig = plt.figure(1)
-        fig.set_size_inches(13, 15)
-        gs = gridspec.GridSpec(2, 2, width_ratios=[1, 1])
-        ax1 = plt.subplot(gs[:, 0])
-        ax2 = plt.subplot(gs[0, 1])
-        ax3 = plt.subplot(gs[1, 1])
-        fig.add_subplot(ax1)
-        fig.add_subplot(ax2)
-        fig.add_subplot(ax3)
-
-        aperture = self.get_frame_aperture(source_index, frame_index, return_aperture=True)
-
-        aperture_mask = aperture.to_mask(method='center')[0]
-        aperture_data = aperture_mask.cutout(stamp)
-
-        phot_table = aperture_photometry(stamp, aperture, method='center')
-
-        if show_data:
-            print(np.flipud(aperture_data))  # Flip the data to match plot
-
-        cax1 = ax1.imshow(stamp, cmap='cubehelix_r', norm=norm)
-        plt.colorbar(cax1, ax=ax1)
-
-        aperture.plot(color='b', ls='--', lw=2, ax=ax1)
-
-        # Bayer pattern
-        for i, val in np.ndenumerate(stamp):
-            x, y = stamp_slice.cutout.to_original_position((i[1], i[0]))
-            ax1.text(x=i[1], y=i[0], ha='center', va='center',
-                     s=utils.pixel_color(x, y, zero_based=True), fontsize=10, alpha=0.25)
-
-        # major ticks every 2, minor ticks every 1
-        x_major_ticks = np.arange(-0.5, stamp_slice.cutout.bbox_cutout[1][1], 2)
-        x_minor_ticks = np.arange(-0.5, stamp_slice.cutout.bbox_cutout[1][1], 1)
-
-        y_major_ticks = np.arange(-0.5, stamp_slice.cutout.bbox_cutout[0][1], 2)
-        y_minor_ticks = np.arange(-0.5, stamp_slice.cutout.bbox_cutout[0][1], 1)
-
-        ax1.set_xticks(x_major_ticks)
-        ax1.set_xticks(x_minor_ticks, minor=True)
-        ax1.set_yticks(y_major_ticks)
-        ax1.set_yticks(y_minor_ticks, minor=True)
-
-        ax1.grid(which='major', color='r', linestyle='-', alpha=0.25)
-        ax1.grid(which='minor', color='r', linestyle='-', alpha=0.1)
-
-        ax1.set_xticklabels([])
-        ax1.set_yticklabels([])
-        ax1.set_title("Full Stamp", fontsize=16)
-
-        # RGB values plot
-
-        # Show numbers
-        for i, val in np.ndenumerate(aperture_data):
-            #     print(i[0] / 10, i[1] / 10, val)
-            x_loc = (i[1] / 10) + 0.05
-            y_loc = (i[0] / 10) + 0.05
-
-            ax2.text(x=x_loc, y=y_loc,
-                     ha='center', va='center', s=int(val), fontsize=12, alpha=0.75, transform=ax2.transAxes)
-
-        ax2.set_xticks(x_major_ticks)
-        ax2.set_xticks(x_minor_ticks, minor=True)
-        ax2.set_yticks(y_major_ticks)
-        ax2.set_yticks(y_minor_ticks, minor=True)
-
-        ax2.grid(which='major', color='r', linestyle='-', alpha=0.25)
-        ax2.grid(which='minor', color='r', linestyle='-', alpha=0.1)
-
-        ax2.add_patch(patches.Rectangle(
-            (1.5, 1.5),
-            6, 6,
-            fill=False,
-            lw=2,
-            ls='dashed',
-            edgecolor='blue',
-        ))
-
-        r_a_mask, g_a_mask, b_a_mask = utils.make_masks(aperture_data)
-
-        ax2.set_xlim(-0.5, 9.5)
-        ax2.set_ylim(-0.5, 9.5)
-        ax2.set_xticklabels([])
-        ax2.set_yticklabels([])
-        ax2.imshow(np.ma.array(np.ones((10, 10)), mask=~r_a_mask), cmap='Reds', vmin=0, vmax=4., )
-        ax2.imshow(np.ma.array(np.ones((10, 10)), mask=~g_a_mask), cmap='Greens', vmin=0, vmax=4., )
-        ax2.imshow(np.ma.array(np.ones((10, 10)), mask=~b_a_mask), cmap='Blues', vmin=0, vmax=4., )
-        ax2.set_title("Values", fontsize=16)
-
-        # Contour Plot of aperture
-
-        ax3.contourf(aperture_data, cmap='cubehelix_r', vmin=stamp.min(), vmax=stamp.max())
-        ax3.add_patch(patches.Rectangle(
-            (1.5, 1.5),
-            6, 6,
-            fill=False,
-            lw=2,
-            ls='dashed',
-            edgecolor='blue',
-        ))
-        ax3.add_patch(patches.Rectangle(
-            (0, 0),
-            9, 9,
-            fill=False,
-            lw=1,
-            ls='solid',
-            edgecolor='black',
-        ))
-        ax3.set_xlim(-0.5, 9.5)
-        ax3.set_ylim(-0.5, 9.5)
-        ax3.set_xticklabels([])
-        ax3.set_yticklabels([])
-        ax3.grid(False)
-        ax3.set_facecolor('white')
-        ax3.set_title("Contour", fontsize=16)
-
-        fig.suptitle("Source {} Frame {} Aperture Flux: {}".format(source_index,
-                                                                   frame_index, int(phot_table['aperture_sum'][0])),
-                     fontsize=20)
-
-        fig.tight_layout(rect=[0., 0., 1., 0.95])
-        return fig
 
     def create_stamps(self, target_index, padding=3, display_progress=False, *args, **kwargs):
         """Create subtracted stamps for entire data cube
@@ -641,7 +511,7 @@ class Observation(object):
 
         return stamp_collection
 
-    def get_refpsf_coeffs(self, stamp_collection, func=None, display_progress=False, **kwargs):
+    def get_ideal_coeffs(self, stamp_collection, func=None, display_progress=False, **kwargs):
         coeffs = []
 
         def minimize_func(refs_coeffs, refs_all_but_frame, target_all_but_frame):
@@ -799,6 +669,136 @@ class Observation(object):
         self._point_sources = point_sources[top & bottom & right & left].to_pandas()
 
         return self._point_sources
+
+    def plot_stamp(self, source_index, frame_index, show_data=False, *args, **kwargs):
+
+        norm = ImageNormalize(stretch=SqrtStretch())
+
+        stamp_slice = self.get_source_slice(source_index, *args, **kwargs)
+        stamp = self.get_frame_stamp(source_index, frame_index, reshape=True, *args, **kwargs)
+
+        fig = plt.figure(1)
+        fig.set_size_inches(13, 15)
+        gs = gridspec.GridSpec(2, 2, width_ratios=[1, 1])
+        ax1 = plt.subplot(gs[:, 0])
+        ax2 = plt.subplot(gs[0, 1])
+        ax3 = plt.subplot(gs[1, 1])
+        fig.add_subplot(ax1)
+        fig.add_subplot(ax2)
+        fig.add_subplot(ax3)
+
+        aperture = self.get_frame_aperture(source_index, frame_index, return_aperture=True)
+
+        aperture_mask = aperture.to_mask(method='center')[0]
+        aperture_data = aperture_mask.cutout(stamp)
+
+        phot_table = aperture_photometry(stamp, aperture, method='center')
+
+        if show_data:
+            print(np.flipud(aperture_data))  # Flip the data to match plot
+
+        cax1 = ax1.imshow(stamp, cmap='cubehelix_r', norm=norm)
+        plt.colorbar(cax1, ax=ax1)
+
+        aperture.plot(color='b', ls='--', lw=2, ax=ax1)
+
+        # Bayer pattern
+        for i, val in np.ndenumerate(stamp):
+            x, y = stamp_slice.cutout.to_original_position((i[1], i[0]))
+            ax1.text(x=i[1], y=i[0], ha='center', va='center',
+                     s=utils.pixel_color(x, y, zero_based=True), fontsize=10, alpha=0.25)
+
+        # major ticks every 2, minor ticks every 1
+        x_major_ticks = np.arange(-0.5, stamp_slice.cutout.bbox_cutout[1][1], 2)
+        x_minor_ticks = np.arange(-0.5, stamp_slice.cutout.bbox_cutout[1][1], 1)
+
+        y_major_ticks = np.arange(-0.5, stamp_slice.cutout.bbox_cutout[0][1], 2)
+        y_minor_ticks = np.arange(-0.5, stamp_slice.cutout.bbox_cutout[0][1], 1)
+
+        ax1.set_xticks(x_major_ticks)
+        ax1.set_xticks(x_minor_ticks, minor=True)
+        ax1.set_yticks(y_major_ticks)
+        ax1.set_yticks(y_minor_ticks, minor=True)
+
+        ax1.grid(which='major', color='r', linestyle='-', alpha=0.25)
+        ax1.grid(which='minor', color='r', linestyle='-', alpha=0.1)
+
+        ax1.set_xticklabels([])
+        ax1.set_yticklabels([])
+        ax1.set_title("Full Stamp", fontsize=16)
+
+        # RGB values plot
+
+        # Show numbers
+        for i, val in np.ndenumerate(aperture_data):
+            #     print(i[0] / 10, i[1] / 10, val)
+            x_loc = (i[1] / 10) + 0.05
+            y_loc = (i[0] / 10) + 0.05
+
+            ax2.text(x=x_loc, y=y_loc,
+                     ha='center', va='center', s=int(val), fontsize=12, alpha=0.75, transform=ax2.transAxes)
+
+        ax2.set_xticks(x_major_ticks)
+        ax2.set_xticks(x_minor_ticks, minor=True)
+        ax2.set_yticks(y_major_ticks)
+        ax2.set_yticks(y_minor_ticks, minor=True)
+
+        ax2.grid(which='major', color='r', linestyle='-', alpha=0.25)
+        ax2.grid(which='minor', color='r', linestyle='-', alpha=0.1)
+
+        ax2.add_patch(patches.Rectangle(
+            (1.5, 1.5),
+            6, 6,
+            fill=False,
+            lw=2,
+            ls='dashed',
+            edgecolor='blue',
+        ))
+
+        r_a_mask, g_a_mask, b_a_mask = utils.make_masks(aperture_data)
+
+        ax2.set_xlim(-0.5, 9.5)
+        ax2.set_ylim(-0.5, 9.5)
+        ax2.set_xticklabels([])
+        ax2.set_yticklabels([])
+        ax2.imshow(np.ma.array(np.ones((10, 10)), mask=~r_a_mask), cmap='Reds', vmin=0, vmax=4., )
+        ax2.imshow(np.ma.array(np.ones((10, 10)), mask=~g_a_mask), cmap='Greens', vmin=0, vmax=4., )
+        ax2.imshow(np.ma.array(np.ones((10, 10)), mask=~b_a_mask), cmap='Blues', vmin=0, vmax=4., )
+        ax2.set_title("Values", fontsize=16)
+
+        # Contour Plot of aperture
+
+        ax3.contourf(aperture_data, cmap='cubehelix_r', vmin=stamp.min(), vmax=stamp.max())
+        ax3.add_patch(patches.Rectangle(
+            (1.5, 1.5),
+            6, 6,
+            fill=False,
+            lw=2,
+            ls='dashed',
+            edgecolor='blue',
+        ))
+        ax3.add_patch(patches.Rectangle(
+            (0, 0),
+            9, 9,
+            fill=False,
+            lw=1,
+            ls='solid',
+            edgecolor='black',
+        ))
+        ax3.set_xlim(-0.5, 9.5)
+        ax3.set_ylim(-0.5, 9.5)
+        ax3.set_xticklabels([])
+        ax3.set_yticklabels([])
+        ax3.grid(False)
+        ax3.set_facecolor('white')
+        ax3.set_title("Contour", fontsize=16)
+
+        fig.suptitle("Source {} Frame {} Aperture Flux: {}".format(source_index,
+                                                                   frame_index, int(phot_table['aperture_sum'][0])),
+                     fontsize=20)
+
+        fig.tight_layout(rect=[0., 0., 1., 0.95])
+        return fig
 
     def _load_images(self):
         seq_files = glob("{}/*T*.fits".format(self.image_dir))

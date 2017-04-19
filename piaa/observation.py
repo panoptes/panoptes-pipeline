@@ -467,13 +467,17 @@ class Observation(object):
 
         return row_min, row_max, col_min, col_max
 
-    def get_variance_for_target(self, target_index, display_progress=True, force_new=True, *args, **kwargs):
+    def get_variance_for_target(self, target_index, frame_slice=None,
+                                display_progress=True, force_new=True, *args, **kwargs):
         """ Get all variances for given target
 
         Args:
             stamps(np.array): Collection of stamps with axes: frame, PIC, pixels
             i(int): Index of target PIC
         """
+        if frame_slice is None:
+            frame_slice = slice(0, self.num_frames)
+
         num_sources = self.num_point_sources
 
         # Assume no match
@@ -487,7 +491,7 @@ class Observation(object):
         except KeyError:
             vgrid_dset = self.hdf5_stamps.create_dataset('vgrid', data=data)
 
-        psc0 = self.get_psc(target_index, frame_slice=kwargs.get('frame_slice', None)).data
+        psc0 = self.get_psc(target_index, frame_slice=frame_slice).data
         num_frames = psc0.shape[0]
 
         # Normalize
@@ -540,9 +544,7 @@ class Observation(object):
         stamp_collection = np.array([self.get_psc(idx, frame_slice=frame_slice).data for
                                      idx in vary_series.index[0:num_refs]])
 
-        stamp_collection.reshape(num_refs, num_frames, stamp_h * stamp_w)
-
-        return stamp_collection
+        return stamp_collection.reshape(num_refs, num_frames, stamp_h * stamp_w)
 
     def get_ideal_coeffs(self, stamp_collection, func=None, display_progress=False, **kwargs):
         coeffs = []

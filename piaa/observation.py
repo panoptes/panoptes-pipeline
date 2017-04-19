@@ -563,7 +563,7 @@ class Observation(object):
 
         masks = []
         for mask in self.rgb_masks:
-            masks.append(np.flipud(mask)[r_min:r_max, c_min:c_max])
+            masks.append(mask[r_min:r_max, c_min:c_max])
 
         return masks
 

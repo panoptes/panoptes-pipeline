@@ -28,7 +28,7 @@ if __name__ == '__main__':
     parser.add_argument('--verbose', action="store_true", default=False, help="Show output")
     args = parser.parse_args()
 
-    obs = Observation(args.image_dir, log_level=args.log_level)
+    obs = Observation(args.image_dir, log_level=args.log_level, verbose=args.verbose)
 
     start = Time.now()
     print("Starting at  {}".format(start))

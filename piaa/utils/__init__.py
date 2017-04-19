@@ -254,7 +254,8 @@ def get_fov_plot(observation=None, coords=None, width=15, height=10, org=0, retu
     return x, y
 
 
-def add_pixel_grid(ax1, grid_width, grid_height, show_axis_labels=True, show_superpixel=False):
+def add_pixel_grid(ax1, grid_height, grid_width, show_axis_labels=True, show_superpixel=False,
+                   major_alpha=0.5, minor_alpha=0.25):
 
     # major ticks every 2, minor ticks every 1
     if show_superpixel:
@@ -264,7 +265,7 @@ def add_pixel_grid(ax1, grid_width, grid_height, show_axis_labels=True, show_sup
         ax1.set_xticks(x_major_ticks)
         ax1.set_yticks(y_major_ticks)
 
-        ax1.grid(which='major', color='r', linestyle='--', alpha=0.5)
+        ax1.grid(which='major', color='r', linestyle='--', alpha=major_alpha)
     else:
         ax1.set_xticks([])
         ax1.set_yticks([])
@@ -275,7 +276,7 @@ def add_pixel_grid(ax1, grid_width, grid_height, show_axis_labels=True, show_sup
     ax1.set_xticks(x_minor_ticks, minor=True)
     ax1.set_yticks(y_minor_ticks, minor=True)
 
-    ax1.grid(which='minor', color='r', lw='2', linestyle='--', alpha=0.25)
+    ax1.grid(which='minor', color='r', lw='2', linestyle='--', alpha=minor_alpha)
 
     if show_axis_labels is False:
         ax1.set_xticklabels([])

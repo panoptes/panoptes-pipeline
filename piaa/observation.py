@@ -523,8 +523,8 @@ class Observation(object):
             # Store in the grid
             try:
                 vgrid_dset[target_index, source_index] = ((normalized_psc0 - normalized_psc1) ** 2).sum()
-            except ValueError:
-                self.log("Skipping invalid stamp for source {}".format(source_index))
+            except ValueError as e:
+                self.log("Skipping invalid stamp for source {}: {}".format(source_index, e))
 
     def get_stamp_collection(self, target_index, frame_slice=None, num_refs=25):
         if frame_slice is None:

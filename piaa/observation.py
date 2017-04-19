@@ -342,11 +342,11 @@ class Observation(object):
         else:
             return background_data
 
-    def get_psc(self, source_index, frames=None):
+    def get_psc(self, source_index, frame_slice=None):
         try:
             ss = self.slices[source_index]
 
-            if frames is None:
+            if frame_slice is None:
                 frame_slice = slice(0, self.num_frames)
 
             data = self.data_cube[frame_slice, ss[0], ss[1]]

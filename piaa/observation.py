@@ -373,7 +373,7 @@ class Observation(object):
 
         return np.array(ref_frames)
 
-    def create_stamp_slices(self, target_index, padding=3, display_progress=False, *args, **kwargs):
+    def create_stamp_slices(self, target_index, frame_slice=None, padding=3, display_progress=False, *args, **kwargs):
         """Create subtracted stamps for entire data cube
 
         Creates a slice through the cube corresponding to a stamp and stores the
@@ -391,7 +391,10 @@ class Observation(object):
 
         self.log("Starting stamp creation")
 
-        r_min, r_max, c_min, c_max = self.get_stamp_bounds(target_index, padding=padding)
+        if frame_slice is None:
+            frame_slice = slice(0, self.num_frames)
+
+        r_min, r_max, c_min, c_max = self.get_stamp_bounds(target_index, frame_slice=frame_slice, padding=padding)
 
         color = utils.pixel_color(c_min, r_max, zero_based=True)
         if color == 'B':
@@ -416,21 +419,13 @@ class Observation(object):
         else:
             iterator = self.point_sources.index
 
-        # try:
-        #     del self.hdf5_stamps['stamps']
-        # except Exception:
-        #     pass
-
-        # stamp_dset = self.hdf5_stamps.create_dataset(
-            # 'stamps', (self.num_point_sources, self.num_frames, height, width))
-
         self.slices = dict()
 
         for source_index in iterator:
 
             try:
                 r_min, r_max, c_min, c_max = self.get_stamp_bounds(
-                    source_index, height=height, width=width, padding=padding)
+                    source_index, height=height, width=width, frame_slice=frame_slice, padding=padding)
 
                 color = utils.pixel_color(c_min, r_max, zero_based=True)
                 if color == 'B':
@@ -450,8 +445,11 @@ class Observation(object):
             except Exception as e:
                 self.log("Problem creating stamp for {}: {}".format(source_index, e))
 
-    def get_stamp_bounds(self, source_index, height=None, width=None, padding=0, **kwargs):
-        pix = self.pixel_locations[:, source_index]
+    def get_stamp_bounds(self, source_index, height=None, width=None, frame_slice=None, padding=0, **kwargs):
+        if frame_slice is None:
+            frame_slice = slice(0, self.num_frames)
+
+        pix = self.pixel_locations[frame_slice, source_index]
 
         if width is None:
             col_max = int(pix.iloc[0].max()) + padding

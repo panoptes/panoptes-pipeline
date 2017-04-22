@@ -442,9 +442,6 @@ class Observation(object):
                     r_max += 1
                     r_min += 1
 
-                color = utils.pixel_color(c_min, r_max, zero_based=True)
-                self.log("Ref stamp color: {}".format(color))
-
                 self.slices[source_index] = [slice(r_min, r_max), slice(c_min, c_max)]
 
             except Exception as e:

@@ -413,6 +413,8 @@ class Observation(object):
         width = c_max - c_min
 
         self.log("Stamp size: {} {}".format(height, width))
+        color = utils.pixel_color(c_min, r_max, zero_based=True)
+        self.log("Target stamp color: {}".format(color))
 
         if display_progress:
             iterator = ProgressBar(self.point_sources.index, ipython_widget=kwargs.get('ipython_widget', False))
@@ -439,6 +441,9 @@ class Observation(object):
                     c_max += 1
                     r_max += 1
                     r_min += 1
+
+                color = utils.pixel_color(c_min, r_max, zero_based=True)
+                self.log("Ref stamp color: {}".format(color))
 
                 self.slices[source_index] = [slice(r_min, r_max), slice(c_min, c_max)]
 

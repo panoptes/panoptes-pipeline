@@ -8,7 +8,6 @@ from collections import namedtuple
 from glob import glob
 
 from astropy.io import fits
-from astropy.stats import sigma_clip
 from astropy.table import Table
 from astropy.utils.console import ProgressBar
 from astropy.visualization import SqrtStretch
@@ -353,7 +352,10 @@ class Observation(object):
             data = self.data_cube[frame_slice, ss[0], ss[1]]
             masks = self.rgb_masks[:, ss[0], ss[1]]
 
-            psc = PSC(data=sigma_clip(data, sigma=10).filled(0), mask=masks)
+            # Mask obviously bad values
+            data[data > 5e4] = 0
+
+            psc = PSC(data=data, mask=masks)
 
         except KeyError:
             raise Exception("You must run create_stamps first")

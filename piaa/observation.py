@@ -373,7 +373,8 @@ class Observation(object):
 
         return np.array(ref_frames)
 
-    def create_stamp_slices(self, target_index, frame_slice=None, padding=3, display_progress=False, *args, **kwargs):
+    def create_stamp_slices(self, target_index, frame_slice=None, padding=3, adjust_rgb=True,
+                            display_progress=False, *args, **kwargs):
         """Create subtracted stamps for entire data cube
 
         Creates a slice through the cube corresponding to a stamp and stores the
@@ -396,18 +397,19 @@ class Observation(object):
 
         r_min, r_max, c_min, c_max = self.get_stamp_bounds(target_index, frame_slice=frame_slice, padding=padding)
 
-        color = utils.pixel_color(c_min, r_max, zero_based=True)
-        if color == 'B':
-            r_max += 1
-            r_min += 1
-        elif color == 'R':
-            c_min += 1
-            c_max += 1
-        elif color == 'G2':
-            c_min += 1
-            c_max += 1
-            r_max += 1
-            r_min += 1
+        if adjust_rgb:
+            color = utils.pixel_color(c_min, r_max, zero_based=True)
+            if color == 'B':
+                r_max += 1
+                r_min += 1
+            elif color == 'R':
+                c_min += 1
+                c_max += 1
+            elif color == 'G2':
+                c_min += 1
+                c_max += 1
+                r_max += 1
+                r_min += 1
 
         height = r_max - r_min
         width = c_max - c_min
@@ -429,18 +431,19 @@ class Observation(object):
                 r_min, r_max, c_min, c_max = self.get_stamp_bounds(
                     source_index, height=height, width=width, frame_slice=frame_slice, padding=padding)
 
-                color = utils.pixel_color(c_min, r_max, zero_based=True)
-                if color == 'B':
-                    r_max += 1
-                    r_min += 1
-                elif color == 'R':
-                    c_min += 1
-                    c_max += 1
-                elif color == 'G2':
-                    c_min += 1
-                    c_max += 1
-                    r_max += 1
-                    r_min += 1
+                if adjust_rgb:
+                    color = utils.pixel_color(c_min, r_max, zero_based=True)
+                    if color == 'B':
+                        r_max += 1
+                        r_min += 1
+                    elif color == 'R':
+                        c_min += 1
+                        c_max += 1
+                    elif color == 'G2':
+                        c_min += 1
+                        c_max += 1
+                        r_max += 1
+                        r_min += 1
 
                 self.slices[source_index] = [slice(r_min, r_max), slice(c_min, c_max)]
 

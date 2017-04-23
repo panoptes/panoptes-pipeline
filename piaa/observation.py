@@ -433,7 +433,7 @@ class Observation(object):
 
             try:
                 r_min, r_max, c_min, c_max = self.get_stamp_bounds(
-                    source_index, height=height, width=width, frame_slice=frame_slice, padding=padding)
+                    int(source_index), height=height, width=width, frame_slice=frame_slice, padding=padding)
 
                 if adjust_rgb:
                     color = utils.pixel_color(c_min, r_max, zero_based=True)

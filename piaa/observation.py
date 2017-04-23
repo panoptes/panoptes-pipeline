@@ -554,16 +554,16 @@ class Observation(object):
             except ValueError as e:
                 self.log("Skipping invalid stamp for source {}: {}".format(source_index, e))
 
-    def get_stamp_collection(self, target_index, frame_slice=None, num_refs=25):
+    def get_stamp_collection(self, frame_slice=None, num_refs=25):
         if frame_slice is None:
             frame_slice = slice(0, self.num_frames)
 
         vary = self.hdf5_stamps['vgrid']
 
-        vary_series = pd.Series(vary[target_index])
+        vary_series = pd.Series(vary)
         vary_series.sort_values(inplace=True)
 
-        target_psc = self.get_psc(target_index, frame_slice=frame_slice)
+        target_psc = self.get_psc(self.target_slice, frame_slice=frame_slice)
 
         num_frames = target_psc.data.shape[0]
         stamp_h = target_psc.data.shape[1]

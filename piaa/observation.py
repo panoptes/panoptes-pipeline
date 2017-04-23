@@ -343,15 +343,16 @@ class Observation(object):
         else:
             return background_data
 
-    def get_psc(self, source_index, frame_slice=None):
+    def get_psc(self, source_index, frame_slice=None, source_slice=None):
         try:
-            ss = self.slices[source_index]
+            if source_slice is None:
+                source_slice = self.slices[source_index]
 
             if frame_slice is None:
                 frame_slice = slice(0, self.num_frames)
 
-            data = self.data_cube[frame_slice, ss[0], ss[1]]
-            masks = self.rgb_masks[:, ss[0], ss[1]]
+            data = self.data_cube[frame_slice, source_slice[0], source_slice[1]]
+            masks = self.rgb_masks[:, source_slice[0], source_slice[1]]
 
             # Mask obviously bad values
             data[data > 5e4] = 0

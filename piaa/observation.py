@@ -569,7 +569,7 @@ class Observation(object):
         stamp_h = target_psc.data.shape[1]
         stamp_w = target_psc.data.shape[2]
 
-        stamp_collection = np.array([self.get_psc(idx, frame_slice=frame_slice).data for
+        stamp_collection = np.array([self.get_psc(int(idx), frame_slice=frame_slice).data for
                                      idx in vary_series.index[0:num_refs]])
 
         return stamp_collection.reshape(num_refs, num_frames, stamp_h * stamp_w)

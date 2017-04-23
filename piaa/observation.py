@@ -509,7 +509,7 @@ class Observation(object):
         num_sources = self.num_point_sources
 
         # Assume no match
-        data = np.ones((num_sources, num_sources)) * 99.
+        data = np.ones((num_sources)) * 99.
 
         try:
             if force_new:
@@ -550,7 +550,7 @@ class Observation(object):
 
             # Store in the grid
             try:
-                vgrid_dset[target_index, source_index] = ((normalized_psc0 - normalized_psc1) ** 2).sum()
+                vgrid_dset[source_index] = ((normalized_psc0 - normalized_psc1) ** 2).sum()
             except ValueError as e:
                 self.log("Skipping invalid stamp for source {}: {}".format(source_index, e))
 

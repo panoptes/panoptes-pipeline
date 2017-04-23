@@ -345,7 +345,7 @@ class Observation(object):
 
     def get_psc(self, source, frame_slice=None):
         try:
-            if isinstance(source, slice) is False:
+            if isinstance(source, int):
                 source = self.slices[source]
 
             if frame_slice is None:

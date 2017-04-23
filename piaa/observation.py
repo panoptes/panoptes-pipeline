@@ -419,7 +419,7 @@ class Observation(object):
 
         height = r_max - r_min
         width = c_max - c_min
-        self.target_slices = [slice(r_min, r_max), slice(c_min, c_max)]
+        self.target_slice = [slice(r_min, r_max), slice(c_min, c_max)]
 
         self.log("Stamp size: {} {}".format(height, width))
         color = utils.pixel_color(c_min, r_max, zero_based=True)

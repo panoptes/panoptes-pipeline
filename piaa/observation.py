@@ -453,24 +453,39 @@ class Observation(object):
             except Exception as e:
                 self.log("Problem creating stamp for {}: {}".format(source_index, e))
 
-    def get_stamp_bounds(self, source_index, height=None, width=None, frame_slice=None, padding=0, **kwargs):
+    def get_stamp_bounds(self, source_index=None, target_coords=None,
+                         height=None, width=None, frame_slice=None, padding=0, **kwargs):
         if frame_slice is None:
             frame_slice = slice(0, self.num_frames)
 
-        pix = self.pixel_locations[frame_slice][:, source_index]
+        if source_index is not None:
+            pix = self.pixel_locations[frame_slice][:, source_index]
+            x_range = pix.iloc[0]
+            y_range = pix.iloc[1]
+        elif target_coords is not None:
+            x = []
+            y = []
+            for f in self.files[frame_slice]:
+                wcs = WCS(f)
+                x0, y0 = wcs.all_world2pix(target_coords.ra, target_coords.dec, 0)
+                x.append(x0)
+                y.append(y0)
+
+            x_range = np.array(x)
+            y_range = np.array(y)
 
         if width is None:
-            col_max = int(pix.iloc[0].max()) + padding
-            col_min = int(pix.iloc[0].min()) - padding
+            col_max = int(x_range.max()) + padding
+            col_min = int(x_range.min()) - padding
         else:
-            col_max = int(pix.iloc[0].max()) + padding
+            col_max = int(x_range.max()) + padding
             col_min = col_max - width
 
         if height is None:
-            row_max = int(pix.iloc[1].max()) + padding
-            row_min = int(pix.iloc[1].min()) - padding
+            row_max = int(y_range.max()) + padding
+            row_min = int(y_range.min()) - padding
         else:
-            row_max = int(pix.iloc[1].max()) + padding
+            row_max = int(y_range.max()) + padding
             row_min = row_max - height
 
         return row_min, row_max, col_min, col_max

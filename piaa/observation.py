@@ -87,6 +87,7 @@ class Observation(object):
         self._hdf5 = None
         self._hdf5_stamps = None
         self.slices = dict()
+        self.target_slice = None
 
         self._load_images()
 
@@ -418,6 +419,7 @@ class Observation(object):
 
         height = r_max - r_min
         width = c_max - c_min
+        self.target_slices = [slice(r_min, r_max), slice(c_min, c_max)]
 
         self.log("Stamp size: {} {}".format(height, width))
         color = utils.pixel_color(c_min, r_max, zero_based=True)

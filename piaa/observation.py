@@ -473,6 +473,8 @@ class Observation(object):
 
             x_range = np.array(x)
             y_range = np.array(y)
+        else:
+            warn("Source must be index or SkyCoord: {}".format(source))
 
         if width is None:
             col_max = int(x_range.max()) + padding

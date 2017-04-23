@@ -7,6 +7,7 @@ from warnings import warn
 from collections import namedtuple
 from glob import glob
 
+from astropy.coordinates import SkyCoord
 from astropy.io import fits
 from astropy.table import Table
 from astropy.utils.console import ProgressBar
@@ -376,7 +377,7 @@ class Observation(object):
 
         return np.array(ref_frames)
 
-    def create_stamp_slices(self, target_index, frame_slice=None, padding=3, adjust_rgb=True,
+    def create_stamp_slices(self, target, frame_slice=None, padding=3, adjust_rgb=True,
                             display_progress=False, *args, **kwargs):
         """Create subtracted stamps for entire data cube
 
@@ -398,7 +399,7 @@ class Observation(object):
         if frame_slice is None:
             frame_slice = slice(0, self.num_frames)
 
-        r_min, r_max, c_min, c_max = self.get_stamp_bounds(target_index, frame_slice=frame_slice, padding=padding)
+        r_min, r_max, c_min, c_max = self.get_stamp_bounds(target, frame_slice=frame_slice, padding=padding)
 
         if adjust_rgb:
             color = utils.pixel_color(c_min, r_max, zero_based=True)
@@ -453,21 +454,20 @@ class Observation(object):
             except Exception as e:
                 self.log("Problem creating stamp for {}: {}".format(source_index, e))
 
-    def get_stamp_bounds(self, source_index=None, target_coords=None,
-                         height=None, width=None, frame_slice=None, padding=0, **kwargs):
+    def get_stamp_bounds(self, source, height=None, width=None, frame_slice=None, padding=0, **kwargs):
         if frame_slice is None:
             frame_slice = slice(0, self.num_frames)
 
-        if source_index is not None:
-            pix = self.pixel_locations[frame_slice][:, source_index]
+        if isinstance(source, int):
+            pix = self.pixel_locations[frame_slice][:, source]
             x_range = pix.iloc[0]
             y_range = pix.iloc[1]
-        elif target_coords is not None:
+        elif isinstance(source, SkyCoord):
             x = []
             y = []
             for f in self.files[frame_slice]:
                 wcs = WCS(f)
-                x0, y0 = wcs.all_world2pix(target_coords.ra, target_coords.dec, 0)
+                x0, y0 = wcs.all_world2pix(source.ra, source.dec, 0)
                 x.append(x0)
                 y.append(y0)
 

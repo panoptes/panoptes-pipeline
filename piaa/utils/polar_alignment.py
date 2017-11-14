@@ -1,5 +1,3 @@
-from warnings import warn
-
 from matplotlib import pyplot as plt
 
 from skimage.feature import canny
@@ -18,6 +16,15 @@ from pocs.utils import images as img_utils
 
 
 def analyze_polar_rotation(pole_fn):
+    """ Get celestial pole XY coordinates
+
+    Args:
+        pole_fn (str): FITS file of celestial pole
+
+    Returns:
+        tuple(int): A tuple of integers corresponding to the XY pixel position
+        of celestial pole
+    """
     img_utils.get_solve_field(pole_fn)
 
     wcs = WCS(pole_fn)
@@ -28,6 +35,15 @@ def analyze_polar_rotation(pole_fn):
 
 
 def analyze_ra_rotation(rotate_fn):
+    """ Get RA axis center of rotation XY coordinates
+
+    Args:
+        rotate_fn (str): FITS file of RA rotation
+
+    Returns:
+        tuple(int): A tuple of integers corresponding to the XY pixel position
+        of the center of rotation around RA axis
+    """
     d0 = fits.getdata(rotate_fn)  # - 2048
 
     # Get center
@@ -49,7 +65,17 @@ def analyze_ra_rotation(rotate_fn):
 
 
 def plot_center(pole_fn, rotate_fn, pole_center, rotate_center):
+    """ Overlay the celestial pole and RA rotation axis images
 
+    Args:
+        pole_fn (str): FITS file of polar center
+        rotate_fn (str): FITS file of RA rotation image
+        pole_center (tuple(int)): Polar center XY coordinates
+        rotate_center (tuple(int)): RA axis center of rotation XY coordinates
+
+    Returns:
+        matplotlib.Figure: Plotted image
+    """
     d0 = fits.getdata(pole_fn) - 2048.
     d1 = fits.getdata(rotate_fn) - 2048.
 
@@ -71,7 +97,7 @@ def plot_center(pole_fn, rotate_fn, pole_center, rotate_center):
     ax.scatter(pole_cx, pole_cy, color='g', marker='x', lw=5)
     ax.imshow(d0 + d1, cmap='Greys_r', norm=norm, origin='lower')
 
-    if (pole_cy - rotate_cy) > 50:
+    if np.abs(pole_cy - rotate_cy) > 50:
         ax.arrow(rotate_cx, rotate_cy, pole_cx - rotate_cx, pole_cy -
                  rotate_cy, fc='r', ec='r', width=20, length_includes_head=True)
 

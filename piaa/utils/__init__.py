@@ -74,10 +74,10 @@ def pixel_color(col, row, zero_based=False):
         assert isinstance(col, int), "Index mode only accepts integers"
         assert isinstance(row, int), "Index mode only accepts integers"
         assert row >= 0 and row < 3476, 'Row value outside dimensions of image'
-        assert col >= 0 and col < 5208, 'Column value outside dimensions of image'
+        assert col >= 0 and col < 5208, 'Column value outside dimensions of image: {}'.format(col)
     else:
         assert row >= 0.5 and row < 3476.5, 'Row value outside dimensions of image'
-        assert col >= 0.5 and col < 5208.5, 'Column value outside dimensions of image'
+        assert col >= 0.5 and col < 5208.5, 'Column value outside dimensions of image: {}'.format(col)
 
     row = get_index(row)
     col = get_index(col)

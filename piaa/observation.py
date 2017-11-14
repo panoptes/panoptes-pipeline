@@ -540,7 +540,11 @@ class Observation(object):
             iterator = range(num_sources)
 
         for source_index in iterator:
-            psc1 = self.get_psc(source_index, frame_slice=frame_slice).data
+            try:
+                psc1 = self.get_psc(source_index, frame_slice=frame_slice).data
+            except Exception:
+                continue
+
 
             normalized_psc1 = np.zeros_like(psc1)
 

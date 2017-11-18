@@ -15,7 +15,7 @@ from astropy.wcs import WCS
 from pocs.utils import images as img_utils
 
 
-def analyze_polar_rotation(pole_fn):
+def analyze_polar_rotation(pole_fn, *args, **kwargs):
     """ Get celestial pole XY coordinates
 
     Args:
@@ -25,7 +25,7 @@ def analyze_polar_rotation(pole_fn):
         tuple(int): A tuple of integers corresponding to the XY pixel position
         of celestial pole
     """
-    img_utils.get_solve_field(pole_fn)
+    img_utils.get_solve_field(pole_fn, **kwargs)
 
     wcs = WCS(pole_fn)
 
@@ -76,8 +76,8 @@ def plot_center(pole_fn, rotate_fn, pole_center, rotate_center):
     Returns:
         matplotlib.Figure: Plotted image
     """
-    d0 = fits.getdata(pole_fn) - 2048.
-    d1 = fits.getdata(rotate_fn) - 2048.
+    d0 = fits.getdata(pole_fn) - 2048.  # Easy cast to float
+    d1 = fits.getdata(rotate_fn) - 2048.  # Easy cast to float
 
     d0 /= d0.max()
     d1 /= d1.max()
@@ -90,17 +90,21 @@ def plot_center(pole_fn, rotate_fn, pole_center, rotate_center):
 
     fig, ax = plt.subplots(ncols=1, nrows=1, figsize=(20, 14))
 
+    # Show rotation center in red
     ax.scatter(rotate_cx, rotate_cy, color='r', marker='x', lw=5)
 
-    norm = ImageNormalize(stretch=SqrtStretch())
-
+    # Show polar center in green
     ax.scatter(pole_cx, pole_cy, color='g', marker='x', lw=5)
+
+    # Show both images in background
+    norm = ImageNormalize(stretch=SqrtStretch())
     ax.imshow(d0 + d1, cmap='Greys_r', norm=norm, origin='lower')
 
-    if np.abs(pole_cy - rotate_cy) > 50:
+    # Show an arrow
+    if (np.abs(pole_cy - rotate_cy) > 25) or (np.abs(pole_cx - rotate_cx) > 25):
         ax.arrow(rotate_cx, rotate_cy, pole_cx - rotate_cx, pole_cy -
                  rotate_cy, fc='r', ec='r', width=20, length_includes_head=True)
 
-    ax.set_title("dx: {:0.2f}      dy: {:0.2f}".format(d_x, d_y))
+    ax.set_title("dx: {:0.2f} pix      dy: {:0.2f} pix".format(d_x, d_y))
 
     return fig

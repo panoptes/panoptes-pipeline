@@ -178,7 +178,8 @@ class Observation(object):
         except KeyError:
             if self.verbose:
                 self.log("Creating data cube", end='')
-            cube_dset = self.hdf5.create_dataset('cube', (len(self.files), self._img_h, self._img_w))
+            cube_dset = self.hdf5.create_dataset(
+                'cube', (len(self.files), self._img_h, self._img_w))
             for i, f in enumerate(self.files):
                 if self.verbose and i % 10 == 0:
                     self.log('.', end='')
@@ -220,7 +221,12 @@ class Observation(object):
     def get_header_value(self, frame_index, header):
         return fits.getval(self.files[frame_index], header)
 
-    def subtract_background(self, frames=None, display_progress=False, clip_sigma=3., clip_iters=5, **kwargs):
+    def subtract_background(self,
+                            frames=None,
+                            display_progress=False,
+                            clip_sigma=3.,
+                            clip_iters=5,
+                            **kwargs):
         """Get background estimates for all frames for each color channel
 
         The first step is to figure out a box size for the background calculations.
@@ -271,8 +277,14 @@ class Observation(object):
 
                 self.data_cube.attrs[frame_key] = True
 
-    def get_frame_background(self, frame_index, sigma_clip=None,
-                             bkg_estimator=None, summary=False, background_obj=False, clip_iters=5, clip_sigma=3.):
+    def get_frame_background(self,
+                             frame_index,
+                             sigma_clip=None,
+                             bkg_estimator=None,
+                             summary=False,
+                             background_obj=False,
+                             clip_iters=5,
+                             clip_sigma=3.):
         frame_key = 'frame/{}'.format(frame_index)
 
         # Figure out if we have already subtracted this frame
@@ -290,7 +302,8 @@ class Observation(object):
             background_dset = self.hdf5['background']
         except KeyError:
             self.log("Creating background dataset")
-            # Create dataset that will hold the mmedian and the rms_median for 3 channels for all frames
+            # Create dataset that will hold the mmedian and the rms_median for 3
+            # channels for all frames
             background_dset = self.hdf5.create_dataset('background', (len(self.files), 3, 2))
 
         # Figure out if we have already have a summary
@@ -328,7 +341,8 @@ class Observation(object):
             self.log("\t{} Background\t Value: {:.02f}\t RMS: {:.02f}".format(
                 color, bkg.background_median, bkg.background_rms_median))
 
-            background_dset[frame_index, color_index] = (bkg.background_median, bkg.background_rms_median)
+            background_dset[frame_index, color_index] = (
+                bkg.background_median, bkg.background_rms_median)
 
             if background_obj is False:
                 background_masked_data = np.ma.array(bkg.background, mask=~mask)
@@ -401,7 +415,8 @@ class Observation(object):
         if frame_slice is None:
             frame_slice = slice(0, self.num_frames)
 
-        r_min, r_max, c_min, c_max = self.get_stamp_bounds(target, frame_slice=frame_slice, padding=padding)
+        r_min, r_max, c_min, c_max = self.get_stamp_bounds(
+            target, frame_slice=frame_slice, padding=padding)
 
         if adjust_rgb:
             color = utils.pixel_color(c_min, r_max, zero_based=True)
@@ -426,7 +441,8 @@ class Observation(object):
         self.log("Target stamp color: {}".format(color))
 
         if display_progress:
-            iterator = ProgressBar(self.point_sources.index, ipython_widget=kwargs.get('ipython_widget', False))
+            iterator = ProgressBar(self.point_sources.index,
+                                   ipython_widget=kwargs.get('ipython_widget', False))
         else:
             iterator = self.point_sources.index
 
@@ -436,7 +452,12 @@ class Observation(object):
 
             try:
                 r_min, r_max, c_min, c_max = self.get_stamp_bounds(
-                    int(source_index), height=height, width=width, frame_slice=frame_slice, padding=padding)
+                    int(source_index),
+                    height=height,
+                    width=width,
+                    frame_slice=frame_slice,
+                    padding=padding
+                )
 
                 if adjust_rgb:
                     color = utils.pixel_color(c_min, r_max, zero_based=True)
@@ -457,7 +478,14 @@ class Observation(object):
             except Exception as e:
                 self.log("Problem creating stamp for {}: {}".format(source_index, e))
 
-    def get_stamp_bounds(self, source, height=None, width=None, frame_slice=None, padding=0, **kwargs):
+    def get_stamp_bounds(self,
+                         source,
+                         height=None,
+                         width=None,
+                         frame_slice=None,
+                         padding=0,
+                         **kwargs
+                         ):
         if frame_slice is None:
             frame_slice = slice(0, self.num_frames)
 
@@ -535,7 +563,8 @@ class Observation(object):
                 warn("Skipping frame {}".format(frame_index))
 
         if display_progress:
-            iterator = ProgressBar(range(num_sources), ipython_widget=kwargs.get('ipython_widget', False))
+            iterator = ProgressBar(
+                range(num_sources), ipython_widget=kwargs.get('ipython_widget', False))
         else:
             iterator = range(num_sources)
 
@@ -544,7 +573,6 @@ class Observation(object):
                 psc1 = self.get_psc(source_index, frame_slice=frame_slice).data
             except Exception:
                 continue
-
 
             normalized_psc1 = np.zeros_like(psc1)
 
@@ -592,7 +620,8 @@ class Observation(object):
         num_frames = stamp_collection.shape[1]
 
         if display_progress:
-            iterator = ProgressBar(range(num_frames), ipython_widget=kwargs.get('ipython_widget', False))
+            iterator = ProgressBar(
+                range(num_frames), ipython_widget=kwargs.get('ipython_widget', False))
         else:
             iterator = range(num_frames)
 
@@ -698,7 +727,8 @@ class Observation(object):
 
             if sextractor_params is None:
                 sextractor_params = [
-                    '-c', '{}/PIAA/resources/conf_files/sextractor/panoptes.sex'.format(os.getenv('PANDIR')),
+                    '-c', '{}/PIAA/resources/conf_files/sextractor/panoptes.sex'.format(
+                        os.getenv('PANDIR')),
                     '-CATALOG_NAME', source_file,
                 ]
 
@@ -802,8 +832,15 @@ class Observation(object):
             x_loc = (i[1] / 10) + 0.05
             y_loc = (i[0] / 10) + 0.05
 
-            ax2.text(x=x_loc, y=y_loc,
-                     ha='center', va='center', s=int(val), fontsize=12, alpha=0.75, transform=ax2.transAxes)
+            ax2.text(x=x_loc,
+                     y=y_loc,
+                     ha='center',
+                     va='center',
+                     s=int(val),
+                     fontsize=12,
+                     alpha=0.75,
+                     transform=ax2.transAxes
+                     )
 
         ax2.set_xticks(x_major_ticks)
         ax2.set_xticks(x_minor_ticks, minor=True)
@@ -829,7 +866,8 @@ class Observation(object):
         ax2.set_xticklabels([])
         ax2.set_yticklabels([])
         ax2.imshow(np.ma.array(np.ones((10, 10)), mask=~r_a_mask), cmap='Reds', vmin=0, vmax=4., )
-        ax2.imshow(np.ma.array(np.ones((10, 10)), mask=~g_a_mask), cmap='Greens', vmin=0, vmax=4., )
+        ax2.imshow(np.ma.array(np.ones((10, 10)), mask=~g_a_mask),
+                   cmap='Greens', vmin=0, vmax=4., )
         ax2.imshow(np.ma.array(np.ones((10, 10)), mask=~b_a_mask), cmap='Blues', vmin=0, vmax=4., )
         ax2.set_title("Values", fontsize=16)
 
@@ -861,7 +899,10 @@ class Observation(object):
         ax3.set_title("Contour", fontsize=16)
 
         fig.suptitle("Source {} Frame {} Aperture Flux: {}".format(source_index,
-                                                                   frame_index, int(phot_table['aperture_sum'][0])),
+                                                                   frame_index,
+                                                                   int(phot_table[
+                                                                       'aperture_sum'][0])
+                                                                   ),
                      fontsize=20)
 
         fig.tight_layout(rect=[0., 0., 1., 0.95])

@@ -18,7 +18,6 @@ from astropy.wcs import WCS
 from photutils import Background2D
 from photutils import MedianBackground
 from photutils import RectangularAperture
-from photutils import SigmaClip
 from photutils import aperture_photometry
 from photutils import find_peaks
 
@@ -93,6 +92,25 @@ class Observation(object):
 
         if build_data_cube:
             assert self.data_cube is not None
+
+    @property
+    def data_cube(self):
+        try:
+            cube_dset = self.hdf5['cube']
+        except KeyError:
+            if self.verbose:
+                self.log("Creating data cube", end='')
+            cube_dset = self.hdf5.create_dataset(
+                'cube', (len(self.files), self._img_h, self._img_w))
+            for i, f in enumerate(self.files):
+                if self.verbose and i % 10 == 0:
+                    self.log('.', end='')
+
+                cube_dset[i] = fits.getdata(f) - self.camera_bias
+
+            self.log('Done')
+
+        return cube_dset
 
     @property
     def hdf5(self):
@@ -170,25 +188,6 @@ class Observation(object):
     @property
     def num_point_sources(self):
         return len(self.point_sources.index)
-
-    @property
-    def data_cube(self):
-        try:
-            cube_dset = self.hdf5['cube']
-        except KeyError:
-            if self.verbose:
-                self.log("Creating data cube", end='')
-            cube_dset = self.hdf5.create_dataset(
-                'cube', (len(self.files), self._img_h, self._img_w))
-            for i, f in enumerate(self.files):
-                if self.verbose and i % 10 == 0:
-                    self.log('.', end='')
-
-                cube_dset[i] = fits.getdata(f) - self.camera_bias
-
-            self.log('Done')
-
-        return cube_dset
 
     @property
     def rgb_masks(self):

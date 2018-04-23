@@ -29,11 +29,13 @@ CREATE TABLE sequences (
   	-- min_nexp smallint, 
   	-- min_duration numeric(7,2), 
   	-- set_duration numeric(7,2),	
-  	pocs_version varchar(15)
+  	pocs_version varchar(15),
+  	piaa_state varchar(45) DEFAULT 'initial'
 );
 -- CREATE INDEX on sequences (ra);
 -- CREATE INDEX on sequences (dec);
 CREATE INDEX on sequences (start_date);
+CREATE INDEX on sequences (piaa_state);
 
 CREATE TABLE images (
 	id char(29) PRIMARY KEY,

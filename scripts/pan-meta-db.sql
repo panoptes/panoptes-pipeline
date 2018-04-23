@@ -18,22 +18,15 @@ CREATE TABLE cameras (
 CREATE TABLE sequences (
 	id char(29) PRIMARY KEY,
 	unit_id integer REFERENCES units (id) ON DELETE RESTRICT NOT NULL,
-	-- ra numeric(7,4),
-	-- dec numeric(7,4),
 	start_date timestamp UNIQUE,
-  	-- set_size smallint,
-  	-- priority numeric(6,2),
+  	coord_bounds box,
   	exp_time numeric(6,2), 
   	ra_rate numeric(3,2),  
-  	-- merit numeric(6,2), 
-  	-- min_nexp smallint, 
-  	-- min_duration numeric(7,2), 
-  	-- set_duration numeric(7,2),	
   	pocs_version varchar(15),
   	piaa_state varchar(45) DEFAULT 'initial'
+
 );
--- CREATE INDEX on sequences (ra);
--- CREATE INDEX on sequences (dec);
+CREATE INDEX on sequences (coord_bounds);
 CREATE INDEX on sequences (start_date);
 CREATE INDEX on sequences (piaa_state);
 

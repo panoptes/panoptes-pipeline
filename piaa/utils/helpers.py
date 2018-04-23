@@ -1,27 +1,30 @@
 import os
 
-import numpy as np
-from astropy.table import Table
+from copy import copy
 
+import numpy as np
+
+from matplotlib import pyplot as plt
+
+from astropy.table import Table
 from astropy.visualization import LogStretch, ImageNormalize, LinearStretch, PercentileInterval
 from astropy.wcs import WCS
+from astropy import units as u
+from photutils import aperture_photometry
 
 from scipy.optimize import minimize
 from scipy.sparse.linalg import lsqr
 
-from matplotlib import pyplot as plt
-
-from astropy import units as u
-
-from copy import copy
-
 from pocs.utils import current_time
 from pong.utils.metadb import get_cursor
 
-palette = copy(plt.cm.inferno)
-palette.set_over('w', 1.0)
-palette.set_under('k', 1.0)
-palette.set_bad('g', 1.0)
+
+def get_palette():
+    palette = copy(plt.cm.inferno)
+    palette.set_over('w', 1.0)
+    palette.set_under('k', 1.0)
+    palette.set_bad('g', 1.0)
+    return palette
 
 
 def get_stars_from_footprint(wcs_footprint, **kwargs):
@@ -99,7 +102,7 @@ def make_pretty_from_fits(header, data, figsize=(10, 8), dpi=150, alpha=0.2, pad
         ax.set_xlabel('X / pixels')
         ax.set_ylabel('Y / pixels')
 
-    ax.imshow(data, norm=norm, cmap=palette, origin='lower')
+    ax.imshow(data, norm=norm, cmap=get_palette(), origin='lower')
 
     plt.tight_layout(pad=pad)
     plt.title(title)
@@ -235,7 +238,7 @@ def show_stamps(idx_list=None, pscs=None, frame_idx=0, stamp_size=11, aperture_s
     # Target
     ax1 = ax[0][0]
     im = ax1.imshow(s0.reshape(stamp_size, stamp_size), origin='lower',
-                    cmap=palette, norm=ImageNormalize(stretch=stretch))
+                    cmap=get_palette(), norm=ImageNormalize(stretch=stretch))
     aperture.plot(color='r', lw=4, ax=ax1)
     annulus.plot(color='c', lw=2, ls='--', ax=ax1)
     fig.colorbar(im, ax=ax1)
@@ -244,7 +247,7 @@ def show_stamps(idx_list=None, pscs=None, frame_idx=0, stamp_size=11, aperture_s
     # Normalized target
     ax2 = ax[1][0]
     im = ax2.imshow(n0.reshape(stamp_size, stamp_size), origin='lower',
-                    cmap=palette, norm=ImageNormalize(stretch=stretch))
+                    cmap=get_palette(), norm=ImageNormalize(stretch=stretch))
     aperture.plot(color='r', lw=4, ax=ax2)
     annulus.plot(color='c', lw=2, ls='--', ax=ax2)
     fig.colorbar(im, ax=ax2)
@@ -253,7 +256,7 @@ def show_stamps(idx_list=None, pscs=None, frame_idx=0, stamp_size=11, aperture_s
     # Comparison
     ax1 = ax[0][1]
     im = ax1.imshow(s1.reshape(stamp_size, stamp_size), origin='lower',
-                    cmap=palette, norm=ImageNormalize(stretch=stretch))
+                    cmap=get_palette(), norm=ImageNormalize(stretch=stretch))
     aperture.plot(color='r', lw=4, ax=ax1)
     annulus.plot(color='c', lw=2, ls='--', ax=ax1)
     fig.colorbar(im, ax=ax1)
@@ -262,7 +265,7 @@ def show_stamps(idx_list=None, pscs=None, frame_idx=0, stamp_size=11, aperture_s
     # Normalized comparison
     ax2 = ax[1][1]
     im = ax2.imshow(n1.reshape(stamp_size, stamp_size), origin='lower',
-                    cmap=palette, norm=ImageNormalize(stretch=stretch))
+                    cmap=get_palette(), norm=ImageNormalize(stretch=stretch))
     aperture.plot(color='r', lw=4, ax=ax2)
     annulus.plot(color='c', lw=2, ls='--', ax=ax2)
     fig.colorbar(im, ax=ax2)
@@ -273,7 +276,7 @@ def show_stamps(idx_list=None, pscs=None, frame_idx=0, stamp_size=11, aperture_s
         # Residual
         ax1 = ax[0][2]
         im = ax1.imshow((s0 - s1).reshape(stamp_size, stamp_size), origin='lower',
-                        cmap=palette, norm=ImageNormalize(stretch=stretch))
+                        cmap=get_palette(), norm=ImageNormalize(stretch=stretch))
         aperture.plot(color='r', lw=4, ax=ax1)
         annulus.plot(color='c', lw=2, ls='--', ax=ax1)
         fig.colorbar(im, ax=ax1)
@@ -281,7 +284,7 @@ def show_stamps(idx_list=None, pscs=None, frame_idx=0, stamp_size=11, aperture_s
 
         # Normalized residual
         ax2 = ax[1][2]
-        im = ax2.imshow((n0 - n1).reshape(stamp_size, stamp_size), origin='lower', cmap=palette)
+        im = ax2.imshow((n0 - n1).reshape(stamp_size, stamp_size), origin='lower', cmap=get_palette())
         aperture.plot(color='r', lw=4, ax=ax2)
         annulus.plot(color='c', lw=2, ls='--', ax=ax2)
         fig.colorbar(im, ax=ax2)

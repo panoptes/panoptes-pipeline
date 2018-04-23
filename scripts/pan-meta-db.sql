@@ -28,7 +28,7 @@ CREATE TABLE sequences (
   	-- merit numeric(6,2), 
   	-- min_nexp smallint, 
   	-- min_duration numeric(7,2), 
-  	-- set_duration numeric(7,2),
+  	-- set_duration numeric(7,2),	
   	pocs_version varchar(15)
 );
 -- CREATE INDEX on sequences (ra);
@@ -53,15 +53,29 @@ CREATE TABLE images (
 	cam_temp numeric(4,2), 
 	cam_circconf numeric(4,3),
 	cam_colortmp numeric(4,0),
-  cam_measrggb varchar(20),
-  cam_measured_ev numeric(4,2),
+  	cam_measrggb varchar(20),
+  	cam_measured_ev numeric(4,2),
 	cam_measured_ev2 numeric(4,2),
-  cam_white_level_n int,
-  cam_white_level_s int,
+  	cam_white_level_n int,
+  	cam_white_level_s int,
 	cam_red_balance numeric(7,6),
 	cam_blue_balance numeric(7,6),
-  file_path text
+  	file_path text
 );
 CREATE INDEX on images (file_path);
 CREATE INDEX on images (center_ra);
 CREATE INDEX on images (center_dec);
+
+CREATE TABLE stamps (
+	image_id char(29), -- REFERENCES images (id) ON DELETE RESTRICT NOT NULL,
+	pic_id bigint,
+	date_obs timestamp,
+	ra numeric(7,4), 
+	dec numeric(7,4),	
+	original_position integer ARRAY,
+	data float ARRAY,
+	PRIMARY KEY (image_id, pic_id)
+);
+CREATE INDEX on stamps (pic_id);
+CREATE INDEX on stamps (ra);
+CREATE INDEX on stamps (dec);

@@ -1,30 +1,17 @@
-import os
-
-from copy import copy
 
 import numpy as np
 
 from matplotlib import pyplot as plt
 
 from astropy.table import Table
-from astropy.visualization import LogStretch, ImageNormalize, LinearStretch, PercentileInterval
+from astropy.visualization import LogStretch, ImageNormalize, PercentileInterval
 from astropy.wcs import WCS
 from astropy import units as u
-from photutils import aperture_photometry
 
-from scipy.optimize import minimize
 from scipy.sparse.linalg import lsqr
 
 from pocs.utils import current_time
 from pong.utils.metadb import get_cursor
-
-
-def get_palette():
-    palette = copy(plt.cm.inferno)
-    palette.set_over('w', 1.0)
-    palette.set_under('k', 1.0)
-    palette.set_bad('g', 1.0)
-    return palette
 
 
 def get_stars_from_footprint(wcs_footprint, **kwargs):
@@ -147,221 +134,16 @@ def get_rgb_masks(data):
         return _rgb_masks
 
 
-def get_all_sum(cube):
-    return [get_sum(stamp) for stamp in cube]
-
-
-def get_sum(stamp, stamp_size=11):
-    # Get sums for aperture and annulus
-    phot_table = aperture_photometry(stamp.reshape(
-        stamp_size, stamp_size), (aperture, annulus), method='subpixel', subpixels=32)
-
-    # Get annulus per pixel (local background)
-    bkg_mean = phot_table['aperture_sum_1'] / annulus.area()
-
-    # Get background in aperture
-    bkg_sum = aperture.area() * bkg_mean
-
-    # Remove local background
-    final_sum = phot_table['aperture_sum_0'] - bkg_sum
-
-    return final_sum[0]
-
-
-def get_psc(idx=None, ticid=None, aperture_size=None, get_masks=False, stamp_size=11, stamp_dir=None, stamp_cubes=None, verbose=False):
-    if idx is not None:
-        d0 = np.load(stamp_cubes[idx])
-
-    if ticid is not None:
-        d0 = np.load(os.path.join(stamp_dir, '{}.npz'.format(ticid)))
-
-    psc = d0['psc']
-    pos = d0['pos']
-    if verbose:
-        print(pos)
-
-    midpoint = int((stamp_size-1)/2)
-
-    masks = list()
-    if get_masks:
-        if aperture_size is not None:
-            size = aperture_size
-        else:
-            size = stamp_size
-        for color, mask in rgb_masks.items():
-            masks.append(
-                np.array([Cutout2D(mask, p, size, mode='strict').data.flatten() for p in pos]))
-    else:
-        if aperture_size is not None:
-            psc = np.array([Cutout2D(s.reshape(stamp_size, stamp_size), (midpoint,
-                                                                         midpoint), aperture_size, mode='strict').data.flatten() for s in psc])
-
-    if get_masks is False:
-        return psc
-    else:
-        return np.array(masks)
-
-
-def show_stamps(idx_list=None, pscs=None, frame_idx=0, stamp_size=11, aperture_size=4, show_residual=False, stretch=None, **kwargs):
-
-    midpoint = (stamp_size - 1) / 2
-    aperture = RectangularAperture((midpoint, midpoint), w=aperture_size, h=aperture_size, theta=0)
-    annulus = RectangularAnnulus((midpoint, midpoint), w_in=aperture_size,
-                                 w_out=stamp_size, h_out=stamp_size, theta=0)
-
-    if idx_list is not None:
-        pscs = [get_psc(i, stamp_size=stamp_size, **kwargs) for i in idx_list]
-        ncols = len(idx_list)
-    else:
-        ncols = len(pscs)
-
-    if show_residual:
-        ncols += 1
-
-    fig, ax = plt.subplots(nrows=2, ncols=ncols)
-    fig.set_figheight(6)
-    fig.set_figwidth(12)
-
-    norm = [normalize(p) for p in pscs]
-
-    s0 = pscs[0][frame_idx]
-    n0 = norm[0][frame_idx]
-
-    s1 = pscs[1][frame_idx]
-    n1 = norm[1][frame_idx]
-
-    if stretch == 'log':
-        stretch = LogStretch()
-    else:
-        stretch = LinearStretch()
-
-    # Target
-    ax1 = ax[0][0]
-    im = ax1.imshow(s0.reshape(stamp_size, stamp_size), origin='lower',
-                    cmap=get_palette(), norm=ImageNormalize(stretch=stretch))
-    aperture.plot(color='r', lw=4, ax=ax1)
-    annulus.plot(color='c', lw=2, ls='--', ax=ax1)
-    fig.colorbar(im, ax=ax1)
-    #ax1.set_title('Stamp {:.02f}'.format(get_sum(s0, stamp_size=stamp_size)))
-
-    # Normalized target
-    ax2 = ax[1][0]
-    im = ax2.imshow(n0.reshape(stamp_size, stamp_size), origin='lower',
-                    cmap=get_palette(), norm=ImageNormalize(stretch=stretch))
-    aperture.plot(color='r', lw=4, ax=ax2)
-    annulus.plot(color='c', lw=2, ls='--', ax=ax2)
-    fig.colorbar(im, ax=ax2)
-    ax2.set_title('Normalized Stamp')
-
-    # Comparison
-    ax1 = ax[0][1]
-    im = ax1.imshow(s1.reshape(stamp_size, stamp_size), origin='lower',
-                    cmap=get_palette(), norm=ImageNormalize(stretch=stretch))
-    aperture.plot(color='r', lw=4, ax=ax1)
-    annulus.plot(color='c', lw=2, ls='--', ax=ax1)
-    fig.colorbar(im, ax=ax1)
-    #ax1.set_title('Stamp {:.02f}'.format(get_sum(s1, stamp_size=stamp_size)))
-
-    # Normalized comparison
-    ax2 = ax[1][1]
-    im = ax2.imshow(n1.reshape(stamp_size, stamp_size), origin='lower',
-                    cmap=get_palette(), norm=ImageNormalize(stretch=stretch))
-    aperture.plot(color='r', lw=4, ax=ax2)
-    annulus.plot(color='c', lw=2, ls='--', ax=ax2)
-    fig.colorbar(im, ax=ax2)
-    ax2.set_title('Normalized Stamp')
-
-    if show_residual:
-
-        # Residual
-        ax1 = ax[0][2]
-        im = ax1.imshow((s0 - s1).reshape(stamp_size, stamp_size), origin='lower',
-                        cmap=get_palette(), norm=ImageNormalize(stretch=stretch))
-        aperture.plot(color='r', lw=4, ax=ax1)
-        annulus.plot(color='c', lw=2, ls='--', ax=ax1)
-        fig.colorbar(im, ax=ax1)
-        ax1.set_title('Stamp Residual - {:.02f}'.format((s0 - s1).sum()))
-
-        # Normalized residual
-        ax2 = ax[1][2]
-        im = ax2.imshow((n0 - n1).reshape(stamp_size, stamp_size), origin='lower', cmap=get_palette())
-        aperture.plot(color='r', lw=4, ax=ax2)
-        annulus.plot(color='c', lw=2, ls='--', ax=ax2)
-        fig.colorbar(im, ax=ax2)
-        ax2.set_title('Normalized Stamp')
-
-    fig.tight_layout()
-
-
-def normalize(cube):
+def normalize_cube(cube):
     return (cube.T / cube.sum(1)).T
 
 
-def get_vary(d0, d1):
+def get_stamp_sq_diff(d0, d1):
     return ((d0 - d1)**2).sum()
-
-
-def spiral_matrix(A):
-    A = np.array(A)
-    out = []
-    while(A.size):
-        out.append(A[:, 0][::-1])  # take first row and reverse it
-        A = A[:, 1:].T[::-1]       # cut off first row and rotate counterclockwise
-    return np.concatenate(out)
-
-
-def get_ideal_coeffs(stamp_collection, func=None, verbose=False):
-    coeffs = []
-
-    def minimize_func(refs_coeffs, references, targets):
-        compare_references = (references * refs_coeffs).sum(0)
-#         compare_references = (references.T * refs_coeffs).sum(2).T
-
-#         res = ((targets - compare_references)**2)
-        res = ((targets - compare_references)**2)
-
-        return res.sum()
-
-    if func is None:
-        func = minimize_func
-
-    num_refs = stamp_collection.shape[0] - 1
-    num_frames = stamp_collection.shape[1]
-    num_pixels = stamp_collection.shape[2]
-
-    target_frames = stamp_collection[0]
-    refs_frames = stamp_collection[1:]
-
-    for frame_index in range(num_frames):
-
-        target_all_but_frame = np.delete(target_frames, frame_index, axis=0)
-        refs_all_but_frame = np.delete(refs_frames, frame_index, axis=1)
-
-        try:
-            # Try to start from previous frame coeffs
-            refs_coeffs = coeffs[-1]
-        except IndexError:
-            # Otherwise all ones
-            refs_coeffs = np.ones(num_pixels)
-#             refs_coeffs = np.ones(num_refs)
-
-        # Reshape is basically flattening along all but axis 0
-#         refs_all_but_frame = refs_all_but_frame.reshape(-1, -1, refs_coeffs.flatten().shape[0])
-
-        if verbose and frame_index == 0:
-            print("Target other shape: {}".format(target_all_but_frame.shape))
-            print("Refs other shape: {}".format(refs_all_but_frame.shape))
-            print("Source coeffs shape: {}".format(refs_coeffs.shape))
-
-        res = minimize(func, refs_coeffs, args=(refs_all_but_frame, target_all_but_frame))
-        coeffs.append(res.x)
-
-    return np.array(coeffs)
 
 
 def get_ideal_full_coeffs(stamp_collection, damp=1, func=lsqr, verbose=False):
 
-    num_refs = stamp_collection.shape[0] - 1
     num_frames = stamp_collection.shape[1]
     num_pixels = stamp_collection.shape[2]
 
@@ -377,28 +159,7 @@ def get_ideal_full_coeffs(stamp_collection, damp=1, func=lsqr, verbose=False):
     return coeffs
 
 
-def get_ideal_psc(stamp_collection, coeffs, **kwargs):
-    num_frames = stamp_collection.shape[1]
-
-    # References we will multiple by the coeffs
-    refs = stamp_collection[1:]
-    print(refs.shape)
-    created_frames = []
-
-    for frame_index in range(num_frames):
-        # References for this frame
-        refs_frame = refs[:, frame_index]
-
-        created_frame = (refs_frame * coeffs[frame_index]).sum(0).T.flatten()
-#         created_frame = (refs_frame.T * coeffs[frame_index]).T.sum(0).flatten()
-        created_frames.append(created_frame)
-
-    return np.array(created_frames)
-
-
 def get_ideal_full_psc(stamp_collection, coeffs, **kwargs):
-
-    num_frames = stamp_collection.shape[1]
 
     refs = stamp_collection[1:]
 

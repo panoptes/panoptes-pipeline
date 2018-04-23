@@ -26,7 +26,6 @@ CREATE TABLE sequences (
   	piaa_state varchar(45) DEFAULT 'initial'
 
 );
-CREATE INDEX on sequences (coord_bounds);
 CREATE INDEX on sequences (start_date);
 CREATE INDEX on sequences (piaa_state);
 

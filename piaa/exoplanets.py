@@ -11,6 +11,8 @@ from astropy.time import TimeDelta
 from astropy import units as u
 from collections import namedtuple
 
+from dateutil.parser import parse
+
 Transit = namedtuple('Transit', ['ingress', 'midpoint', 'egress'])
 
 
@@ -170,3 +172,24 @@ class Exoplanet(OEC):
             num += 1
 
         return transits
+
+    def phase_from_time(self, t1):
+        if isinstance(t1, str):
+            t1  = Time(parse(t1), format='datetime')
+            
+        transittime = Time(self.star.planet.transittime, format='jd')
+        period = TimeDelta(self.star.planet.period, format='jd')
+
+        num_transits = int((t1 - transittime).sec // period.sec)
+
+        time_since_midpoint = (t1 - transittime) - (num_transits * period)
+
+        phase = (time_since_midpoint / period) - 1.0
+        
+        if phase > 0.5:
+            phase -= 1.0
+            
+        if phase < -0.5:
+            phase += 1.0
+            
+        return phase

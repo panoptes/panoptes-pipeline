@@ -4,23 +4,30 @@ import subprocess
 
 from warnings import warn
 
+import concurrent.futures
 from collections import namedtuple
 from glob import glob
+from itertools import product
 
-from astropy.coordinates import SkyCoord
 from astropy.io import fits
 from astropy.table import Table
 from astropy.utils.console import ProgressBar
 from astropy.visualization import SqrtStretch
 from astropy.visualization.mpl_normalize import ImageNormalize
 from astropy.wcs import WCS
+from astropy.stats import SigmaClip
+from astropy.nddata import Cutout2D, NoOverlapError, PartialOverlapError
+from astropy import units as u
+from astropy.coordinates import SkyCoord, match_coordinates_sky
+from astropy.stats import sigma_clipped_stats
 
 from photutils import Background2D
 from photutils import MedianBackground
 from photutils import RectangularAperture
-from photutils import SigmaClip
 from photutils import aperture_photometry
 from photutils import find_peaks
+
+from tqdm import tqdm_notebook
 
 import h5py
 import numpy as np
@@ -33,6 +40,8 @@ from matplotlib import patches
 from matplotlib import pyplot as plt
 
 from . import utils
+
+from piaa.utils import helpers
 
 
 PSC = namedtuple('PSC', ['data', 'mask'])
@@ -86,7 +95,6 @@ class Observation(object):
 
         self._hdf5 = None
         self._hdf5_stamps = None
-        self.slices = dict()
         self.target_slice = None
 
         self._load_images()
@@ -97,14 +105,14 @@ class Observation(object):
     @property
     def hdf5(self):
         if self._hdf5 is None:
-            self._hdf5 = h5py.File(self.image_dir + '.hdf5')
+            self._hdf5 = h5py.File(self.image_dir + '.hdf5', 'a')
 
         return self._hdf5
 
     @property
     def hdf5_stamps(self):
         if self._hdf5_stamps is None:
-            self._hdf5_stamps = h5py.File(self.image_dir + '_stamps.hdf5')
+            self._hdf5_stamps = h5py.File(self.image_dir + '_stamps.hdf5', 'a')
 
         return self._hdf5_stamps
 
@@ -139,8 +147,12 @@ class Observation(object):
     def pixel_locations(self):
         if self._pixel_locations is None:
             # Get RA/Dec coordinates from first frame
-            ra = self.point_sources['ALPHA_J2000']
-            dec = self.point_sources['DELTA_J2000']
+            try:
+                ra = self.point_sources['ALPHA_J2000']
+                dec = self.point_sources['DELTA_J2000']
+            except KeyError:
+                ra = self.point_sources['ra']
+                dec = self.point_sources['dec']
 
             locs = list()
 
@@ -169,7 +181,7 @@ class Observation(object):
 
     @property
     def num_point_sources(self):
-        return len(self.point_sources.index)
+        return len(self.point_sources)
 
     @property
     def data_cube(self):
@@ -188,6 +200,19 @@ class Observation(object):
             self.log('Done')
 
         return cube_dset
+    
+    @property
+    def stamps(self):
+        try:
+            stamp_group = self.hdf5_stamps['stamps']
+        except KeyError:
+            if self.verbose:
+                self.log("Creating stamps...", end='')
+            stamp_group = self.hdf5_stamps.create_group('stamps')
+            
+            self.log('Done')
+
+        return stamp_group
 
     @property
     def rgb_masks(self):
@@ -216,6 +241,11 @@ class Observation(object):
                 print(msg, end=kwargs['end'])
             else:
                 print(msg)
+                
+    def get_wcs(self, frame):
+        fn = self.files[frame]
+            
+        return WCS(fn)
 
     def get_header_value(self, frame_index, header):
         return fits.getval(self.files[frame_index], header)
@@ -346,18 +376,20 @@ class Observation(object):
 
     def get_psc(self, source, frame_slice=None):
         try:
+            return np.array(self.stamps[source])
+        
             if isinstance(source, int):
-                source = self.slices[source]
+                source = self.stamps[source]
 
             if frame_slice is None:
                 frame_slice = slice(0, self.num_frames)
 
-            data = self.data_cube[frame_slice, source[0], source[1]]
-            masks = self.rgb_masks[:, source[0], source[1]]
-
+            data = self.data_cube[frame_slice, slice(source[1], source[2]), slice(source[3], source[4])]
+            masks = self.rgb_masks[:, source[1], source[2]]
+            
             # Mask obviously bad values
             data[data > 5e4] = 0
-
+            
             psc = PSC(data=data, mask=masks)
 
         except KeyError:
@@ -365,7 +397,7 @@ class Observation(object):
 
         return psc
 
-    def get_ideal_psc(self, stamp_collection, coeffs, target_psc):
+    def get_ideal_psc(self, stamp_collection, coeffs, get_psc):
         num_frames = target_psc.data.shape[0]
         stamp_h = target_psc.data.shape[1]
         stamp_w = target_psc.data.shape[2]
@@ -379,7 +411,7 @@ class Observation(object):
 
         return np.array(ref_frames)
 
-    def create_stamp_slices(self, target, frame_slice=None, padding=3, adjust_rgb=True,
+    def create_stamp_slices(self, frame_slice=None, stamp_size=7, with_v=False, standardize=False,
                             display_progress=False, *args, **kwargs):
         """Create subtracted stamps for entire data cube
 
@@ -400,71 +432,73 @@ class Observation(object):
 
         if frame_slice is None:
             frame_slice = slice(0, self.num_frames)
+            
+        base_stamp = np.ones((49)) / 49
+        
+        def insert_stamp(fits_idx, row_full):
+            row_idx, row = row_full
+            
+            position = self.pixel_locations[fits_idx, row_idx]
+            
+            stamp = Cutout2D(self.data_cube[fits_idx], position, stamp_size, self.get_wcs(fits_idx))
+            
+            image_id = self.get_header_value(fits_idx, 'IMAGEID').strip().replace('Panoptes Unit PAN006 @ Wheaton College', 'PAN006')
+            
+            data = np.array2string(stamp.data.flatten(), separator=',', max_line_width=1000).replace('[', '{').replace(']', '}')
+            bounds = '{' + '{0[0]}, {0[1]}, {1[0]}, {1[1]}'.format(*stamp.bbox_original) + '}'
+            
+            helpers.meta_insert('stamps', 
+                image_id=image_id,
+                pic_id=row['id'],
+                ra=row['ALPHA_J2000'],
+                dec=row['DELTA_J2000'],
+                date_obs=self.get_header_value(fits_idx, 'DATE-OBS').strip(),
+                original_position=bounds,
+                data=data
+            )
+            
+        with concurrent.futures.ThreadPoolExecutor(max_workers=50) as executor:
+            futures = [executor.submit( insert_stamp, fits_idx, row ) for fits_idx, row in product(np.arange(self.num_frames), self.point_sources.iterrows())]
+            for future in concurrent.futures.as_completed(futures):
+                print('.', end='')
 
-        r_min, r_max, c_min, c_max = self.get_stamp_bounds(target, frame_slice=frame_slice, padding=padding)
+        #for star_row in tqdm_notebook(self.point_sources.iterrows(), total=len(self.point_sources)):
+            #for fits_idx in range(self.num_frames):
+                #try:
+                    #insert_stamp(fits_idx, star_row)
+                #except Exception as e:
+                    #print(e)
+                    #return
+                
+            #if str(int(star_row['id'])) not in self.stamps:
+                #try:
+                    #psc = [Cutout2D(self.data_cube[f], (self.pixel_locations[f, i, 0], self.pixel_locations[f, i, 1]), stamp_size, wcs=self.get_wcs(f)) for f in range(self.num_frames)]
+                    #
+                    #psc_data = np.array([s.data.flatten() for s in psc])
+                    #
+                    #if standardize:
+                        #mean, median, std = sigma_clipped_stats(psc_data, axis=0)
+                        #psc_data = (psc_data - mean) / std
+                    
+                    #dset = self.stamps.create_dataset(str(int(star_row['id'])), data=psc_data)
+                    #dset.attrs['ra'] = star_row['ALPHA_J2000']
+                    #dset.attrs['dec'] = star_row['DELTA_J2000']
+                    
+                    #if with_v:
+                        #normal_d = (psc.T / psc.sum(1)).T
+                        #dset.attrs['v_score'] = ((normal_d - base_stamp)**2).sum()
 
-        if adjust_rgb:
-            color = utils.pixel_color(c_min, r_max, zero_based=True)
-            if color == 'B':
-                r_max += 1
-                r_min += 1
-            elif color == 'R':
-                c_min += 1
-                c_max += 1
-            elif color == 'G2':
-                c_min += 1
-                c_max += 1
-                r_max += 1
-                r_min += 1
-
-        height = r_max - r_min
-        width = c_max - c_min
-        self.target_slice = [slice(r_min, r_max), slice(c_min, c_max)]
-
-        self.log("Stamp size: {} {}".format(height, width))
-        color = utils.pixel_color(c_min, r_max, zero_based=True)
-        self.log("Target stamp color: {}".format(color))
-
-        if display_progress:
-            iterator = ProgressBar(self.point_sources.index, ipython_widget=kwargs.get('ipython_widget', False))
-        else:
-            iterator = self.point_sources.index
-
-        self.slices = dict()
-
-        for source_index in iterator:
-
-            try:
-                r_min, r_max, c_min, c_max = self.get_stamp_bounds(
-                    int(source_index), height=height, width=width, frame_slice=frame_slice, padding=padding)
-
-                if adjust_rgb:
-                    color = utils.pixel_color(c_min, r_max, zero_based=True)
-                    if color == 'B':
-                        r_max += 1
-                        r_min += 1
-                    elif color == 'R':
-                        c_min += 1
-                        c_max += 1
-                    elif color == 'G2':
-                        c_min += 1
-                        c_max += 1
-                        r_max += 1
-                        r_min += 1
-
-                self.slices[source_index] = [slice(r_min, r_max), slice(c_min, c_max)]
-
-            except Exception as e:
-                self.log("Problem creating stamp for {}: {}".format(source_index, e))
+                #except Exception as e:
+                    #self.log("Problem creating stamp for {}: {}".format(star_row, e))
+                    #pass
 
     def get_stamp_bounds(self, source, height=None, width=None, frame_slice=None, padding=0, **kwargs):
         if frame_slice is None:
             frame_slice = slice(0, self.num_frames)
 
         if isinstance(source, int):
-            pix = self.pixel_locations[frame_slice][:, source]
-            x_range = pix.iloc[0]
-            y_range = pix.iloc[1]
+            x_range = self.pixel_locations[:, source, 0]
+            y_range = self.pixel_locations[:, source, 1]
         elif isinstance(source, SkyCoord):
             x = []
             y = []
@@ -511,15 +545,18 @@ class Observation(object):
         # Assume no match
         data = np.ones((num_sources)) * 99.
 
-        try:
-            if force_new:
+        if force_new:
+            try:
                 del self.hdf5_stamps['vgrid']
-
+            except Exception as e:
+                pass
+        
+        try:
             vgrid_dset = self.hdf5_stamps['vgrid']
         except KeyError:
             vgrid_dset = self.hdf5_stamps.create_dataset('vgrid', data=data)
 
-        psc0 = self.get_psc(target_index, frame_slice=frame_slice).data
+        psc0 = self.get_psc(target_index, frame_slice=frame_slice)
         num_frames = psc0.shape[0]
 
         # Normalize
@@ -537,14 +574,13 @@ class Observation(object):
         if display_progress:
             iterator = ProgressBar(range(num_sources), ipython_widget=kwargs.get('ipython_widget', False))
         else:
-            iterator = range(num_sources)
+            iterator = list(self.stamps.keys())
 
-        for source_index in iterator:
+        for i, source_index in enumerate(iterator):
             try:
-                psc1 = self.get_psc(source_index, frame_slice=frame_slice).data
+                psc1 = self.get_psc(source_index, frame_slice=frame_slice)
             except Exception:
                 continue
-
 
             normalized_psc1 = np.zeros_like(psc1)
 
@@ -554,9 +590,13 @@ class Observation(object):
 
             # Store in the grid
             try:
-                vgrid_dset[source_index] = ((normalized_psc0 - normalized_psc1) ** 2).sum()
+                v = ((normalized_psc0 - normalized_psc1) ** 2).sum()
+                data[i] = v
+                #vgrid_dset[source_index] = v
             except ValueError as e:
                 self.log("Skipping invalid stamp for source {}: {}".format(source_index, e))
+                
+        return data
 
     def get_stamp_collection(self, frame_slice=None, num_refs=25):
         if frame_slice is None:
@@ -669,7 +709,7 @@ class Observation(object):
 
         return depths
 
-    def lookup_point_sources(self, image_num=0, sextractor_params=None, force_new=False):
+    def lookup_point_sources(self, image_num=0, sextractor_params=None, force_new=False, use_sextractor=True, use_tess_catalog=False):
         """ Extract point sources from image
 
         Args:
@@ -683,66 +723,90 @@ class Observation(object):
         Raises:
             error.InvalidSystemCommand: Description
         """
-        # Write the sextractor catalog to a file
-        source_file = '{}/point_sources_{:02d}.cat'.format(self.image_dir, image_num)
-        self.log("Point source catalog: {}".format(source_file))
+        if use_sextractor:
+            # Write the sextractor catalog to a file
+            source_file = '{}/point_sources_{:02d}.cat'.format(self.image_dir, image_num)
+            self.log("Point source catalog: {}".format(source_file))
 
-        if not os.path.exists(source_file) or force_new:
-            self.log("No catalog found, building from sextractor")
-            # Build catalog of point sources
-            sextractor = shutil.which('sextractor')
-            if sextractor is None:
-                sextractor = shutil.which('sex')
+            if not os.path.exists(source_file) or force_new:
+                self.log("No catalog found, building from sextractor")
+                # Build catalog of point sources
+                sextractor = shutil.which('sextractor')
                 if sextractor is None:
-                    raise Exception('sextractor not found')
+                    sextractor = shutil.which('sex')
+                    if sextractor is None:
+                        raise Exception('sextractor not found')
 
-            if sextractor_params is None:
-                sextractor_params = [
-                    '-c', '{}/PIAA/resources/conf_files/sextractor/panoptes.sex'.format(os.getenv('PANDIR')),
-                    '-CATALOG_NAME', source_file,
-                ]
+                if sextractor_params is None:
+                    sextractor_params = [
+                        '-c', '{}/PIAA/resources/conf_files/sextractor/panoptes.sex'.format(os.getenv('PANDIR')),
+                        '-CATALOG_NAME', source_file,
+                    ]
 
-            self.log("Running sextractor...")
-            cmd = [sextractor, *sextractor_params, self.files[image_num]]
-            self.log(cmd)
-            subprocess.run(cmd)
+                self.log("Running sextractor...")
+                cmd = [sextractor, *sextractor_params, self.files[image_num]]
+                self.log(cmd)
+                subprocess.run(cmd)
 
-        # Read catalog
-        point_sources = Table.read(source_file, format='ascii.sextractor')
+            # Read catalog
+            point_sources = Table.read(source_file, format='ascii.sextractor')
 
-        # Remove the point sources that sextractor has flagged
-        if 'FLAGS' in point_sources.keys():
-            point_sources = point_sources[point_sources['FLAGS'] == 0]
-            point_sources.remove_columns(['FLAGS'])
+            # Remove the point sources that sextractor has flagged
+            if 'FLAGS' in point_sources.keys():
+                point_sources = point_sources[point_sources['FLAGS'] == 0]
+                point_sources.remove_columns(['FLAGS'])
 
-        # Rename columns
-        point_sources.rename_column('X_IMAGE', 'X')
-        point_sources.rename_column('Y_IMAGE', 'Y')
+            # Rename columns
+            point_sources.rename_column('X_IMAGE', 'X')
+            point_sources.rename_column('Y_IMAGE', 'Y')
 
-        # Add the SNR
-        point_sources['SNR'] = point_sources['FLUX_AUTO'] / point_sources['FLUXERR_AUTO']
+            # Add the SNR
+            point_sources['SNR'] = point_sources['FLUX_AUTO'] / point_sources['FLUXERR_AUTO']
 
-        # Filter point sources near edge
-        # w, h = data[0].shape
-        w, h = (3476, 5208)
+            # Filter point sources near edge
+            # w, h = data[0].shape
+            w, h = (3476, 5208)
 
-        stamp_size = 60
+            stamp_size = 60
 
-        top = point_sources['Y'] > stamp_size
-        bottom = point_sources['Y'] < w - stamp_size
-        left = point_sources['X'] > stamp_size
-        right = point_sources['X'] < h - stamp_size
+            top = point_sources['Y'] > stamp_size
+            bottom = point_sources['Y'] < w - stamp_size
+            left = point_sources['X'] > stamp_size
+            right = point_sources['X'] < h - stamp_size
 
-        self._point_sources = point_sources[top & bottom & right & left].to_pandas()
+            self._point_sources = point_sources[top & bottom & right & left].to_pandas()
+            
+        if use_tess_catalog:
+            wcs_footprint = self.wcs.calc_footprint()
+            ra_max = max(wcs_footprint[:, 0])
+            ra_min = min(wcs_footprint[:, 0])
+            dec_max = max(wcs_footprint[:, 1])
+            dec_min = min(wcs_footprint[:, 1])
+            self.log("RA: {:.03f} - {:.03f} \t Dec: {:.03f} - {:.03f}".format(ra_min, ra_max, dec_min, dec_max))
+            self._point_sources = helpers.get_stars(ra_min, ra_max, dec_min, dec_max, cursor_only=False)
+            
+            star_pixels = self.wcs.all_world2pix(self._point_sources['ra'], self._point_sources['dec'], 0)
+            self._point_sources['X'] = star_pixels[0]
+            self._point_sources['Y'] = star_pixels[1]
+            
+            self._point_sources.add_index(['id'])
+            self._point_sources = self._point_sources.to_pandas()
 
-        return self._point_sources
+        
+        # Do catalog matching
+        stars = SkyCoord(ra=self._point_sources['ALPHA_J2000'].values * u.deg, dec=self._point_sources['DELTA_J2000'].values * u.deg)
+        st0 = helpers.get_stars_from_footprint(self.wcs.calc_footprint(), cursor_only=False)
+        catalog = SkyCoord(ra=st0['ra'] * u.deg, dec=st0['dec'] * u.deg)
+        idx, d2d, d3d = match_coordinates_sky(stars, catalog)
 
-    def plot_stamp(self, source_index, frame_index, show_data=False, *args, **kwargs):
+        self._point_sources['id'] = st0[idx]['id']
+
+    def plot_stamp(self, source_index, frame_index, show_data=False, aperture_size=4, *args, **kwargs):
 
         norm = ImageNormalize(stretch=SqrtStretch())
 
-        stamp_slice = self.get_source_slice(source_index, *args, **kwargs)
-        stamp = self.get_frame_stamp(source_index, frame_index, reshape=True, *args, **kwargs)
+        stamp_slice = self.get_psc(source_index, *args, **kwargs)
+        stamp = stamp_slice.data[frame_index]
 
         fig = plt.figure(1)
         fig.set_size_inches(13, 15)
@@ -754,7 +818,8 @@ class Observation(object):
         fig.add_subplot(ax2)
         fig.add_subplot(ax3)
 
-        aperture = self.get_frame_aperture(source_index, frame_index, return_aperture=True)
+        source_info = self.point_sources.iloc[source_index]
+        aperture = RectangularAperture((source_info['X'], source_info['Y']), aperture_size, aperture_size, 0)
 
         aperture_mask = aperture.to_mask(method='center')[0]
         aperture_data = aperture_mask.cutout(stamp)

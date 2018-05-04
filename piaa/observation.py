@@ -207,11 +207,9 @@ class Observation(object):
             stamp_group = self.hdf5_stamps['stamps']
         except KeyError:
             if self.verbose:
-                self.log("Creating stamps...", end='')
+                self.log("Creating stamps file.", end='')
             stamp_group = self.hdf5_stamps.create_group('stamps')
             
-            self.log('Done')
-
         return stamp_group
 
     @property
@@ -435,62 +433,27 @@ class Observation(object):
             
         base_stamp = np.ones((49)) / 49
         
-        def insert_stamp(fits_idx, row_full):
-            row_idx, row = row_full
-            
-            position = self.pixel_locations[fits_idx, row_idx]
-            
-            stamp = Cutout2D(self.data_cube[fits_idx], position, stamp_size, self.get_wcs(fits_idx))
-            
-            image_id = self.get_header_value(fits_idx, 'IMAGEID').strip().replace('Panoptes Unit PAN006 @ Wheaton College', 'PAN006')
-            
-            data = np.array2string(stamp.data.flatten(), separator=',', max_line_width=1000).replace('[', '{').replace(']', '}')
-            bounds = '{' + '{0[0]}, {0[1]}, {1[0]}, {1[1]}'.format(*stamp.bbox_original) + '}'
-            
-            helpers.meta_insert('stamps', 
-                image_id=image_id,
-                pic_id=row['id'],
-                ra=row['ALPHA_J2000'],
-                dec=row['DELTA_J2000'],
-                date_obs=self.get_header_value(fits_idx, 'DATE-OBS').strip(),
-                original_position=bounds,
-                data=data
-            )
-            
-        with concurrent.futures.ThreadPoolExecutor(max_workers=50) as executor:
-            futures = [executor.submit( insert_stamp, fits_idx, row ) for fits_idx, row in product(np.arange(self.num_frames), self.point_sources.iterrows())]
-            for future in concurrent.futures.as_completed(futures):
-                print('.', end='')
-
-        #for star_row in tqdm_notebook(self.point_sources.iterrows(), total=len(self.point_sources)):
-            #for fits_idx in range(self.num_frames):
-                #try:
-                    #insert_stamp(fits_idx, star_row)
-                #except Exception as e:
-                    #print(e)
-                    #return
-                
-            #if str(int(star_row['id'])) not in self.stamps:
-                #try:
-                    #psc = [Cutout2D(self.data_cube[f], (self.pixel_locations[f, i, 0], self.pixel_locations[f, i, 1]), stamp_size, wcs=self.get_wcs(f)) for f in range(self.num_frames)]
-                    #
-                    #psc_data = np.array([s.data.flatten() for s in psc])
-                    #
-                    #if standardize:
-                        #mean, median, std = sigma_clipped_stats(psc_data, axis=0)
-                        #psc_data = (psc_data - mean) / std
+        for i, star_row in tqdm_notebook(self.point_sources.iterrows(), total=len(self.point_sources)):
+            if str(int(star_row['id'])) not in self.stamps:
+                try:
+                    # Build stamp cube from a cutout of each frame
+                    psc = [Cutout2D(self.data_cube[f], (self.pixel_locations[f, i, 0], self.pixel_locations[f, i, 1]), stamp_size, wcs=self.get_wcs(f)) for f in range(self.num_frames)]
+                    psc_data = np.array([s.data.flatten() for s in psc])
                     
-                    #dset = self.stamps.create_dataset(str(int(star_row['id'])), data=psc_data)
-                    #dset.attrs['ra'] = star_row['ALPHA_J2000']
-                    #dset.attrs['dec'] = star_row['DELTA_J2000']
+                    if standardize:
+                        mean, median, std = sigma_clipped_stats(psc_data, axis=0)
+                        psc_data = (psc_data - mean) / std
                     
-                    #if with_v:
-                        #normal_d = (psc.T / psc.sum(1)).T
-                        #dset.attrs['v_score'] = ((normal_d - base_stamp)**2).sum()
+                    dset = self.stamps.create_dataset(str(int(star_row['id'])), data=psc_data)
+                    dset.attrs['ra'] = star_row['ALPHA_J2000']
+                    dset.attrs['dec'] = star_row['DELTA_J2000']
+                    
+                    if with_v:
+                        normal_d = (psc.T / psc.sum(1)).T
+                        dset.attrs['v_score'] = ((normal_d - base_stamp)**2).sum()
 
-                #except Exception as e:
-                    #self.log("Problem creating stamp for {}: {}".format(star_row, e))
-                    #pass
+                except Exception as e:
+                    self.log("Problem creating stamp for {}: {}".format(star_row, e))
 
     def get_stamp_bounds(self, source, height=None, width=None, frame_slice=None, padding=0, **kwargs):
         if frame_slice is None:

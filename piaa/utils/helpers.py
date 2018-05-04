@@ -193,60 +193,6 @@ def get_header(blob):
         return headers
     i += 1
     
-def make_pretty_from_fits(header, data, figsize=(10, 8), dpi=150, alpha=0.2, pad=3.0, **kwargs):
-    wcs = WCS(header)
-    data = np.ma.array(data, mask=(data > 12000))
-    
-    title = kwargs.get('title', header.get('FIELD', 'Unknown'))
-    exp_time = header.get('EXPTIME', 'Unknown')
-
-    filter_type = header.get('FILTER', 'Unknown filter')
-    date_time = header.get('DATE-OBS', current_time(pretty=True)).replace('T', ' ', 1)
-
-    percent_value = kwargs.get('normalize_clip_percent', 99.9)
-
-    title = '{} ({}s {}) {}'.format(title, exp_time, filter_type, date_time)
-    norm = ImageNormalize(interval=PercentileInterval(percent_value), stretch=LogStretch())
-
-    plt.figure(figsize=figsize, dpi=dpi)
-
-    if wcs.is_celestial:
-        ax = plt.subplot(projection=wcs)
-        ax.coords.grid(True, color='white', ls='-', alpha=alpha)
-
-        ra_axis = ax.coords['ra']
-        dec_axis = ax.coords['dec']
-
-        ra_axis.set_axislabel('Right Ascension')
-        dec_axis.set_axislabel('Declination')
-
-        ra_axis.set_major_formatter('hh:mm')
-        dec_axis.set_major_formatter('dd:mm')
-
-        ra_axis.set_ticks(spacing=5 * u.arcmin, color='white', exclude_overlapping=True)
-        dec_axis.set_ticks(spacing=5 * u.arcmin, color='white', exclude_overlapping=True)
-
-        ra_axis.display_minor_ticks(True)
-        dec_axis.display_minor_ticks(True)
-
-        dec_axis.set_minor_frequency(10)
-    else:
-        ax = plt.subplot()
-        ax.grid(True, color='white', ls='-', alpha=alpha)
-
-        ax.set_xlabel('X / pixels')
-        ax.set_ylabel('Y / pixels')
-
-    ax.imshow(data, norm=norm, cmap=palette, origin='lower')
-
-    plt.tight_layout(pad=pad)
-    plt.title(title)
-
-    new_filename = 'pretty.png'
-    plt.savefig(new_filename)
-#     plt.show()
-
-    plt.close()    
     
 def get_rgb_masks(data):
   
@@ -363,7 +309,7 @@ def show_stamps(idx_list=None, pscs=None, frame_idx=0, stamp_size=11, aperture_s
         
     # Target
     ax1 = ax[0][0]
-    im = ax1.imshow(s0.reshape(stamp_size, stamp_size), origin='lower', cmap=palette, norm=ImageNormalize(stretch=stretch))
+    im = ax1.imshow(s0, origin='lower', cmap=palette, norm=ImageNormalize(stretch=stretch))
     aperture.plot(color='r', lw=4, ax=ax1)
     annulus.plot(color='c', lw=2, ls='--', ax=ax1)
     fig.colorbar(im, ax=ax1)
@@ -371,7 +317,7 @@ def show_stamps(idx_list=None, pscs=None, frame_idx=0, stamp_size=11, aperture_s
 
     # Normalized target
     ax2 = ax[1][0]
-    im = ax2.imshow(n0.reshape(stamp_size, stamp_size), origin='lower', cmap=palette, norm=ImageNormalize(stretch=stretch))
+    im = ax2.imshow(n0, origin='lower', cmap=palette, norm=ImageNormalize(stretch=stretch))
     aperture.plot(color='r', lw=4, ax=ax2)
     annulus.plot(color='c', lw=2, ls='--', ax=ax2)
     fig.colorbar(im, ax=ax2)
@@ -379,7 +325,7 @@ def show_stamps(idx_list=None, pscs=None, frame_idx=0, stamp_size=11, aperture_s
         
     # Comparison
     ax1 = ax[0][1]
-    im = ax1.imshow(s1.reshape(stamp_size, stamp_size), origin='lower', cmap=palette, norm=ImageNormalize(stretch=stretch))
+    im = ax1.imshow(s1, origin='lower', cmap=palette, norm=ImageNormalize(stretch=stretch))
     aperture.plot(color='r', lw=4, ax=ax1)
     annulus.plot(color='c', lw=2, ls='--', ax=ax1)
     fig.colorbar(im, ax=ax1)
@@ -387,7 +333,7 @@ def show_stamps(idx_list=None, pscs=None, frame_idx=0, stamp_size=11, aperture_s
 
     # Normalized comparison
     ax2 = ax[1][1]
-    im = ax2.imshow(n1.reshape(stamp_size, stamp_size), origin='lower', cmap=palette, norm=ImageNormalize(stretch=stretch))
+    im = ax2.imshow(n1, origin='lower', cmap=palette, norm=ImageNormalize(stretch=stretch))
     aperture.plot(color='r', lw=4, ax=ax2)
     annulus.plot(color='c', lw=2, ls='--', ax=ax2)
     fig.colorbar(im, ax=ax2)
@@ -397,7 +343,7 @@ def show_stamps(idx_list=None, pscs=None, frame_idx=0, stamp_size=11, aperture_s
 
         # Residual
         ax1 = ax[0][2]
-        im = ax1.imshow((s0 - s1).reshape(stamp_size, stamp_size), origin='lower', cmap=palette, norm=ImageNormalize(stretch=stretch))
+        im = ax1.imshow((s0 - s1), origin='lower', cmap=palette, norm=ImageNormalize(stretch=stretch))
         aperture.plot(color='r', lw=4, ax=ax1)
         annulus.plot(color='c', lw=2, ls='--', ax=ax1)
         fig.colorbar(im, ax=ax1)
@@ -405,7 +351,7 @@ def show_stamps(idx_list=None, pscs=None, frame_idx=0, stamp_size=11, aperture_s
 
         # Normalized residual
         ax2 = ax[1][2]
-        im = ax2.imshow((n0 - n1).reshape(stamp_size, stamp_size), origin='lower', cmap=palette)
+        im = ax2.imshow((n0 - n1), origin='lower', cmap=palette)
         aperture.plot(color='r', lw=4, ax=ax2)
         annulus.plot(color='c', lw=2, ls='--', ax=ax2)
         fig.colorbar(im, ax=ax2)
@@ -414,7 +360,7 @@ def show_stamps(idx_list=None, pscs=None, frame_idx=0, stamp_size=11, aperture_s
     fig.tight_layout()
 
 def normalize(cube):
-    return (cube.T / cube.sum(1)).T
+    return (cube.T / cube.sum(1).sum(1)).T
 
 def get_vary(d0, d1):
     return ((d0 - d1)**2).sum()

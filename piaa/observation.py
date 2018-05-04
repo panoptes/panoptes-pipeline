@@ -409,7 +409,7 @@ class Observation(object):
 
         return np.array(ref_frames)
 
-    def create_stamp_slices(self, frame_slice=None, stamp_size=7, with_v=False, standardize=False,
+    def create_stamp_slices(self, frame_slice=None, padding=3, with_v=False, standardize=False,
                             display_progress=False, *args, **kwargs):
         """Create subtracted stamps for entire data cube
 
@@ -433,29 +433,57 @@ class Observation(object):
             
         base_stamp = np.ones((49)) / 49
         
+        # Get midpoints of drift between stars. This will be the center of a stamp
+        x_max = self.pixel_locations[:, :, 1].max(1)
+        x_min = self.pixel_locations[:, :, 1].min(1)
+
+        y_max = self.pixel_locations[:, :, 0].max(1)
+        y_min = self.pixel_locations[:, :, 0].min(1)
+
+        x_mid = x_min + ((x_max - x_min) / 2)
+        y_mid = y_min + ((y_max - y_min) / 2)
+
+        self.point_sources['x_mid'] = x_mid
+        self.point_sources['y_mid'] = y_mid
+        
+        x_diff = int((((x_max - x_min).max()) + padding) / 2)
+        y_diff = int((((y_max - y_min).max()) + padding) / 2)
+        
+        print("Generating stamps {} x {}".format(x_diff * 2, y_diff * 2))
+        
         for i, star_row in tqdm_notebook(self.point_sources.iterrows(), total=len(self.point_sources)):
             if str(int(star_row['id'])) not in self.stamps:
                 try:
                     # Build stamp cube from a cutout of each frame
-                    psc = [Cutout2D(self.data_cube[f], (self.pixel_locations[f, i, 0], self.pixel_locations[f, i, 1]), stamp_size, wcs=self.get_wcs(f)) for f in range(self.num_frames)]
-                    psc_data = np.array([s.data.flatten() for s in psc])
+                    #stamp_bounds = self.get_stamp_bounds(i, height=stamp_size, width=stamp_size)
+                    row_slice = slice(int(star_row['x_mid'] - x_diff), int(star_row['x_mid'] + x_diff))
+                    col_slice = slice(int(star_row['y_mid'] - y_diff), int(star_row['y_mid'] + y_diff))
+                    psc_data = self.data_cube[frame_slice, row_slice, col_slice].reshape(self.num_frames, -1)
+                    
+                    psc_data[psc_data > 5e4] = 0
                     
                     if standardize:
                         mean, median, std = sigma_clipped_stats(psc_data, axis=0)
                         psc_data = (psc_data - mean) / std
                     
                     dset = self.stamps.create_dataset(str(int(star_row['id'])), data=psc_data)
-                    dset.attrs['ra'] = star_row['ALPHA_J2000']
-                    dset.attrs['dec'] = star_row['DELTA_J2000']
+                    try:
+                        dset.attrs['ra'] = star_row['ALPHA_J2000']
+                        dset.attrs['dec'] = star_row['DELTA_J2000']
+                    except KeyError:
+                        dset.attrs['ra'] = star_row['ra']
+                        dset.attrs['dec'] = star_row['dec']
                     
                     if with_v:
                         normal_d = (psc.T / psc.sum(1)).T
                         dset.attrs['v_score'] = ((normal_d - base_stamp)**2).sum()
 
                 except Exception as e:
-                    self.log("Problem creating stamp for {}: {}".format(star_row, e))
+                    self.log("Problem creating stamp for {}: {}".format(star_row['id'], e))
+                    self.log(row_slice)
+                    self.log(col_slice)
 
-    def get_stamp_bounds(self, source, height=None, width=None, frame_slice=None, padding=0, **kwargs):
+    def get_stamp_bounds(self, source, height=None, width=None, frame_slice=None, padding=3, **kwargs):
         if frame_slice is None:
             frame_slice = slice(0, self.num_frames)
 
@@ -480,20 +508,26 @@ class Observation(object):
             col_max = int(x_range.max()) + padding
             col_min = int(x_range.min()) - padding
         else:
-            col_max = int(x_range.max()) + padding
-            col_min = col_max - width
+            col_max = int(x_range.max())
+            col_min = int(x_range.min())
+            if (col_max + padding) - (col_min - padding) > width:
+                col_max += padding
+                col_min -= padding
 
         if height is None:
             row_max = int(y_range.max()) + padding
             row_min = int(y_range.min()) - padding
         else:
-            row_max = int(y_range.max()) + padding
-            row_min = row_max - height
+            row_max = int(y_range.max())
+            row_min = int(y_range.min())
+            if (row_max + padding) - (row_min - padding) > height:
+                row_max += padding
+                row_min -= padding
 
         return row_min, row_max, col_min, col_max
 
     def get_variance_for_target(self, target_index, frame_slice=None,
-                                display_progress=True, force_new=True, *args, **kwargs):
+                                display_progress=False, force_new=True, *args, **kwargs):
         """ Get all variances for given target
 
         Args:
@@ -503,7 +537,7 @@ class Observation(object):
         if frame_slice is None:
             frame_slice = slice(0, self.num_frames)
 
-        num_sources = self.num_point_sources
+        num_sources = len(list(self.stamps.keys()))
 
         # Assume no match
         data = np.ones((num_sources)) * 99.
@@ -738,6 +772,8 @@ class Observation(object):
             right = point_sources['X'] < h - stamp_size
 
             self._point_sources = point_sources[top & bottom & right & left].to_pandas()
+            ra_key = 'ALPHA_J2000'
+            dec_key = 'DELTA_J2000'
             
         if use_tess_catalog:
             wcs_footprint = self.wcs.calc_footprint()
@@ -754,10 +790,12 @@ class Observation(object):
             
             self._point_sources.add_index(['id'])
             self._point_sources = self._point_sources.to_pandas()
+            ra_key = 'ra'
+            dec_key = 'dec'
 
         
         # Do catalog matching
-        stars = SkyCoord(ra=self._point_sources['ALPHA_J2000'].values * u.deg, dec=self._point_sources['DELTA_J2000'].values * u.deg)
+        stars = SkyCoord(ra=self._point_sources[ra_key].values * u.deg, dec=self._point_sources[dec_key].values * u.deg)
         st0 = helpers.get_stars_from_footprint(self.wcs.calc_footprint(), cursor_only=False)
         catalog = SkyCoord(ra=st0['ra'] * u.deg, dec=st0['dec'] * u.deg)
         idx, d2d, d3d = match_coordinates_sky(stars, catalog)

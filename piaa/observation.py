@@ -409,7 +409,7 @@ class Observation(object):
 
         return np.array(ref_frames)
 
-    def create_stamp_slices(self, frame_slice=None, padding=3, with_v=False, standardize=False,
+    def create_stamp_slices(self, frame_slice=None, stamp_size=8, with_v=False, standardize=False,
                             display_progress=False, *args, **kwargs):
         """Create subtracted stamps for entire data cube
 
@@ -431,33 +431,15 @@ class Observation(object):
         if frame_slice is None:
             frame_slice = slice(0, self.num_frames)
             
-        base_stamp = np.ones((49)) / 49
-        
-        # Get midpoints of drift between stars. This will be the center of a stamp
-        x_max = self.pixel_locations[:, :, 1].max(1)
-        x_min = self.pixel_locations[:, :, 1].min(1)
-
-        y_max = self.pixel_locations[:, :, 0].max(1)
-        y_min = self.pixel_locations[:, :, 0].min(1)
-
-        x_mid = x_min + ((x_max - x_min) / 2)
-        y_mid = y_min + ((y_max - y_min) / 2)
-
-        self.point_sources['x_mid'] = x_mid
-        self.point_sources['y_mid'] = y_mid
-        
-        x_diff = int((((x_max - x_min).max()) + padding) / 2)
-        y_diff = int((((y_max - y_min).max()) + padding) / 2)
-        
-        print("Generating stamps {} x {}".format(x_diff * 2, y_diff * 2))
-        
+        half_size = int(stamp_size / 2)
+            
         for i, star_row in tqdm_notebook(self.point_sources.iterrows(), total=len(self.point_sources)):
             if str(int(star_row['id'])) not in self.stamps:
                 try:
                     # Build stamp cube from a cutout of each frame
                     #stamp_bounds = self.get_stamp_bounds(i, height=stamp_size, width=stamp_size)
-                    row_slice = slice(int(star_row['x_mid'] - x_diff), int(star_row['x_mid'] + x_diff))
-                    col_slice = slice(int(star_row['y_mid'] - y_diff), int(star_row['y_mid'] + y_diff))
+                    row_slice = slice(int(star_row['Y'] - half_size), int(star_row['Y'] + half_size))
+                    col_slice = slice(int(star_row['X'] - half_size), int(star_row['X'] + half_size))
                     psc_data = self.data_cube[frame_slice, row_slice, col_slice].reshape(self.num_frames, -1)
                     
                     psc_data[psc_data > 5e4] = 0

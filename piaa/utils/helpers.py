@@ -360,6 +360,7 @@ def show_stamps(idx_list=None, pscs=None, frame_idx=0, stamp_size=11, aperture_s
     fig.tight_layout()
 
 def normalize(cube):
+    cube_sum = cube.sum(1).sum(1)
     return (cube.T / cube.sum(1).sum(1)).T
 
 def get_vary(d0, d1):

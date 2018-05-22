@@ -466,3 +466,55 @@ def get_ideal_full_psc(stamp_collection, coeffs, **kwargs):
     created_frame = (refs.T * coeffs).sum(2).T
 
     return created_frame
+
+def pixel_color(x, y):
+    """ Given an x,y position, return the corresponding color 
+    
+    This is a Bayer array with a RGGB pattern in the lower left corner
+    as it is loaded into numpy.
+    
+    Note:
+              0  1  2  3
+             ------------
+          0 | G2 B  G2 B
+          1 | R  G1 R  G1
+          2 | G2 B  G2 B
+          3 | R  G1 R  G1
+          4 | G2 B  G2 B
+          5 | R  G1 R  G1
+      
+          R : even x, odd y
+          G1: odd x, odd y
+          G2: even x, even y
+          B : odd x, even y
+      
+    Returns:
+        str: one of 'R', 'G1', 'G2', 'B'
+    """
+    if x % 2 == 0:
+        if y % 2 == 0:
+            return 'G2'
+        else:
+            return 'R'
+    else:
+        if y % 2 == 0:
+            return 'B'
+        else:
+            return 'G1'
+
+def superpixel_position(x, y):
+    """ Given an x,y coordinate, return the x,y corresponding to the red superpixel position """
+    color = pixel_color(x, y)
+    if color == 'R':
+        return x, y
+    elif color == 'G1':
+        return x-1, y
+    elif color == 'G2':
+        return x, y+1
+    elif color == 'B':
+        return x-1, y+1
+
+def get_cutout_position(x, y):
+    """ Convenience function to nudge a superpixel position to correct cutout position """
+    super_x, super_y = superpixel_position(x, y)
+    return super_x - 0.5, super_y - 0.5

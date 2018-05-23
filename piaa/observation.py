@@ -409,8 +409,7 @@ class Observation(object):
 
         return np.array(ref_frames)
 
-    def create_stamp_slices(self, frame_slice=None, stamp_size=8, with_v=False, standardize=False,
-                            display_progress=False, *args, **kwargs):
+    def create_stamp_slices(self, frame_slice=None, stamp_size=(6, 6), *args, **kwargs):
         """Create subtracted stamps for entire data cube
 
         Creates a slice through the cube corresponding to a stamp and stores the
@@ -427,44 +426,31 @@ class Observation(object):
         """
 
         self.log("Starting stamp creation")
-
-        if frame_slice is None:
-            frame_slice = slice(0, self.num_frames)
             
-        half_size = int(stamp_size / 2)
-            
-        for i, star_row in tqdm_notebook(self.point_sources.iterrows(), total=len(self.point_sources)):
-            if str(int(star_row['id'])) not in self.stamps:
+        for star_row in tqdm_notebook(self.point_sources.itertuples(), total=len(self.point_sources)):
+            star_id = str(star_row.Index)
+            if star_id not in self.stamps:
+                target = SkyCoord(ra=star_row.ra * u.deg, dec=star_row.dec * u.deg)
+                
+                data = list()
+                for fn in tqdm_notebook(self.files, leave=False):
+                    with fits.open(fn) as hdu:
+                        wcs = WCS(hdu[0].header)
+                        d0 = hdu[0].data     
+                        star_pos = wcs.all_world2pix(target.ra, target.dec, 0)
+                        try:
+                            c0 = Cutout2D(d0, helpers.get_cutout_position(star_pos[0], star_pos[1]), stamp_size, wcs=wcs, mode='strict')
+                            data.append(c0.data)
+                        except (NoOverlapError, PartialOverlapError) as e:
+                            pass
+                    
+                dset = self.stamps.create_dataset(star_id, data=np.array(data))
                 try:
-                    # Build stamp cube from a cutout of each frame
-                    #stamp_bounds = self.get_stamp_bounds(i, height=stamp_size, width=stamp_size)
-                    row_slice = slice(int(star_row['Y'] - half_size), int(star_row['Y'] + half_size))
-                    col_slice = slice(int(star_row['X'] - half_size), int(star_row['X'] + half_size))
-                    psc_data = self.data_cube[frame_slice, row_slice, col_slice].reshape(self.num_frames, -1)
-                    
-                    psc_data[psc_data > 5e4] = 0
-                    
-                    if standardize:
-                        mean, median, std = sigma_clipped_stats(psc_data, axis=0)
-                        psc_data = (psc_data - mean) / std
-                    
-                    dset = self.stamps.create_dataset(str(int(star_row['id'])), data=psc_data)
-                    try:
-                        dset.attrs['ra'] = star_row['ALPHA_J2000']
-                        dset.attrs['dec'] = star_row['DELTA_J2000']
-                    except KeyError:
-                        dset.attrs['ra'] = star_row['ra']
-                        dset.attrs['dec'] = star_row['dec']
-                    
-                    if with_v:
-                        normal_d = (psc.T / psc.sum(1)).T
-                        dset.attrs['v_score'] = ((normal_d - base_stamp)**2).sum()
-
-                except Exception as e:
-                    self.log("Problem creating stamp for {}: {}".format(star_row['id'], e))
-                    self.log(row_slice)
-                    self.log(col_slice)
-
+                    dset.attrs['ra'] = star_row.ra
+                    dset.attrs['dec'] = star_row.dec
+                except Exception:
+                    pass
+                        
                     
     def create_stamp_slices_sql(self, frame_slice=None, stamp_size=8, with_v=False, standardize=False,
                             display_progress=False, *args, **kwargs):
@@ -855,6 +841,7 @@ class Observation(object):
         idx, d2d, d3d = match_coordinates_sky(stars, catalog)
 
         self._point_sources['id'] = st0[idx]['id']
+        self._point_sources.set_index('id', inplace=True)
 
     def plot_stamp(self, source_index, frame_index, show_data=False, aperture_size=4, *args, **kwargs):
 

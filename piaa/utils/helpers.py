@@ -491,6 +491,8 @@ def pixel_color(x, y):
     Returns:
         str: one of 'R', 'G1', 'G2', 'B'
     """
+    x = int(x)
+    y = int(y)
     if x % 2 == 0:
         if y % 2 == 0:
             return 'G2'
@@ -504,6 +506,8 @@ def pixel_color(x, y):
 
 def superpixel_position(x, y):
     """ Given an x,y coordinate, return the x,y corresponding to the red superpixel position """
+    x = int(x)
+    y = int(y)
     color = pixel_color(x, y)
     if color == 'R':
         return x, y
@@ -517,4 +521,49 @@ def superpixel_position(x, y):
 def get_cutout_position(x, y):
     """ Convenience function to nudge a superpixel position to correct cutout position """
     super_x, super_y = superpixel_position(x, y)
-    return super_x - 0.5, super_y - 0.5
+    return super_x, super_y
+
+def get_stamp_slice(x, y, size=(6, 6), verbose=False):
+    width = size[0]
+    height = size[1]
+    
+    for m in size:
+        m -= 2 # Subtract center superpixel
+        if int(m / 2) % 2 != 0:
+            print("Invalid size: ", m + 2)
+            return
+    
+    print(size)
+    
+    x = Decimal(float(x)).to_integral()
+    y = Decimal(float(y)).to_integral()
+    color = helpers.pixel_color(x, y)
+    if verbose:
+        print(x, y, color)
+        
+    x_half = int(size[0] / 2)
+    y_half = int(size[1] / 2)
+        
+    x_min = int(x - x_half)
+    x_max = int(x + x_half)
+    
+    y_min = int(y - y_half)
+    y_max = int(y + y_half)
+    
+    if color == 'B':
+        y_min -= 1
+        y_max -= 1
+    elif color == 'G2':
+        x_min -= 1
+        x_max -= 1
+        y_min -= 1
+        y_max -= 1
+    elif color == 'R':
+        x_min -= 1
+        x_max -= 1
+    
+    if verbose:
+        print(x_min, x_max, y_min, y_max)
+        
+    return [slice(y_min, y_max), slice(x_min, x_max)]
+        

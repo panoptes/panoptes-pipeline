@@ -76,3 +76,4 @@ notebooks/*
 
 .idea
 *.patch
+rgb_masks.npz

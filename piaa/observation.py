@@ -144,31 +144,6 @@ class Observation(object):
         return self._total_integration_time
 
     @property
-    def pixel_locations(self):
-        if self._pixel_locations is None:
-            # Get RA/Dec coordinates from first frame
-            try:
-                ra = self.point_sources['ALPHA_J2000']
-                dec = self.point_sources['DELTA_J2000']
-            except KeyError:
-                ra = self.point_sources['ra']
-                dec = self.point_sources['dec']
-
-            locs = list()
-
-            for f in self.files:
-                wcs = WCS(f)
-                xy = np.array(wcs.all_world2pix(ra, dec, 0, ra_dec_order=True))
-
-                # Transpose
-                locs.append(xy.T)
-
-            locs = np.array(locs)
-            self._pixel_locations = pd.Panel(locs)
-
-        return self._pixel_locations
-
-    @property
     def wcs(self):
         if self._wcs is None:
             self._wcs = WCS(self.files[0])
@@ -223,7 +198,7 @@ class Observation(object):
                 and the NxM is the full frame size
         """
         if self._rgb_masks is None:
-            rgb_mask_file = '{}/rgb_masks.numpy'.format(os.getenv('PANDIR'))
+            rgb_mask_file = '{}/rgb_masks.npz'.format(os.getenv('PANDIR'))
             try:
                 self._rgb_masks = np.load(rgb_mask_file)
             except FileNotFoundError:
@@ -372,7 +347,7 @@ class Observation(object):
         else:
             return background_data
 
-    def get_psc(self, source, frame_slice=None):
+    def get_psc(self, source):
         try:
             psc = np.array(self.stamps[source])
         except KeyError:
@@ -380,21 +355,7 @@ class Observation(object):
 
         return psc
 
-    def get_ideal_psc(self, stamp_collection, coeffs, get_psc):
-        num_frames = target_psc.data.shape[0]
-        stamp_h = target_psc.data.shape[1]
-        stamp_w = target_psc.data.shape[2]
-
-        ref_frames = []
-
-        for frame_index in range(num_frames):
-            refs_frame = stamp_collection[1:, frame_index]
-            ref_frame = (refs_frame.T * coeffs[frame_index]).T.sum(0).reshape(stamp_h, stamp_w)
-            ref_frames.append(ref_frame)
-
-        return np.array(ref_frames)
-
-    def create_stamp_slices(self, frame_slice=None, stamp_size=(6, 6), *args, **kwargs):
+    def create_stamp_slices(self, stamp_size=(6, 6), *args, **kwargs):
         """Create subtracted stamps for entire data cube
 
         Creates a slice through the cube corresponding to a stamp and stores the
@@ -417,7 +378,7 @@ class Observation(object):
         for i, fn in tqdm_notebook(enumerate(self.files), total=self.num_frames):
             with fits.open(fn) as hdu:
                 wcs = WCS(hdu[0].header)
-                d0 = hdu[0].data     
+                d0 = hdu[0].data - self.camera_bias
                 
             for star_row in tqdm_notebook(self.point_sources.itertuples(), total=len(self.point_sources), leave=False):
                 star_id = str(star_row.Index)
@@ -439,134 +400,16 @@ class Observation(object):
                         errors[str(e)] = True
             
             
-    def create_stamp_slices_sql(self, frame_slice=None, stamp_size=8, with_v=False, standardize=False,
-                            display_progress=False, *args, **kwargs):
-        """Create subtracted stamps for entire data cube and insert into CloudSQL """
-
-        self.log("Starting stamp creation and DB insert")
-
-        if frame_slice is None:
-            frame_slice = slice(0, self.num_frames)
-            
-        half_size = int(stamp_size / 2)
-                    
-        def insert_stamp(fits_idx, row_full, image_id):
-            row_idx, row = row_full
-            
-            position = self.pixel_locations[fits_idx, row_idx]
-            
-            stamp = Cutout2D(self.data_cube[fits_idx], helpers.get_cutout_position(position), stamp_size, self.get_wcs(fits_idx))
-            
-            data = np.array2string(stamp.data.flatten(), separator=',', max_line_width=1000).replace('[', '{').replace(']', '}')
-            bounds = '{' + '{0[0]}, {0[1]}, {1[0]}, {1[1]}'.format(*stamp.bbox_original) + '}'
-
-            helpers.meta_insert('stamps', 
-                image_id=image_id,
-                pic_id=row['id'],
-                ra=row['ALPHA_J2000'],
-                dec=row['DELTA_J2000'],
-                date_obs=self.get_header_value(fits_idx, 'DATE-OBS').strip(),
-                original_position=bounds,
-                data=data
-            )
-            
-        for fits_idx in range(self.num_frames):
-            print('Frame', fits_idx)
-            i = 0
-            image_id = self.get_header_value(fits_idx, 'IMAGEID').strip().replace('Panoptes Unit PAN006 @ Wheaton College', 'PAN006')
-            with concurrent.futures.ThreadPoolExecutor(max_workers=50) as executor:
-                futures = [executor.submit( insert_stamp, fits_idx, row, image_id ) for row in self.point_sources.iterrows()]
-                for future in concurrent.futures.as_completed(futures):
-                    i += 1
-                    if i % 100 == 0: 
-                        print('.', end='')
-                
-        #for star_row in tqdm_notebook(self.point_sources.iterrows(), total=len(self.point_sources)):
-        #    for fits_idx in range(self.num_frames):
-        #        try:
-        #            insert_stamp(fits_idx, star_row)
-        #        except Exception as e:
-        #            #print(e)
-        #            continue
-                
-        #    if str(int(star_row['id'])) not in self.stamps:
-        #        try:
-        #            psc = [Cutout2D(self.data_cube[f], (self.pixel_locations[f, i, 0], self.pixel_locations[f, i, 1]), stamp_size, wcs=self.get_wcs(f)) for f in range(self.num_frames)]
-        #            
-        #            psc_data = np.array([s.data.flatten() for s in psc])
-        #            
-        #            if standardize:
-        #                mean, median, std = sigma_clipped_stats(psc_data, axis=0)
-        #                psc_data = (psc_data - mean) / std
-#
-        #            dset = self.stamps.create_dataset(str(int(star_row['id'])), data=psc_data)
-        #            dset.attrs['ra'] = star_row['ALPHA_J2000']
-        #            dset.attrs['dec'] = star_row['DELTA_J2000']
-        #            if with_v:
-        #                normal_d = (psc.T / psc.sum(1)).T
-        #                dset.attrs['v_score'] = ((normal_d - base_stamp)**2).sum()
-        #        except Exception as e:
-        #            self.log("Problem creating stamp for {}: {}".format(star_row, e))
-        #            pass
-                
-                    
-    def get_stamp_bounds(self, source, height=None, width=None, frame_slice=None, padding=3, **kwargs):
-        if frame_slice is None:
-            frame_slice = slice(0, self.num_frames)
-
-        if isinstance(source, int):
-            x_range = self.pixel_locations[:, source, 0]
-            y_range = self.pixel_locations[:, source, 1]
-        elif isinstance(source, SkyCoord):
-            x = []
-            y = []
-            for f in self.files[frame_slice]:
-                wcs = WCS(f)
-                x0, y0 = wcs.all_world2pix(source.ra, source.dec, 0)
-                x.append(x0)
-                y.append(y0)
-
-            x_range = np.array(x)
-            y_range = np.array(y)
-        else:
-            warn("Source must be index or SkyCoord: {}".format(source))
-
-        if width is None:
-            col_max = int(x_range.max()) + padding
-            col_min = int(x_range.min()) - padding
-        else:
-            col_max = int(x_range.max())
-            col_min = int(x_range.min())
-            if (col_max + padding) - (col_min - padding) > width:
-                col_max += padding
-                col_min -= padding
-
-        if height is None:
-            row_max = int(y_range.max()) + padding
-            row_min = int(y_range.min()) - padding
-        else:
-            row_max = int(y_range.max())
-            row_min = int(y_range.min())
-            if (row_max + padding) - (row_min - padding) > height:
-                row_max += padding
-                row_min -= padding
-
-        return row_min, row_max, col_min, col_max
-
-    def get_variance_for_target(self, target_index, frame_slice=None,
-                                display_progress=False, force_new=True, *args, **kwargs):
+    def get_variance_for_target(self, target_index, display_progress=False, force_new=True, *args, **kwargs):
         """ Get all variances for given target
 
         Args:
             stamps(np.array): Collection of stamps with axes: frame, PIC, pixels
             i(int): Index of target PIC
         """
-        if frame_slice is None:
-            frame_slice = slice(0, self.num_frames)
-
         num_sources = len(list(self.stamps.keys()))
 
-        # Assume no match
+        # Assume no match, i.e. high (99) value
         data = np.ones((num_sources)) * 99.
 
         if force_new:
@@ -580,13 +423,13 @@ class Observation(object):
         except KeyError:
             vgrid_dset = self.hdf5_stamps.create_dataset('vgrid', data=data)
 
-        psc0 = self.get_psc(target_index, frame_slice=frame_slice)
+        psc0 = self.get_psc(target_index)
         num_frames = psc0.shape[0]
 
         # Normalize
         self.log("Normalizing target for {} frames".format(num_frames))
         frames = []
-        normalized_psc0 = np.zeros_like(psc0)
+        normalized_psc0 = np.zeros_like(psc0, dtype='f8')
         for frame_index in range(num_frames):
             try:
                 if psc0[frame_index].sum() > 0.:
@@ -594,7 +437,7 @@ class Observation(object):
                     frames.append(frame_index)
             except RuntimeWarning:
                 warn("Skipping frame {}".format(frame_index))
-
+                
         if display_progress:
             iterator = ProgressBar(range(num_sources), ipython_widget=kwargs.get('ipython_widget', False))
         else:
@@ -602,15 +445,16 @@ class Observation(object):
 
         for i, source_index in enumerate(iterator):
             try:
-                psc1 = self.get_psc(source_index, frame_slice=frame_slice)
+                psc1 = self.get_psc(source_index)
             except Exception:
                 continue
 
-            normalized_psc1 = np.zeros_like(psc1)
+            normalized_psc1 = np.zeros_like(psc1, dtype='f8')
 
             # Normalize
             for frame_index in frames:
-                normalized_psc1[frame_index] = psc1[frame_index] / psc1[frame_index].sum()
+                if psc1[frame_index].sum() > 0.:
+                    normalized_psc1[frame_index] = psc1[frame_index] / psc1[frame_index].sum()
 
             # Store in the grid
             try:
@@ -622,72 +466,24 @@ class Observation(object):
                 
         return data
 
-    def get_stamp_collection(self, frame_slice=None, num_refs=25):
-        if frame_slice is None:
-            frame_slice = slice(0, self.num_frames)
+    def get_stamp_collection(self, num_refs=25):
 
         vary = self.hdf5_stamps['vgrid']
 
         vary_series = pd.Series(vary)
         vary_series.sort_values(inplace=True)
 
-        target_psc = self.get_psc(self.target_slice, frame_slice=frame_slice)
+        target_psc = self.get_psc(self.target_slice)
 
         num_frames = target_psc.data.shape[0]
         stamp_h = target_psc.data.shape[1]
         stamp_w = target_psc.data.shape[2]
 
-        stamp_collection = np.array([self.get_psc(int(idx), frame_slice=frame_slice).data for
+        stamp_collection = np.array([self.get_psc(int(idx)).data for
                                      idx in vary_series.index[0:num_refs]])
 
         return stamp_collection.reshape(num_refs, num_frames, stamp_h * stamp_w)
 
-    def get_ideal_coeffs(self, stamp_collection, func=None, display_progress=False, **kwargs):
-        coeffs = []
-
-        def minimize_func(refs_coeffs, refs_all_but_frame, target_all_but_frame):
-            measured = (refs_coeffs * refs_all_but_frame.T).T.sum(0)
-            model = target_all_but_frame
-
-            res = ((model - measured)**2).sum()
-
-            return res
-
-        num_frames = stamp_collection.shape[1]
-
-        if display_progress:
-            iterator = ProgressBar(range(num_frames), ipython_widget=kwargs.get('ipython_widget', False))
-        else:
-            iterator = range(num_frames)
-
-        if func is None:
-            func = minimize_func
-
-        for frame_index in iterator:
-
-            target_frame = stamp_collection[0, frame_index]
-            target_all_but_frame = np.delete(stamp_collection[0], frame_index, 0)
-
-            refs_frame = stamp_collection[1:, frame_index]
-            refs_all_but_frame = np.delete(stamp_collection[1:], frame_index, 1)
-
-            try:
-                refs_coeffs = coeffs[-1]
-            except IndexError:
-                refs_coeffs = np.ones(len(refs_all_but_frame))
-
-            if self.verbose and frame_index == 0:
-                print("Target frame shape: {}".format(target_frame.shape))
-                print("Target other shape: {}".format(target_all_but_frame.shape))
-                print("Refs shape: {}".format(refs_frame.shape))
-                print("Refs other shape: {}".format(refs_all_but_frame.shape))
-                print("Source coeffs shape: {}".format(refs_coeffs.shape))
-
-            res = minimize(func, refs_coeffs, args=(refs_all_but_frame, target_all_but_frame))
-
-            coeffs.append(res.x)
-
-        return np.array(coeffs)
 
     def get_stamp_mask(self, source_index, **kwargs):
         r_min, r_max, c_min, c_max = self.get_stamp_bounds(source_index, **kwargs)

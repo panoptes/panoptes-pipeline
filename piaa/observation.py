@@ -426,7 +426,7 @@ class Observation(object):
         """
 
         self.log("Starting stamp creation")
-            
+        
         for star_row in tqdm_notebook(self.point_sources.itertuples(), total=len(self.point_sources)):
             star_id = str(star_row.Index)
             if star_id not in self.stamps:
@@ -439,9 +439,10 @@ class Observation(object):
                         d0 = hdu[0].data     
                         star_pos = wcs.all_world2pix(target.ra, target.dec, 0)
                         try:
-                            c0 = Cutout2D(d0, helpers.get_cutout_position(star_pos[0], star_pos[1]), stamp_size, wcs=wcs, mode='strict')
-                            data.append(c0.data)
-                        except (NoOverlapError, PartialOverlapError) as e:
+                            slice0 = helpers.get_stamp_slice(star_pos[0], star_pos[1])
+                            c0 = d0[slice0]
+                            data.append(c0)
+                        except Exception:
                             pass
                     
                 dset = self.stamps.create_dataset(star_id, data=np.array(data))

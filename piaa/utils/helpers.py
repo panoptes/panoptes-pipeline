@@ -533,8 +533,6 @@ def get_stamp_slice(x, y, size=(6, 6), verbose=False):
             print("Invalid size: ", m + 2)
             return
     
-    print(size)
-    
     x = Decimal(float(x)).to_integral()
     y = Decimal(float(y)).to_integral()
     color = helpers.pixel_color(x, y)

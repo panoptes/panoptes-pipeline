@@ -22,6 +22,10 @@ import numpy as np
 import numpy.ma as ma
 
 from matplotlib import pyplot as plt
+import matplotlib.animation as animation
+from matplotlib import rc
+rc('animation', html='html5') 
+
 plt.style.use('bmh')
 
 from astropy.io import fits
@@ -46,6 +50,7 @@ from astropy.visualization import (PercentileInterval, LogStretch, ImageNormaliz
 from pocs.utils.images import fits_utils
 from pocs.utils import current_time
 
+from decimal import Decimal
 from copy import copy
 
 palette = copy(plt.cm.inferno)
@@ -535,7 +540,7 @@ def get_stamp_slice(x, y, size=(6, 6), verbose=False):
     
     x = Decimal(float(x)).to_integral()
     y = Decimal(float(y)).to_integral()
-    color = helpers.pixel_color(x, y)
+    color = pixel_color(x, y)
     if verbose:
         print(x, y, color)
         
@@ -565,3 +570,22 @@ def get_stamp_slice(x, y, size=(6, 6), verbose=False):
         
     return [slice(y_min, y_max), slice(x_min, x_max)]
         
+def animate_stamp(d0):
+
+    fig, ax = plt.subplots()
+
+    line = ax.imshow(d0[0])
+
+    def animate(i):
+        line.set_data(d0[i])  # update the data
+        return line,
+
+    # Init only required for blitting to give a clean slate.
+    def init():
+        line.set_data(d0[0])
+        return line,
+
+    ani = animation.FuncAnimation(fig, animate, np.arange(0, len(d0)), init_func=init,
+                                  interval=500, blit=True)
+    
+    return ani

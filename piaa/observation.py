@@ -374,22 +374,7 @@ class Observation(object):
 
     def get_psc(self, source, frame_slice=None):
         try:
-            return np.array(self.stamps[source])
-        
-            if isinstance(source, int):
-                source = self.stamps[source]
-
-            if frame_slice is None:
-                frame_slice = slice(0, self.num_frames)
-
-            data = self.data_cube[frame_slice, slice(source[1], source[2]), slice(source[3], source[4])]
-            masks = self.rgb_masks[:, source[1], source[2]]
-            
-            # Mask obviously bad values
-            data[data > 5e4] = 0
-            
-            psc = PSC(data=data, mask=masks)
-
+            psc = np.array(self.stamps[source])
         except KeyError:
             raise Exception("You must run create_stamps first")
 
@@ -427,32 +412,33 @@ class Observation(object):
 
         self.log("Starting stamp creation")
         
-        for star_row in tqdm_notebook(self.point_sources.itertuples(), total=len(self.point_sources)):
-            star_id = str(star_row.Index)
-            if star_id not in self.stamps:
-                target = SkyCoord(ra=star_row.ra * u.deg, dec=star_row.dec * u.deg)
+        errors = dict()
+        
+        for i, fn in tqdm_notebook(enumerate(self.files), total=self.num_frames):
+            with fits.open(fn) as hdu:
+                wcs = WCS(hdu[0].header)
+                d0 = hdu[0].data     
                 
-                data = list()
-                for fn in tqdm_notebook(self.files, leave=False):
-                    with fits.open(fn) as hdu:
-                        wcs = WCS(hdu[0].header)
-                        d0 = hdu[0].data     
-                        star_pos = wcs.all_world2pix(target.ra, target.dec, 0)
-                        try:
-                            slice0 = helpers.get_stamp_slice(star_pos[0], star_pos[1])
-                            c0 = d0[slice0]
-                            data.append(c0)
-                        except Exception:
-                            pass
-                    
-                dset = self.stamps.create_dataset(star_id, data=np.array(data))
+            for star_row in tqdm_notebook(self.point_sources.itertuples(), total=len(self.point_sources), leave=False):
+                star_id = str(star_row.Index)
+                star_pos = wcs.all_world2pix(star_row.ra, star_row.dec, 0)
+                
                 try:
+                    dset = self.stamps[star_id]
+                except KeyError:
+                    dset = self.stamps.create_dataset(star_id, (self.num_frames, stamp_size[0]*stamp_size[1]), dtype='i8', chunks=True)
+                
+                try:
+                    slice0 = helpers.get_stamp_slice(star_pos[0], star_pos[1])
+                    dset[i] = d0[slice0].flatten()
                     dset.attrs['ra'] = star_row.ra
                     dset.attrs['dec'] = star_row.dec
-                except Exception:
-                    pass
-                        
-                    
+                except Exception as e:
+                    if str(e) not in errors:
+                        print(e)
+                        errors[str(e)] = True
+            
+            
     def create_stamp_slices_sql(self, frame_slice=None, stamp_size=8, with_v=False, standardize=False,
                             display_progress=False, *args, **kwargs):
         """Create subtracted stamps for entire data cube and insert into CloudSQL """

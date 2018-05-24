@@ -390,7 +390,7 @@ class Observation(object):
                     dset = self.stamps.create_dataset(star_id, (self.num_frames, stamp_size[0]*stamp_size[1]), dtype='i8', chunks=True)
                 
                 try:
-                    slice0 = helpers.get_stamp_slice(star_pos[0], star_pos[1])
+                    slice0 = helpers.get_stamp_slice(star_pos[0], star_pos[1], stamp_size=stamp_size)
                     dset[i] = d0[slice0].flatten()
                     dset.attrs['ra'] = star_row.ra
                     dset.attrs['dec'] = star_row.dec
@@ -400,7 +400,7 @@ class Observation(object):
                         errors[str(e)] = True
             
             
-    def get_variance_for_target(self, target_index, display_progress=False, force_new=True, *args, **kwargs):
+    def find_similar_stars(self, target_index, display_progress=False, force_new=True, *args, **kwargs):
         """ Get all variances for given target
 
         Args:
@@ -438,10 +438,9 @@ class Observation(object):
             except RuntimeWarning:
                 warn("Skipping frame {}".format(frame_index))
                 
+        iterator = list(self.stamps.keys())
         if display_progress:
-            iterator = ProgressBar(range(num_sources), ipython_widget=kwargs.get('ipython_widget', False))
-        else:
-            iterator = list(self.stamps.keys())
+            iterator = ProgressBar(iterator, ipython_widget=kwargs.get('ipython_widget', False))
 
         for i, source_index in enumerate(iterator):
             try:

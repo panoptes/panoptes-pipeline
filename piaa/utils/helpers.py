@@ -299,7 +299,7 @@ def show_stamps(idx_list=None, pscs=None, frame_idx=0, stamp_size=11, aperture_s
     fig.set_figheight(6)
     fig.set_figwidth(12)
 
-    norm = [normalize(p) for p in pscs]
+    norm = [normalize(p.reshape(p.shape[0], -1)).reshape(p.shape) for p in pscs]
 
     s0 = pscs[0][frame_idx]
     n0 = norm[0][frame_idx]
@@ -364,9 +364,9 @@ def show_stamps(idx_list=None, pscs=None, frame_idx=0, stamp_size=11, aperture_s
         
     fig.tight_layout()
 
+# Helper function to normalize a stamp
 def normalize(cube):
-    cube_sum = cube.sum(1).sum(1)
-    return (cube.T / cube.sum(1).sum(1)).T
+    return (cube.T / cube.sum(1)).T
 
 def get_vary(d0, d1):
     return ((d0 - d1)**2).sum()
@@ -528,11 +528,11 @@ def get_cutout_position(x, y):
     super_x, super_y = superpixel_position(x, y)
     return super_x, super_y
 
-def get_stamp_slice(x, y, size=(6, 6), verbose=False):
-    width = size[0]
-    height = size[1]
+def get_stamp_slice(x, y, stamp_size=(6, 6), verbose=False):
+    width = stamp_size[0]
+    height = stamp_size[1]
     
-    for m in size:
+    for m in stamp_size:
         m -= 2 # Subtract center superpixel
         if int(m / 2) % 2 != 0:
             print("Invalid size: ", m + 2)
@@ -544,8 +544,8 @@ def get_stamp_slice(x, y, size=(6, 6), verbose=False):
     if verbose:
         print(x, y, color)
         
-    x_half = int(size[0] / 2)
-    y_half = int(size[1] / 2)
+    x_half = int(stamp_size[0] / 2)
+    y_half = int(stamp_size[1] / 2)
         
     x_min = int(x - x_half)
     x_max = int(x + x_half)

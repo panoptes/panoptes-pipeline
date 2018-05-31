@@ -20,12 +20,15 @@ from astropy.nddata import Cutout2D, NoOverlapError, PartialOverlapError
 from astropy import units as u
 from astropy.coordinates import SkyCoord, match_coordinates_sky
 from astropy.stats import sigma_clipped_stats
+from astropy.time import Time
 
 from photutils import Background2D
 from photutils import MedianBackground
 from photutils import RectangularAperture
 from photutils import aperture_photometry
 from photutils import find_peaks
+
+from dateutil.parser import parse as date_parse
 
 from tqdm import tqdm_notebook
 
@@ -42,7 +45,7 @@ from matplotlib import pyplot as plt
 from . import utils
 
 from piaa.utils import helpers
-
+from piaa import exoplanets
 
 PSC = namedtuple('PSC', ['data', 'mask'])
 
@@ -61,6 +64,11 @@ class Observation(object):
         if image_dir.endswith('/'):
             image_dir = image_dir[:-1]
         self._image_dir = image_dir
+        
+        _, _, _, _, _, unit_id, field, cam_id, seq_id = self.image_dir.split('/')
+        self.seq_id = seq_id
+        self.field = field
+        self.unit_id = unit_id
 
         self.log('*' * 80)
         self.log('Setting up Observation for analysis')
@@ -84,9 +92,13 @@ class Observation(object):
         self._point_sources = None
         self._pixel_locations = None
 
+        self._image_times = None
         self._total_integration_time = None
 
+        self._planet = None
         self._wcs = None
+        
+        self._transit_info = None
 
         self._rgb_masks = None
 
@@ -97,10 +109,19 @@ class Observation(object):
         self._hdf5_stamps = None
         self.target_slice = None
 
+        self._num_frames = 0
         self._load_images()
 
         if build_data_cube:
             assert self.data_cube is not None
+
+    @property
+    def planet(self):
+        if self._planet is None:
+            # Holds some properties about the planet
+            self._planet = exoplanets.Exoplanet(self.field)
+        
+        return self._planet
 
     @property
     def hdf5(self):
@@ -136,6 +157,35 @@ class Observation(object):
         return self._image_dir
 
     @property
+    def image_times(self):
+        if self._image_times is None:
+            image_times = dict()
+
+            for fn in self.files:
+                # Get information about each image
+                try:
+                    _, _, _, _, _, unit_id, field, cam_id, seq_id, img_id = fn.split('/')
+                except ValueError as e:
+                    self.log(e)
+                    continue 
+
+                # Get the time from the image
+                img_id = img_id.split('.')[0]
+                try:
+                    t0 = Time(date_parse(img_id), format='datetime')
+                except Exception as e:
+                    self.log(e)
+                    continue
+
+                p = self.planet.get_phase(t0)
+
+                image_times[img_id] = p
+                
+            self._image_times = image_times
+
+        return self._image_times
+
+    @property
     def total_integration_time(self):
         if self._total_integration_time is None:
             self._total_integration_time = np.array(
@@ -146,13 +196,20 @@ class Observation(object):
     @property
     def wcs(self):
         if self._wcs is None:
-            self._wcs = WCS(self.files[0])
+            try:
+                self._wcs = WCS(self.files[0])
+            except IndexError:
+                self._wcs = WCS(self.files[0], axis=1)
 
         return self._wcs
 
     @property
     def num_frames(self):
-        return len(self.files)
+        return self._num_frames
+    
+    @num_frames.setter
+    def num_frames(self, num):
+        self._num_frames = num
 
     @property
     def num_point_sources(self):
@@ -165,12 +222,15 @@ class Observation(object):
         except KeyError:
             if self.verbose:
                 self.log("Creating data cube", end='')
-            cube_dset = self.hdf5.create_dataset('cube', (len(self.files), self._img_h, self._img_w))
+            cube_dset = self.hdf5.create_dataset('cube', (len(self.files), self._img_h, self._img_w), 'i2')
             for i, f in enumerate(self.files):
                 if self.verbose and i % 10 == 0:
                     self.log('.', end='')
 
-                cube_dset[i] = fits.getdata(f) - self.camera_bias
+                hdu_axis = 0
+                if f.endswith('.fz'):
+                    hdu_axis = 1
+                cube_dset[i] = fits.getdata(f, hdu_axis) - self.camera_bias
 
             self.log('Done')
 
@@ -207,6 +267,39 @@ class Observation(object):
                 self._rgb_masks.dump(rgb_mask_file)
 
         return self._rgb_masks
+    
+    @property
+    def transit_info(self):
+        if self._transit_info is None:
+            for fn in self.files:
+                # Get information about each image
+                try:
+                    _, _, _, _, _, unit_id, field, cam_id, seq_id, img_id = fn.split('/')
+                except ValueError as e:
+                    self.log(e)
+                    continue 
+
+                # Get the time from the image
+                img_id = img_id.split('.')[0]
+                try:
+                    t0 = Time(date_parse(img_id), format='datetime')
+                except Exception as e:
+                    self.log(e)
+                    continue
+
+                # Determine if in transit
+                try:
+                    in_t = self.planet.in_transit(t0, with_times=True)
+                except Exception as e:
+                    self.log(e)     
+                    continue    
+
+                if in_t[0]:
+                    self._transit_info = in_t[1]
+                    break
+                    
+        return self._transit_info
+                    
 
     def log(self, msg, **kwargs):
         if self.verbose:
@@ -217,8 +310,12 @@ class Observation(object):
                 
     def get_wcs(self, frame):
         fn = self.files[frame]
+        
+        hdu_axis = 0
+        if fn.endswith('.fz'):
+            hdu_axis = 1
             
-        return WCS(fn)
+        return WCS(fn, axis=hdu_axis)
 
     def get_header_value(self, frame_index, header):
         return fits.getval(self.files[frame_index], header)
@@ -347,11 +444,17 @@ class Observation(object):
         else:
             return background_data
 
-    def get_psc(self, source):
+    def get_psc(self, source, frame_slice=None, remove_bias=False):
         try:
             psc = np.array(self.stamps[source])
         except KeyError:
             raise Exception("You must run create_stamps first")
+            
+        if frame_slice is not None:
+            psc = psc[frame_slice]
+            
+        if remove_bias:
+            psc -= self.camera_bias
 
         return psc
 
@@ -377,8 +480,12 @@ class Observation(object):
         
         for i, fn in tqdm_notebook(enumerate(self.files), total=self.num_frames):
             with fits.open(fn) as hdu:
-                wcs = WCS(hdu[0].header)
-                d0 = hdu[0].data - self.camera_bias
+                hdu_idx = 0
+                if fn.endswith('.fz'):
+                    hdu_idx = 1
+                    
+                wcs = WCS(hdu[hdu_idx].header)
+                d0 = hdu[hdu_idx].data
                 
             for star_row in tqdm_notebook(self.point_sources.itertuples(), total=len(self.point_sources), leave=False):
                 star_id = str(star_row.Index)
@@ -387,7 +494,7 @@ class Observation(object):
                 try:
                     dset = self.stamps[star_id]
                 except KeyError:
-                    dset = self.stamps.create_dataset(star_id, (self.num_frames, stamp_size[0]*stamp_size[1]), dtype='i8', chunks=True)
+                    dset = self.stamps.create_dataset(star_id, (self.num_frames, stamp_size[0]*stamp_size[1]), dtype='i2', chunks=True)
                 
                 try:
                     slice0 = helpers.get_stamp_slice(star_pos[0], star_pos[1], stamp_size=stamp_size)
@@ -396,11 +503,11 @@ class Observation(object):
                     dset.attrs['dec'] = star_row.dec
                 except Exception as e:
                     if str(e) not in errors:
-                        print(e)
+                        self.log(e)
                         errors[str(e)] = True
             
             
-    def find_similar_stars(self, target_index, display_progress=False, force_new=True, *args, **kwargs):
+    def find_similar_stars(self, target_index, display_progress=False, force_new=True, verbose=False, *args, **kwargs):
         """ Get all variances for given target
 
         Args:
@@ -429,12 +536,15 @@ class Observation(object):
         # Normalize
         self.log("Normalizing target for {} frames".format(num_frames))
         frames = []
-        normalized_psc0 = np.zeros_like(psc0, dtype='f8')
+        normalized_psc0 = np.zeros_like(psc0, dtype='f4')
         for frame_index in range(num_frames):
             try:
                 if psc0[frame_index].sum() > 0.:
                     normalized_psc0[frame_index] = psc0[frame_index] / psc0[frame_index].sum()
                     frames.append(frame_index)
+                else:
+                    if verbose:
+                        self.log("Sum for target frame {} is 0".format(frame_index))
             except RuntimeWarning:
                 warn("Skipping frame {}".format(frame_index))
                 
@@ -448,7 +558,7 @@ class Observation(object):
             except Exception:
                 continue
 
-            normalized_psc1 = np.zeros_like(psc1, dtype='f8')
+            normalized_psc1 = np.zeros_like(psc1, dtype='f4')
 
             # Normalize
             for frame_index in frames:
@@ -651,7 +761,7 @@ class Observation(object):
         phot_table = aperture_photometry(stamp, aperture, method='center')
 
         if show_data:
-            print(np.flipud(aperture_data))  # Flip the data to match plot
+            self.log(np.flipud(aperture_data))  # Flip the data to match plot
 
         cax1 = ax1.imshow(stamp, cmap='cubehelix_r', norm=norm)
         plt.colorbar(cax1, ax=ax1)
@@ -687,7 +797,7 @@ class Observation(object):
 
         # Show numbers
         for i, val in np.ndenumerate(aperture_data):
-            #     print(i[0] / 10, i[1] / 10, val)
+            #     self.log(i[0] / 10, i[1] / 10, val)
             x_loc = (i[1] / 10) + 0.05
             y_loc = (i[0] / 10) + 0.05
 
@@ -757,7 +867,8 @@ class Observation(object):
         return fig
 
     def _load_images(self):
-        seq_files = glob("{}/*T*.fits".format(self.image_dir))
-        seq_files.sort()
+        seq_files = sorted(glob("{}/*T*.fits*".format(self.image_dir)))
 
         self.files = seq_files
+        if len(self.files) > 0:
+            self._num_frames = len(self.files)

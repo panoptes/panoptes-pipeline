@@ -199,9 +199,16 @@ def get_header(blob):
     i += 1
     
     
-def get_rgb_masks(data):
-  
+def get_rgb_masks(data, separate_green=False, force_new=False):
+    
     rgb_mask_file = 'rgb_masks.npz'
+    
+    if force_new:
+        try:
+            os.remove(rgb_mask_file)
+        except FileNotFoundError:
+            pass
+  
     try:
         return np.load(rgb_mask_file)
     except FileNotFoundError:
@@ -220,34 +227,26 @@ def get_rgb_masks(data):
             [index[0] % 2 == 1 and index[1] % 2 == 1 for index, i in np.ndenumerate(data)]
         ).reshape(w, h))
 
-        green_mask = np.flipud(np.array(
-            [(index[0] % 2 == 0 and index[1] % 2 == 1) or (index[0] % 2 == 1 and index[1] % 2 == 0)
-             for index, i in np.ndenumerate(data)]
-        ).reshape(w, h))
+        if separate_green:
+            green1_mask = np.flipud(np.array(
+                [(index[0] % 2 == 0 and index[1] % 2 == 1) for index, i in np.ndenumerate(data)]
+            ).reshape(w, h))
+            green2_mask = np.flipud(np.array(
+                [(index[0] % 2 == 1 and index[1] % 2 == 0) for index, i in np.ndenumerate(data)]
+            ).reshape(w, h))
+            
+            _rgb_masks = np.array([red_mask, green1_mask, green2_mask, blue_mask])
+        else:
+            green_mask = np.flipud(np.array(
+                [(index[0] % 2 == 0 and index[1] % 2 == 1) or (index[0] % 2 == 1 and index[1] % 2 == 0)
+                 for index, i in np.ndenumerate(data)]
+            ).reshape(w, h))
 
-        _rgb_masks = np.array([red_mask, green_mask, blue_mask])
+            _rgb_masks = np.array([red_mask, green_mask, blue_mask])
         
         _rgb_masks.dump(rgb_mask_file)  
         
         return _rgb_masks    
-
-def get_all_sum(cube):
-    return [get_sum(stamp) for stamp in cube]
-        
-def get_sum(stamp, stamp_size=11):
-    # Get sums for aperture and annulus
-    phot_table = aperture_photometry(stamp.reshape(stamp_size,stamp_size), (aperture, annulus), method='subpixel', subpixels=32)
-
-    # Get annulus per pixel (local background)
-    bkg_mean = phot_table['aperture_sum_1'] / annulus.area()
-
-    # Get background in aperture
-    bkg_sum = aperture.area() * bkg_mean
-
-    # Remove local background
-    final_sum = phot_table['aperture_sum_0'] - bkg_sum
-    
-    return final_sum[0]
 
 def get_psc(idx=None, ticid=None, aperture_size=None, get_masks=False, stamp_size=11, stamp_dir=None, stamp_cubes=None, verbose=False):
     if idx is not None:
@@ -368,7 +367,7 @@ def show_stamps(idx_list=None, pscs=None, frame_idx=0, stamp_size=11, aperture_s
 def normalize(cube):
     return (cube.T / cube.sum(1)).T
 
-def get_vary(d0, d1):
+def get_stamp_difference(d0, d1):
     return ((d0 - d1)**2).sum()
 
 def spiral_matrix(A):
@@ -379,55 +378,7 @@ def spiral_matrix(A):
         A = A[:,1:].T[::-1]       # cut off first row and rotate counterclockwise
     return np.concatenate(out)
 
-def get_ideal_coeffs(stamp_collection, func=None, verbose=False):
-    coeffs = []
-
-    def minimize_func(refs_coeffs, references, targets):
-        compare_references = (references * refs_coeffs).sum(0)
-#         compare_references = (references.T * refs_coeffs).sum(2).T
-        
-#         res = ((targets - compare_references)**2)
-        res = ((targets - compare_references)**2)        
-
-        return res.sum()
-
-    if func is None:
-        func = minimize_func
-
-    num_refs = stamp_collection.shape[0] - 1
-    num_frames = stamp_collection.shape[1]
-    num_pixels = stamp_collection.shape[2]
-    
-    target_frames = stamp_collection[0]
-    refs_frames = stamp_collection[1:]
-        
-    for frame_index in range(num_frames):
-
-        target_all_but_frame = np.delete(target_frames, frame_index, axis=0)
-        refs_all_but_frame = np.delete(refs_frames, frame_index, axis=1)        
-        
-        try:
-            # Try to start from previous frame coeffs
-            refs_coeffs = coeffs[-1]
-        except IndexError:
-            # Otherwise all ones
-            refs_coeffs = np.ones(num_pixels)
-#             refs_coeffs = np.ones(num_refs)
-            
-        # Reshape is basically flattening along all but axis 0
-#         refs_all_but_frame = refs_all_but_frame.reshape(-1, -1, refs_coeffs.flatten().shape[0])
-            
-        if verbose and frame_index == 0:
-            print("Target other shape: {}".format(target_all_but_frame.shape))
-            print("Refs other shape: {}".format(refs_all_but_frame.shape))        
-            print("Source coeffs shape: {}".format(refs_coeffs.shape))
-
-        res = minimize(func, refs_coeffs, args=(refs_all_but_frame, target_all_but_frame))
-        coeffs.append(res.x)            
-
-    return np.array(coeffs)
-
-def get_ideal_full_coeffs(stamp_collection, damp=1, func=lsqr, verbose=False):
+def get_ideal_full_coeffs(stamp_collection, damp=1, func=lsmr, verbose=False):
 
     num_refs = stamp_collection.shape[0] - 1
     num_frames = stamp_collection.shape[1]
@@ -443,24 +394,6 @@ def get_ideal_full_coeffs(stamp_collection, damp=1, func=lsqr, verbose=False):
     coeffs = func(refs_frames, target_frames, damp)
     
     return coeffs
-
-def get_ideal_psc(stamp_collection, coeffs, **kwargs):        
-    num_frames = stamp_collection.shape[1]
-
-    # References we will multiple by the coeffs
-    refs = stamp_collection[1:]
-    print(refs.shape)
-    created_frames = []
-        
-    for frame_index in range(num_frames):
-        # References for this frame
-        refs_frame = refs[:, frame_index]
-
-        created_frame = (refs_frame * coeffs[frame_index]).sum(0).T.flatten()
-#         created_frame = (refs_frame.T * coeffs[frame_index]).T.sum(0).flatten()
-        created_frames.append(created_frame)
-
-    return np.array(created_frames)
 
 def get_ideal_full_psc(stamp_collection, coeffs, **kwargs):        
 

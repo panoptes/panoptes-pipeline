@@ -1,4 +1,6 @@
 import os
+import shutil
+import subprocess
 from warnings import warn
 import google.datalab.storage as storage
 
@@ -7,8 +9,6 @@ import psycopg2
 from astropy.table import Table
 
 from astropy.visualization import LogStretch, ImageNormalize, LinearStretch
-
-from scipy.sparse.linalg import lsmr
 
 from matplotlib import pyplot as plt
 import matplotlib.animation as animation
@@ -137,16 +137,17 @@ def get_observation_blobs(prefix, include_pointing=False, project_id='panoptes-s
     return sorted(objs, key=lambda x: x.key)
 
 
-def unpack_blob(img_blob, save_dir='/var/panoptes/fits_files/', remove_file=False):
+def unpack_blob(img_blob, save_dir='/var/panoptes/fits_files/', verbose=False):
     """ Downloads the image blob data, uncompresses, and returns HDU """
     fits_fz_fn = img_blob.key.replace('/', '_')
     fits_fz_fn = os.path.join(save_dir, fits_fz_fn)
     fits_fn = fits_fz_fn.replace('.fz', '')
 
     if not os.path.exists(fits_fn):
-        print('.', end='')
-        with open(fits_fz_fn, 'wb') as f:
-            f.write(img_blob.download())
+        if verbose:
+            print('.', end='')
+
+        download_blob(img_blob, save_as=fits_fz_fn)
 
     if os.path.exists(fits_fz_fn):
         fits_fn = fits_utils.fpack(fits_fz_fn, unpack=True)
@@ -154,7 +155,40 @@ def unpack_blob(img_blob, save_dir='/var/panoptes/fits_files/', remove_file=Fals
     return fits_fn
 
 
-def get_header(blob):
+def download_blob(img_blob, save_as=None):
+    if save_as is None:
+        save_as = img_blob.key.replace('/', '_')
+
+    with open(save_as, 'wb') as f:
+        f.write(img_blob.download())
+
+
+def upload_to_bucket(local_path, remote_path, bucket='panoptes-survey', logger=None):
+    if logger is None:
+        def logger(msg):
+            return print(msg)
+
+    assert os.path.exists(local_path)
+
+    gsutil = shutil.which('gsutil')
+    assert gsutil is not None, "gsutil command line utility not found"
+
+    bucket = 'gs://{}/'.format(bucket)
+    # normpath strips the trailing slash so add here so we place in directory
+    run_cmd = [gsutil, '-mq', 'cp', local_path, bucket + remote_path]
+    logger.debug("Running: {}".format(run_cmd))
+
+    try:
+        completed_process = subprocess.run(run_cmd, stdout=subprocess.PIPE)
+
+        if completed_process.returncode != 0:
+            logger.debug("Problem uploading")
+            logger.debug(completed_process.stdout)
+    except Exception as e:
+        logger.error("Problem uploading: {}".format(e))
+
+
+def get_header_from_storage(blob):
     """ Read the FITS header from storage """
     i = 2  # We skip the initial header
     headers = dict()
@@ -240,52 +274,14 @@ def get_rgb_masks(data, separate_green=False, force_new=False):
         return _rgb_masks
 
 
-def get_psc(idx=None, ticid=None, aperture_size=None, get_masks=False, stamp_size=11, stamp_dir=None, stamp_cubes=None, verbose=False):
-    if idx is not None:
-        d0 = np.load(stamp_cubes[idx])
-
-    if ticid is not None:
-        d0 = np.load(os.path.join(stamp_dir, '{}.npz'.format(ticid)))
-
-    psc = d0['psc']
-    pos = d0['pos']
-    if verbose:
-        print(pos)
-
-    midpoint = int((stamp_size-1)/2)
-
-    masks = list()
-    if get_masks:
-        if aperture_size is not None:
-            size = aperture_size
-        else:
-            size = stamp_size
-        for color, mask in rgb_masks.items():
-            masks.append(
-                np.array([Cutout2D(mask, p, size, mode='strict').data.flatten() for p in pos]))
-    else:
-        if aperture_size is not None:
-            psc = np.array([Cutout2D(s.reshape(stamp_size, stamp_size), (midpoint,
-                                                                         midpoint), aperture_size, mode='strict').data.flatten() for s in psc])
-
-    if get_masks is False:
-        return psc
-    else:
-        return np.array(masks)
-
-
-def show_stamps(idx_list=None, pscs=None, frame_idx=0, stamp_size=11, aperture_size=4, show_residual=False, stretch=None, **kwargs):
+def show_stamps(pscs, frame_idx=0, stamp_size=11, aperture_size=4, show_residual=False, stretch=None, **kwargs):
 
     midpoint = (stamp_size - 1) / 2
     aperture = RectangularAperture((midpoint, midpoint), w=aperture_size, h=aperture_size, theta=0)
     annulus = RectangularAnnulus((midpoint, midpoint), w_in=aperture_size,
                                  w_out=stamp_size, h_out=stamp_size, theta=0)
 
-    if idx_list is not None:
-        pscs = [get_psc(i, stamp_size=stamp_size, **kwargs) for i in idx_list]
-        ncols = len(idx_list)
-    else:
-        ncols = len(pscs)
+    ncols = len(pscs)
 
     if show_residual:
         ncols += 1
@@ -360,15 +356,10 @@ def show_stamps(idx_list=None, pscs=None, frame_idx=0, stamp_size=11, aperture_s
 
     fig.tight_layout()
 
-# Helper function to normalize a stamp
-
 
 def normalize(cube):
+    # Helper function to normalize a stamp
     return (cube.T / cube.sum(1)).T
-
-
-def get_stamp_difference(d0, d1):
-    return ((d0 - d1)**2).sum()
 
 
 def spiral_matrix(A):
@@ -380,37 +371,8 @@ def spiral_matrix(A):
     return np.concatenate(out)
 
 
-def get_ideal_full_coeffs(stamp_collection, damp=1, func=lsmr, verbose=False):
-
-    num_refs = stamp_collection.shape[0] - 1
-    num_frames = stamp_collection.shape[1]
-    num_pixels = stamp_collection.shape[2]
-
-    target_frames = stamp_collection[0].flatten()
-    refs_frames = stamp_collection[1:].reshape(-1, num_frames * num_pixels).T
-
-    if verbose:
-        print("Target other shape: {}".format(target_frames.shape))
-        print("Refs other shape: {}".format(refs_frames.shape))
-
-    coeffs = func(refs_frames, target_frames, damp)
-
-    return coeffs
-
-
-def get_ideal_full_psc(stamp_collection, coeffs, **kwargs):
-
-    num_frames = stamp_collection.shape[1]
-
-    refs = stamp_collection[1:]
-
-    created_frame = (refs.T * coeffs).sum(2).T
-
-    return created_frame
-
-
 def pixel_color(x, y):
-    """ Given an x,y position, return the corresponding color 
+    """ Given an x,y position, return the corresponding color
 
     This is a Bayer array with a RGGB pattern in the lower left corner
     as it is loaded into numpy.
@@ -447,30 +409,7 @@ def pixel_color(x, y):
             return 'G1'
 
 
-def superpixel_position(x, y):
-    """ Given an x,y coordinate, return the x,y corresponding to the red superpixel position """
-    x = int(x)
-    y = int(y)
-    color = pixel_color(x, y)
-    if color == 'R':
-        return x, y
-    elif color == 'G1':
-        return x-1, y
-    elif color == 'G2':
-        return x, y+1
-    elif color == 'B':
-        return x-1, y+1
-
-
-def get_cutout_position(x, y):
-    """ Convenience function to nudge a superpixel position to correct cutout position """
-    super_x, super_y = superpixel_position(x, y)
-    return super_x, super_y
-
-
-def get_stamp_slice(x, y, stamp_size=(6, 6), verbose=False):
-    width = stamp_size[0]
-    height = stamp_size[1]
+def get_stamp_slice(x, y, stamp_size=(10, 10), verbose=False):
 
     for m in stamp_size:
         m -= 2  # Subtract center superpixel

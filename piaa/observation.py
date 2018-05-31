@@ -3,103 +3,84 @@ import shutil
 import subprocess
 
 from warnings import warn
-
 from collections import namedtuple
 from glob import glob
-
-from astropy.io import fits
-from astropy.table import Table
-from astropy.utils.console import ProgressBar
-from astropy.wcs import WCS
-from astropy.stats import SigmaClip
-from astropy import units as u
-from astropy.coordinates import SkyCoord, match_coordinates_sky
-from astropy.time import Time
-
-from photutils import Background2D
-from photutils import MedianBackground
-from photutils import RectangularAperture
-from photutils import find_peaks
-
-from dateutil.parser import parse as date_parse
-
-from tqdm import tqdm
 
 import h5py
 import numpy as np
 import pandas as pd
 
+from astropy.io import fits
+from astropy.table import Table
+from astropy.wcs import WCS
+from astropy import units as u
+from astropy.coordinates import SkyCoord, match_coordinates_sky
+from astropy.time import Time
+
+from scipy.sparse.linalg import lsmr
+
+from dateutil.parser import parse as date_parse
+
+from tqdm import tqdm
+
 from piaa.utils import make_masks
 from piaa.utils import helpers
 from piaa import exoplanets
+
+from pocs.utils.images import fits as fits_utils
+
+import logging
+
+DATA_DIR = '/var/panoptes/images/fields'
 
 PSC = namedtuple('PSC', ['data', 'mask'])
 
 
 class Observation(object):
 
-    def __init__(self, image_dir, aperture_size=6, camera_bias=2048,
-                 log_level='INFO', build_data_cube=True, *args, **kwargs):
+    def __init__(self,
+                 sequence,
+                 data_dir=DATA_DIR,
+                 *args,
+                 **kwargs):
         """ A sequence of images to be processed as one observation """
-        assert os.path.exists(image_dir), "Specified directory does not exist"
 
-        self.verbose = False
-        if kwargs.get('verbose', False):
-            self.verbose = True
+        self._data_dir = os.path.join(DATA_DIR, sequence)
+        os.makedirs(self._data_dir, exist_ok=True)
 
-        if image_dir.endswith('/'):
-            image_dir = image_dir[:-1]
-        self._image_dir = image_dir
+        logging.basicConfig(filename=os.path.join(
+            self._data_dir, 'processing.log'), level=logging.DEBUG)
 
-        _, _, _, _, _, unit_id, field, cam_id, seq_id = self.image_dir.split('/')
-        self.seq_id = seq_id
-        self.field = field
-        self.unit_id = unit_id
+        logging.info('*' * 80)
+        logging.info('Setting up Observation for analysis - {}'.format(sequence))
 
-        self.log('*' * 80)
-        self.log('Setting up Observation for analysis')
+        self.sequence = sequence
+        self.unit_id, self.field, self.cam_id, self.seq_time = self.sequence.split('/')
+
+        self._wcs = None
+        self._planet = None
+        self._transit_info = None
 
         super(Observation, self).__init__()
-
-        self.camera_bias = camera_bias
 
         self._img_h = 3476
         self._img_w = 5208
 
-        # Background estimation boxes
-        self.background_box_h = 316
-        self.background_box_w = 434
-
-        self.background_region = {}
-
-        self.aperture_size = aperture_size
         self.stamp_size = (None, None)
 
         self._point_sources = None
-        self._pixel_locations = None
 
         self._image_times = None
         self._total_integration_time = None
 
-        self._planet = None
-        self._wcs = None
-
-        self._transit_info = None
-
         self._rgb_masks = None
 
-        self._stamp_masks = (None, None, None)
-        self._stamps_cache = {}
-
-        self._hdf5 = None
         self._hdf5_stamps = None
+        self._hdf5_stamps_fn = self.data_dir + '.hdf5'
+
         self.target_slice = None
 
         self._num_frames = 0
-        self._load_images()
-
-        if build_data_cube:
-            assert self.data_cube is not None
 
     @property
     def planet(self):
@@ -110,18 +91,22 @@ class Observation(object):
         return self._planet
 
     @property
-    def hdf5(self):
-        if self._hdf5 is None:
-            self._hdf5 = h5py.File(self.image_dir + '.hdf5', 'a')
-
-        return self._hdf5
-
-    @property
     def hdf5_stamps(self):
         if self._hdf5_stamps is None:
-            self._hdf5_stamps = h5py.File(self.image_dir + '_stamps.hdf5', 'a')
+            self._hdf5_stamps = h5py.File(self._hdf5_stamps_fn, 'a')
 
         return self._hdf5_stamps
+
+    @property
+    def stamps(self):
+
+        try:
+            stamp_group = self._hdf5_stamps['stamps']
+        except KeyError:
+            logging.debug("Creating stamps file.")
+            stamp_group = self.hdf5_stamps.create_group('stamps')
+
+        return stamp_group
 
     @property
     def point_sources(self):
@@ -131,7 +116,7 @@ class Observation(object):
         return self._point_sources
 
     @property
-    def image_dir(self):
+    def data_dir(self):
         """ Image directory containing FITS files
 
         When setting a new image directory, FITS files are automatically
@@ -140,7 +125,7 @@ class Observation(object):
         Returns:
             str: Path to image directory
         """
-        return self._image_dir
+        return self._data_dir
 
     @property
     def image_times(self):
@@ -152,7 +137,7 @@ class Observation(object):
                 try:
                     _, _, _, _, _, unit_id, field, cam_id, seq_id, img_id = fn.split('/')
                 except ValueError as e:
-                    self.log(e)
+                    logging.warning(e)
                     continue
 
                 # Get the time from the image
@@ -160,7 +145,7 @@ class Observation(object):
                 try:
                     t0 = Time(date_parse(img_id), format='datetime')
                 except Exception as e:
-                    self.log(e)
+                    logging.warning(e)
                     continue
 
                 p = self.planet.get_phase(t0)
@@ -202,40 +187,6 @@ class Observation(object):
         return len(self.point_sources)
 
     @property
-    def data_cube(self):
-        try:
-            cube_dset = self.hdf5['cube']
-        except KeyError:
-            if self.verbose:
-                self.log("Creating data cube", end='')
-            cube_dset = self.hdf5.create_dataset(
-                'cube', (len(self.files), self._img_h, self._img_w), 'i2'
-            )
-            for i, f in enumerate(self.files):
-                if self.verbose and i % 10 == 0:
-                    self.log('.', end='')
-
-                hdu_axis = 0
-                if f.endswith('.fz'):
-                    hdu_axis = 1
-                cube_dset[i] = fits.getdata(f, hdu_axis) - self.camera_bias
-
-            self.log('Done')
-
-        return cube_dset
-
-    @property
-    def stamps(self):
-        try:
-            stamp_group = self.hdf5_stamps['stamps']
-        except KeyError:
-            if self.verbose:
-                self.log("Creating stamps file.", end='')
-            stamp_group = self.hdf5_stamps.create_group('stamps')
-
-        return stamp_group
-
-    @property
     def rgb_masks(self):
         """ RGB Mask arrays
 
@@ -250,7 +201,7 @@ class Observation(object):
             try:
                 self._rgb_masks = np.load(rgb_mask_file)
             except FileNotFoundError:
-                self.log("Making RGB masks")
+                logging.debug("Making RGB masks")
                 self._rgb_masks = np.array(make_masks(self.data_cube[0]))
                 self._rgb_masks.dump(rgb_mask_file)
 
@@ -264,7 +215,7 @@ class Observation(object):
                 try:
                     _, _, _, _, _, unit_id, field, cam_id, seq_id, img_id = fn.split('/')
                 except ValueError as e:
-                    self.log(e)
+                    logging.warning(e)
                     continue
 
                 # Get the time from the image
@@ -272,14 +223,14 @@ class Observation(object):
                 try:
                     t0 = Time(date_parse(img_id), format='datetime')
                 except Exception as e:
-                    self.log(e)
+                    logging.warning(e)
                     continue
 
                 # Determine if in transit
                 try:
                     in_t = self.planet.in_transit(t0, with_times=True)
                 except Exception as e:
-                    self.log(e)
+                    logging.warning(e)
                     continue
 
                 if in_t[0]:
@@ -287,13 +238,6 @@ class Observation(object):
                     break
 
         return self._transit_info
-
-    def log(self, msg, **kwargs):
-        if self.verbose:
-            if 'end' in kwargs:
-                print(msg, end=kwargs['end'])
-            else:
-                print(msg)
 
     def get_wcs(self, frame):
         hdu_axis = 0
@@ -306,143 +250,6 @@ class Observation(object):
 
     def get_header_value(self, frame_index, header):
         return fits.getval(self.files[frame_index], header)
-
-    def subtract_background(self,
-                            frames=None,
-                            display_progress=False,
-                            clip_sigma=3.,
-                            clip_iters=5,
-                            **kwargs):
-        """Get background estimates for all frames for each color channel
-
-        The first step is to figure out a box size for the background calculations.
-        This should be larger enough to encompass background variations while also
-        being an even multiple of the image dimensions. We also want them to be
-        multiples of a superpixel (2x2 regular pixel) in each dimension.
-        The camera for `PAN001` has image dimensions of 5208 x 3476, so
-        in order to get an even multiple in both dimensions we remove 60 pixels
-        from the width of the image, leaving us with dimensions of 5148 x 3476,
-        allowing us to use a box size of 468 x 316, which will create 11
-        boxes in each direction.
-
-        We use a 3 sigma median background clipped estimator.
-        The built-in camera bias (2048) has already been removed from the data.
-
-        Args:
-            frames (list, optional): List of frames to get estimates for, defaults
-                to all frames
-
-        """
-        if frames is None:
-            frames = range(len(self.files))
-
-        sigma_clip = SigmaClip(sigma=clip_sigma, iters=clip_iters)
-        bkg_estimator = MedianBackground()
-
-        if display_progress:
-            frames_iter = ProgressBar(frames, ipython_widget=kwargs.get('ipython_widget', False))
-        else:
-            frames_iter = frames
-
-        for frame_index in frames_iter:
-            frame_key = 'frame/{}'.format(frame_index)
-
-            # Figure out if we have already subtracted this frame
-            try:
-                already_subtracted = bool(self.data_cube.attrs[frame_key])
-            except KeyError:
-                already_subtracted = False
-
-            if already_subtracted is not True:
-                self.log("Getting background estimates for frame: {}".format(frame_index))
-
-                background_data = self.get_frame_background(
-                    frame_index, sigma_clip=sigma_clip, bkg_estimator=bkg_estimator)
-
-                self.data_cube[frame_index] -= background_data
-
-                self.data_cube.attrs[frame_key] = True
-
-    def get_frame_background(self,
-                             frame_index,
-                             sigma_clip=None,
-                             bkg_estimator=None,
-                             summary=False,
-                             background_obj=False,
-                             clip_iters=5,
-                             clip_sigma=3.):
-        frame_key = 'frame/{}'.format(frame_index)
-
-        # Figure out if we have already subtracted this frame
-        try:
-            already_subtracted = bool(self.data_cube.attrs[frame_key])
-        except KeyError:
-            already_subtracted = False
-
-        # Return error if trying to return already subtracted background
-        if summary is False and already_subtracted:
-            raise Exception("Cannot get already subtracted background")
-
-        # Get backgrounds dataset or create
-        try:
-            background_dset = self.hdf5['background']
-        except KeyError:
-            self.log("Creating background dataset")
-            # Create dataset that will hold the mmedian and the rms_median for 3
-            # channels for all frames
-            background_dset = self.hdf5.create_dataset('background', (len(self.files), 3, 2))
-
-        # Figure out if we have already have a summary
-        try:
-            have_summary = bool(background_dset.attrs[frame_key])
-        except KeyError:
-            have_summary = False
-
-        # If we just want the summary have it, return
-        if summary and have_summary:
-            return background_dset[frame_index]
-
-        # Get clip and estimator objects
-        if sigma_clip is None:
-            sigma_clip = SigmaClip(sigma=clip_sigma, iters=clip_iters)
-
-        if bkg_estimator is None:
-            bkg_estimator = MedianBackground()
-
-        # Get the bias subtracted data for the frame
-        data = self.data_cube[frame_index]
-
-        # Create holder for the actual background
-        background_data = np.zeros_like(data)
-        background_objs = dict()
-
-        for color_index, masks in enumerate(zip(['R', 'G', 'B'], self.rgb_masks)):
-            color = masks[0]
-            mask = masks[1]
-            bkg = Background2D(data, (self.background_box_h, self.background_box_w),
-                               sigma_clip=sigma_clip, bkg_estimator=bkg_estimator, mask=~mask)
-
-            background_objs[color] = bkg
-
-            self.log("\t{} Background\t Value: {:.02f}\t RMS: {:.02f}".format(
-                color, bkg.background_median, bkg.background_rms_median))
-
-            background_dset[frame_index, color_index] = (
-                bkg.background_median, bkg.background_rms_median)
-
-            if background_obj is False:
-                background_masked_data = np.ma.array(bkg.background, mask=~mask)
-                background_data += background_masked_data.filled(0)
-
-        # Mark that we already have summary
-        self.hdf5['background'].attrs[frame_key] = True
-
-        if summary:
-            return background_dset[frame_index]
-        elif background_obj is True:
-            return background_objs
-        else:
-            return background_data
 
     def get_psc(self, source, frame_slice=None, remove_bias=False):
         try:
@@ -458,12 +265,83 @@ class Observation(object):
 
         return psc
 
-    def create_stamp_slices(self, stamp_size=(6, 6), *args, **kwargs):
-        """Create subtracted stamps for entire data cube
+    def get_stamps(self, stamp_size=(10, 10), cleanup_after=True, upload=True, force_new=False):
+        """Makes or gets PANOPTES Stamps Cubes (PSC) file.
+
+        This will first look for the HDF5 stamps file locally, then in the
+        storage bucket. If not found, will download all the relevant FITS
+        files, make sure they are plate-solved, then upload the stamps file
+        back to bucket when done.
+
+        Note:
+            This can be a long running process!
+
+        Args:
+            stamp_size (tuple, optional): Size of stamps, default (10, 10). The
+                size is for individual pixels. Stamps should have an odd number of
+                superpixels, meaning an even number of individuals pixels that in
+                integer increments of four (4), e.g. (6, 6), (10, 10), (14, 14).
+            cleanup_after (bool, optional): If files should be reoved afterward,
+                default True.
+            upload (bool, optional): Upload stamps to storage bucket, default True.
+            force_new (bool, optional): If a new stamps file should be created,
+                default False.
+        """
+        logging.info('Creating stamps')
+
+        # Check for file locally
+        if os.path.exists(self._hdf5_stamps_fn):
+            logging.debug('Using local stamps file')
+            return
+
+        # Check if in storage bucket
+        stamp_blob = helpers.get_observation_blobs(self.sequence + '.hdf5')
+        if stamp_blob:
+            logging.info('Downloading stamps file from storage bucket')
+            helpers.download_blob(stamp_blob, save_as=self._hdf5_stamps_fn)
+            return
+
+        # Download FITS files
+        logging.debug('Downloading FITS files')
+        fits_blobs = helpers.get_observation_blobs(self.sequence)
+
+        # Download all the FITS files from a bucket
+        fits_files = list()
+        if fits_blobs:
+            for blob in tqdm(fits_blobs, desc='Downloading FITS files'):
+                fits_fn = helpers.unpack_blob(blob, save_dir=self._data_dir)
+                fits_files.append(fits_fn)
+
+        # Plate-solve all the images - safe to run again
+        logging.debug('Plate-solving FITS files')
+        for fn in tqdm(fits_files, desc='Solving files'):
+            fits_utils.get_solve_field(fn, timeout=90)
+
+        # Lookup point sources
+        # You need to set the env variable for the password for TESS catalog DB (ask Wilfred)
+        # os.environ['PGPASSWORD'] = 'sup3rs3cr3t'
+        logging.debug('Looking up point sources via TESS catalog')
+        self.lookup_point_sources(use_sextractor=False, use_tess_catalog=True)
+        logging.debug("Number of sources detected: ", len(self.point_sources))
+
+        # Create stamps
+        logging.debug('Looking up point sources via TESS catalog')
+        self.create_stamp_slices(stamp_size=stamp_size)
+
+        # Upload to storage bucket
+        logging.debug('Uploading stamps file to storage bucket')
+        self._upload_to_bucket(self._hdf5_stamps_fn, self.sequence + '.hdf5')
+
+        # Cleanup
+        logging.debug('Cleaning up FITS files')
+        for fn in fits_files:
+            os.remove(fn)
+
+    def create_stamp_slices(self, stamp_size=(10, 10), *args, **kwargs):
+        """Create PANOPTES Stamp Cubes (PSC) for each point source.
 
         Creates a slice through the cube corresponding to a stamp and stores the
-        subtracted data in the hdf5 table with key `stamp/<index>`, where
-        `<index>` is the source index from `point_sources`
+        subtracted data in the hdf5 table with key `stamp/<picid>`.
 
         Args:
             remove_cube (bool, optional): Remove the full cube from the hdf5 file after
@@ -474,7 +352,7 @@ class Observation(object):
 
         """
 
-        self.log("Starting stamp creation")
+        logging.info("Starting stamps creation")
         errors = dict()
 
         for i, fn in tqdm(enumerate(self.files), total=self.num_frames):
@@ -504,14 +382,19 @@ class Observation(object):
                     )
 
                 try:
-                    slice0 = helpers.get_stamp_slice(
-                        star_pos[0], star_pos[1], stamp_size=stamp_size)
-                    dset[i] = d0[slice0].flatten()
+                    s0 = helpers.get_stamp_slice(star_pos[0], star_pos[1], stamp_size=stamp_size)
+
+                    dset[i] = d0[s0].flatten()
+                    dset.attrs['picid'] = star_id
                     dset.attrs['ra'] = star_row.ra
                     dset.attrs['dec'] = star_row.dec
+                    dset.attrs['twomass'] = star_row.twomass
+                    dset.attrs['x'] = star_row.X
+                    dset.attrs['y'] = star_row.Y
+                    dset.attrs['wcs'] = wcs
                 except Exception as e:
                     if str(e) not in errors:
-                        self.log(e)
+                        logging.warning(e)
                         errors[str(e)] = True
 
     def find_similar_stars(self, target_index, store=True, force_new=True, *args, **kwargs):
@@ -541,7 +424,7 @@ class Observation(object):
         num_frames = psc0.shape[0]
 
         # Normalize
-        self.log("Normalizing target for {} frames".format(num_frames))
+        logging.debug("Normalizing target for {} frames".format(num_frames))
         frames = []
         normalized_psc0 = np.zeros_like(psc0, dtype='f4')
         for frame_index in range(num_frames):
@@ -550,8 +433,7 @@ class Observation(object):
                     normalized_psc0[frame_index] = psc0[frame_index] / psc0[frame_index].sum()
                     frames.append(frame_index)
                 else:
-                    if self.verbose:
-                        self.log("Sum for target frame {} is 0".format(frame_index))
+                    logging.debug("Sum for target frame {} is 0".format(frame_index))
             except RuntimeWarning:
                 warn("Skipping frame {}".format(frame_index))
 
@@ -577,7 +459,7 @@ class Observation(object):
                 if store:
                     vgrid_dset[source_index] = v
             except ValueError as e:
-                self.log("Skipping invalid stamp for source {}: {}".format(source_index, e))
+                logging.debug("Skipping invalid stamp for source {}: {}".format(source_index, e))
 
         return data
 
@@ -599,6 +481,30 @@ class Observation(object):
 
         return stamp_collection.reshape(num_refs, num_frames, stamp_h * stamp_w)
 
+    def get_ideal_full_coeffs(self, stamp_collection, damp=1, func=lsmr, verbose=False):
+
+        num_frames = stamp_collection.shape[1]
+        num_pixels = stamp_collection.shape[2]
+
+        target_frames = stamp_collection[0].flatten()
+        refs_frames = stamp_collection[1:].reshape(-1, num_frames * num_pixels).T
+
+        if verbose:
+            print("Target other shape: {}".format(target_frames.shape))
+            print("Refs other shape: {}".format(refs_frames.shape))
+
+        coeffs = func(refs_frames, target_frames, damp)
+
+        return coeffs
+
+    def get_ideal_full_psc(self, stamp_collection, coeffs, **kwargs):
+
+        refs = stamp_collection[1:]
+
+        created_frame = (refs.T * coeffs).sum(2).T
+
+        return created_frame
+
     def get_stamp_mask(self, source_index, **kwargs):
         r_min, r_max, c_min, c_max = self.get_stamp_bounds(source_index, **kwargs)
 
@@ -607,41 +513,6 @@ class Observation(object):
             masks.append(mask[r_min:r_max, c_min:c_max])
 
         return masks
-
-    def get_relative_lightcurve(self, target_psc, refpsf_psc, aperture_size=6):
-
-        depths = {}
-
-        num_frames = target_psc.data.shape[0]
-
-        stamp_h = target_psc.data.shape[1]
-        stamp_w = target_psc.data.shape[2]
-
-        for frame_index in range(num_frames):
-            target_frame = target_psc.data[frame_index].reshape(stamp_h, stamp_w)
-            ref_frame = refpsf_psc[frame_index].reshape(stamp_h, stamp_w)
-
-            t0_peaks = find_peaks(target_frame, np.mean(target_frame) * 5)
-            t0_peaks.sort(keys=['peak_value'])
-            t0_peak = (t0_peaks['x_peak'][-1], t0_peaks['y_peak'][-1])
-
-            # r0_peaks = find_peaks(ref_frame, np.mean(ref_frame) * 5)
-            # r0_peaks.sort(keys=['peak_value'])
-
-            aperture = RectangularAperture(t0_peak, aperture_size, aperture_size, 0)
-
-            for color, mask in zip(['R', 'G', 'B'], target_psc.mask):
-                t0_flux = aperture.do_photometry(target_frame, method='subpixel', mask=~mask)[0][0]
-                r0_flux = aperture.do_photometry(ref_frame, method='subpixel', mask=~mask)[0][0]
-
-                a0 = t0_flux / r0_flux
-
-                try:
-                    depths[color].append(a0)
-                except KeyError:
-                    depths[color] = [a0]
-
-        return depths
 
     def lookup_point_sources(self,
                              image_num=0,
@@ -665,11 +536,11 @@ class Observation(object):
         """
         if use_sextractor:
             # Write the sextractor catalog to a file
-            source_file = '{}/point_sources_{:02d}.cat'.format(self.image_dir, image_num)
-            self.log("Point source catalog: {}".format(source_file))
+            source_file = '{}/point_sources_{:02d}.cat'.format(self.data_dir, image_num)
+            logging.debug("Point source catalog: {}".format(source_file))
 
             if not os.path.exists(source_file) or force_new:
-                self.log("No catalog found, building from sextractor")
+                logging.debug("No catalog found, building from sextractor")
                 # Build catalog of point sources
                 sextractor = shutil.which('sextractor')
                 if sextractor is None:
@@ -684,9 +555,9 @@ class Observation(object):
                         '-CATALOG_NAME', source_file,
                     ]
 
-                self.log("Running sextractor...")
+                logging.debug("Running sextractor...")
                 cmd = [sextractor, *sextractor_params, self.files[image_num]]
-                self.log(cmd)
+                logging.debug(cmd)
                 subprocess.run(cmd)
 
             # Read catalog
@@ -725,10 +596,10 @@ class Observation(object):
             ra_min = min(wcs_footprint[:, 0])
             dec_max = max(wcs_footprint[:, 1])
             dec_min = min(wcs_footprint[:, 1])
-            self.log("RA: {:.03f} - {:.03f} \t Dec: {:.03f} - {:.03f}".format(ra_min,
-                                                                              ra_max,
-                                                                              dec_min,
-                                                                              dec_max))
+            logging.debug("RA: {:.03f} - {:.03f} \t Dec: {:.03f} - {:.03f}".format(ra_min,
+                                                                                   ra_max,
+                                                                                   dec_min,
+                                                                                   dec_max))
             self._point_sources = helpers.get_stars(
                 ra_min, ra_max, dec_min, dec_max, cursor_only=False)
 
@@ -753,8 +624,28 @@ class Observation(object):
         self._point_sources.set_index('id', inplace=True)
 
     def _load_images(self):
-        seq_files = sorted(glob("{}/*T*.fits*".format(self.image_dir)))
+        seq_files = sorted(glob("{}/*T*.fits*".format(self.data_dir)))
 
         self.files = seq_files
         if len(self.files) > 0:
             self._num_frames = len(self.files)
+
+    def _upload_to_bucket(local_path, remote_path, bucket='panoptes-survey'):
+        assert os.path.exists(local_path)
+
+        gsutil = shutil.which('gsutil')
+        assert gsutil is not None, "gsutil command line utility not found"
+
+        bucket = 'gs://{}/'.format(bucket)
+        # normpath strips the trailing slash so add here so we place in directory
+        run_cmd = [gsutil, '-mq', 'cp', local_path, bucket + remote_path]
+        logging.debug("Running: {}".format(run_cmd))
+
+        try:
+            completed_process = subprocess.run(run_cmd, stdout=subprocess.PIPE)
+
+            if completed_process.returncode != 0:
+                logging.debug("Problem uploading")
+                logging.debug(completed_process.stdout)
+        except Exception as e:
+            logging.error("Problem uploading: {}".format(e))

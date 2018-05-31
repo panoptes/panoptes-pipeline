@@ -77,7 +77,8 @@ def pixel_color(col, row, zero_based=False):
         assert col >= 0 and col < 5208, 'Column value outside dimensions of image: {}'.format(col)
     else:
         assert row >= 0.5 and row < 3476.5, 'Row value outside dimensions of image'
-        assert col >= 0.5 and col < 5208.5, 'Column value outside dimensions of image: {}'.format(col)
+        assert col >= 0.5 and col < 5208.5, 'Column value outside dimensions of image: {}'.format(
+            col)
 
     row = get_index(row)
     col = get_index(col)
@@ -167,6 +168,15 @@ def make_postage_stamp(data, *args, **kwargs):
 
 
 def make_masks(data):
+    """ Create masks for the RGB channels
+
+    Args:
+        data (`numpy.array`): The data to mask
+
+    Returns:
+        tuple(`numpy.ma.array` `numpy.ma.array`, `numpy.ma.array`): A tuple
+            with three masked arrays corresponding to RGB.
+    """
     if data.ndim > 2:
         data = data[0]
 

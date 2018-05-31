@@ -4,46 +4,32 @@ import subprocess
 
 from warnings import warn
 
-import concurrent.futures
 from collections import namedtuple
 from glob import glob
-from itertools import product
 
 from astropy.io import fits
 from astropy.table import Table
 from astropy.utils.console import ProgressBar
-from astropy.visualization import SqrtStretch
-from astropy.visualization.mpl_normalize import ImageNormalize
 from astropy.wcs import WCS
 from astropy.stats import SigmaClip
-from astropy.nddata import Cutout2D, NoOverlapError, PartialOverlapError
 from astropy import units as u
 from astropy.coordinates import SkyCoord, match_coordinates_sky
-from astropy.stats import sigma_clipped_stats
 from astropy.time import Time
 
 from photutils import Background2D
 from photutils import MedianBackground
 from photutils import RectangularAperture
-from photutils import aperture_photometry
 from photutils import find_peaks
 
 from dateutil.parser import parse as date_parse
 
-from tqdm import tqdm_notebook
+from tqdm import tqdm
 
 import h5py
 import numpy as np
 import pandas as pd
 
-from scipy.optimize import minimize
-
-from matplotlib import gridspec
-from matplotlib import patches
-from matplotlib import pyplot as plt
-
-from . import utils
-
+from piaa.utils import make_masks
 from piaa.utils import helpers
 from piaa import exoplanets
 
@@ -64,7 +50,7 @@ class Observation(object):
         if image_dir.endswith('/'):
             image_dir = image_dir[:-1]
         self._image_dir = image_dir
-        
+
         _, _, _, _, _, unit_id, field, cam_id, seq_id = self.image_dir.split('/')
         self.seq_id = seq_id
         self.field = field
@@ -97,7 +83,7 @@ class Observation(object):
 
         self._planet = None
         self._wcs = None
-        
+
         self._transit_info = None
 
         self._rgb_masks = None
@@ -120,7 +106,7 @@ class Observation(object):
         if self._planet is None:
             # Holds some properties about the planet
             self._planet = exoplanets.Exoplanet(self.field)
-        
+
         return self._planet
 
     @property
@@ -167,7 +153,7 @@ class Observation(object):
                     _, _, _, _, _, unit_id, field, cam_id, seq_id, img_id = fn.split('/')
                 except ValueError as e:
                     self.log(e)
-                    continue 
+                    continue
 
                 # Get the time from the image
                 img_id = img_id.split('.')[0]
@@ -180,7 +166,7 @@ class Observation(object):
                 p = self.planet.get_phase(t0)
 
                 image_times[img_id] = p
-                
+
             self._image_times = image_times
 
         return self._image_times
@@ -206,7 +192,7 @@ class Observation(object):
     @property
     def num_frames(self):
         return self._num_frames
-    
+
     @num_frames.setter
     def num_frames(self, num):
         self._num_frames = num
@@ -222,7 +208,9 @@ class Observation(object):
         except KeyError:
             if self.verbose:
                 self.log("Creating data cube", end='')
-            cube_dset = self.hdf5.create_dataset('cube', (len(self.files), self._img_h, self._img_w), 'i2')
+            cube_dset = self.hdf5.create_dataset(
+                'cube', (len(self.files), self._img_h, self._img_w), 'i2'
+            )
             for i, f in enumerate(self.files):
                 if self.verbose and i % 10 == 0:
                     self.log('.', end='')
@@ -235,7 +223,7 @@ class Observation(object):
             self.log('Done')
 
         return cube_dset
-    
+
     @property
     def stamps(self):
         try:
@@ -244,7 +232,7 @@ class Observation(object):
             if self.verbose:
                 self.log("Creating stamps file.", end='')
             stamp_group = self.hdf5_stamps.create_group('stamps')
-            
+
         return stamp_group
 
     @property
@@ -263,11 +251,11 @@ class Observation(object):
                 self._rgb_masks = np.load(rgb_mask_file)
             except FileNotFoundError:
                 self.log("Making RGB masks")
-                self._rgb_masks = np.array(utils.make_masks(self.data_cube[0]))
+                self._rgb_masks = np.array(make_masks(self.data_cube[0]))
                 self._rgb_masks.dump(rgb_mask_file)
 
         return self._rgb_masks
-    
+
     @property
     def transit_info(self):
         if self._transit_info is None:
@@ -277,7 +265,7 @@ class Observation(object):
                     _, _, _, _, _, unit_id, field, cam_id, seq_id, img_id = fn.split('/')
                 except ValueError as e:
                     self.log(e)
-                    continue 
+                    continue
 
                 # Get the time from the image
                 img_id = img_id.split('.')[0]
@@ -291,15 +279,14 @@ class Observation(object):
                 try:
                     in_t = self.planet.in_transit(t0, with_times=True)
                 except Exception as e:
-                    self.log(e)     
-                    continue    
+                    self.log(e)
+                    continue
 
                 if in_t[0]:
                     self._transit_info = in_t[1]
                     break
-                    
+
         return self._transit_info
-                    
 
     def log(self, msg, **kwargs):
         if self.verbose:
@@ -307,14 +294,14 @@ class Observation(object):
                 print(msg, end=kwargs['end'])
             else:
                 print(msg)
-                
+
     def get_wcs(self, frame):
-        fn = self.files[frame]
-        
         hdu_axis = 0
+
+        fn = self.files[frame]
         if fn.endswith('.fz'):
             hdu_axis = 1
-            
+
         return WCS(fn, axis=hdu_axis)
 
     def get_header_value(self, frame_index, header):
@@ -462,10 +449,10 @@ class Observation(object):
             psc = np.array(self.stamps[source])
         except KeyError:
             raise Exception("You must run create_stamps first")
-            
+
         if frame_slice is not None:
             psc = psc[frame_slice]
-            
+
         if remove_bias:
             psc -= self.camera_bias
 
@@ -488,29 +475,37 @@ class Observation(object):
         """
 
         self.log("Starting stamp creation")
-        
         errors = dict()
-        
-        for i, fn in tqdm_notebook(enumerate(self.files), total=self.num_frames):
+
+        for i, fn in tqdm(enumerate(self.files), total=self.num_frames):
             with fits.open(fn) as hdu:
                 hdu_idx = 0
                 if fn.endswith('.fz'):
                     hdu_idx = 1
-                    
+
                 wcs = WCS(hdu[hdu_idx].header)
                 d0 = hdu[hdu_idx].data
-                
-            for star_row in tqdm_notebook(self.point_sources.itertuples(), total=len(self.point_sources), leave=False):
+
+            for star_row in tqdm(
+                    self.point_sources.itertuples(),
+                    total=len(self.point_sources),
+                    leave=False):
                 star_id = str(star_row.Index)
                 star_pos = wcs.all_world2pix(star_row.ra, star_row.dec, 0)
-                
+
                 try:
                     dset = self.stamps[star_id]
                 except KeyError:
-                    dset = self.stamps.create_dataset(star_id, (self.num_frames, stamp_size[0]*stamp_size[1]), dtype='i2', chunks=True)
-                
+                    dset = self.stamps.create_dataset(
+                        star_id,
+                        (self.num_frames, stamp_size[0] * stamp_size[1]),
+                        dtype='i2',
+                        chunks=True
+                    )
+
                 try:
-                    slice0 = helpers.get_stamp_slice(star_pos[0], star_pos[1], stamp_size=stamp_size)
+                    slice0 = helpers.get_stamp_slice(
+                        star_pos[0], star_pos[1], stamp_size=stamp_size)
                     dset[i] = d0[slice0].flatten()
                     dset.attrs['ra'] = star_row.ra
                     dset.attrs['dec'] = star_row.dec
@@ -518,9 +513,8 @@ class Observation(object):
                     if str(e) not in errors:
                         self.log(e)
                         errors[str(e)] = True
-            
-            
-    def find_similar_stars(self, target_index, display_progress=False, force_new=True, verbose=False, *args, **kwargs):
+
+    def find_similar_stars(self, target_index, store=True, force_new=True, *args, **kwargs):
         """ Get all variances for given target
 
         Args:
@@ -537,7 +531,7 @@ class Observation(object):
                 del self.hdf5_stamps['vgrid']
             except Exception as e:
                 pass
-        
+
         try:
             vgrid_dset = self.hdf5_stamps['vgrid']
         except KeyError:
@@ -556,16 +550,14 @@ class Observation(object):
                     normalized_psc0[frame_index] = psc0[frame_index] / psc0[frame_index].sum()
                     frames.append(frame_index)
                 else:
-                    if verbose:
+                    if self.verbose:
                         self.log("Sum for target frame {} is 0".format(frame_index))
             except RuntimeWarning:
                 warn("Skipping frame {}".format(frame_index))
-                
-        iterator = list(self.stamps.keys())
-        if display_progress:
-            iterator = ProgressBar(iterator, ipython_widget=kwargs.get('ipython_widget', False))
 
-        for i, source_index in enumerate(iterator):
+        iterator = list(self.stamps.keys())
+
+        for i, source_index in tqdm(enumerate(iterator)):
             try:
                 psc1 = self.get_psc(source_index)
             except Exception:
@@ -582,10 +574,11 @@ class Observation(object):
             try:
                 v = ((normalized_psc0 - normalized_psc1) ** 2).sum()
                 data[i] = v
-                #vgrid_dset[source_index] = v
+                if store:
+                    vgrid_dset[source_index] = v
             except ValueError as e:
                 self.log("Skipping invalid stamp for source {}: {}".format(source_index, e))
-                
+
         return data
 
     def get_stamp_collection(self, num_refs=25):
@@ -605,7 +598,6 @@ class Observation(object):
                                      idx in vary_series.index[0:num_refs]])
 
         return stamp_collection.reshape(num_refs, num_frames, stamp_h * stamp_w)
-
 
     def get_stamp_mask(self, source_index, **kwargs):
         r_min, r_max, c_min, c_max = self.get_stamp_bounds(source_index, **kwargs)
@@ -651,7 +643,13 @@ class Observation(object):
 
         return depths
 
-    def lookup_point_sources(self, image_num=0, sextractor_params=None, force_new=False, use_sextractor=True, use_tess_catalog=False):
+    def lookup_point_sources(self,
+                             image_num=0,
+                             use_sextractor=True,
+                             use_tess_catalog=False,
+                             sextractor_params=None,
+                             force_new=False
+                             ):
         """ Extract point sources from image
 
         Args:
@@ -681,7 +679,8 @@ class Observation(object):
 
                 if sextractor_params is None:
                     sextractor_params = [
-                        '-c', '{}/PIAA/resources/conf_files/sextractor/panoptes.sex'.format(os.getenv('PANDIR')),
+                        '-c', '{}/PIAA/resources/conf_files/sextractor/panoptes.sex'.format(
+                            os.getenv('PANDIR')),
                         '-CATALOG_NAME', source_file,
                     ]
 
@@ -719,176 +718,39 @@ class Observation(object):
             self._point_sources = point_sources[top & bottom & right & left].to_pandas()
             ra_key = 'ALPHA_J2000'
             dec_key = 'DELTA_J2000'
-            
+
         if use_tess_catalog:
             wcs_footprint = self.wcs.calc_footprint()
             ra_max = max(wcs_footprint[:, 0])
             ra_min = min(wcs_footprint[:, 0])
             dec_max = max(wcs_footprint[:, 1])
             dec_min = min(wcs_footprint[:, 1])
-            self.log("RA: {:.03f} - {:.03f} \t Dec: {:.03f} - {:.03f}".format(ra_min, ra_max, dec_min, dec_max))
-            self._point_sources = helpers.get_stars(ra_min, ra_max, dec_min, dec_max, cursor_only=False)
-            
-            star_pixels = self.wcs.all_world2pix(self._point_sources['ra'], self._point_sources['dec'], 0)
+            self.log("RA: {:.03f} - {:.03f} \t Dec: {:.03f} - {:.03f}".format(ra_min,
+                                                                              ra_max,
+                                                                              dec_min,
+                                                                              dec_max))
+            self._point_sources = helpers.get_stars(
+                ra_min, ra_max, dec_min, dec_max, cursor_only=False)
+
+            star_pixels = self.wcs.all_world2pix(
+                self._point_sources['ra'], self._point_sources['dec'], 0)
             self._point_sources['X'] = star_pixels[0]
             self._point_sources['Y'] = star_pixels[1]
-            
+
             self._point_sources.add_index(['id'])
             self._point_sources = self._point_sources.to_pandas()
             ra_key = 'ra'
             dec_key = 'dec'
 
-        
         # Do catalog matching
-        stars = SkyCoord(ra=self._point_sources[ra_key].values * u.deg, dec=self._point_sources[dec_key].values * u.deg)
+        stars = SkyCoord(ra=self._point_sources[ra_key].values *
+                         u.deg, dec=self._point_sources[dec_key].values * u.deg)
         st0 = helpers.get_stars_from_footprint(self.wcs.calc_footprint(), cursor_only=False)
         catalog = SkyCoord(ra=st0['ra'] * u.deg, dec=st0['dec'] * u.deg)
         idx, d2d, d3d = match_coordinates_sky(stars, catalog)
 
         self._point_sources['id'] = st0[idx]['id']
         self._point_sources.set_index('id', inplace=True)
-
-    def plot_stamp(self, source_index, frame_index, show_data=False, aperture_size=4, *args, **kwargs):
-
-        norm = ImageNormalize(stretch=SqrtStretch())
-
-        stamp_slice = self.get_psc(source_index, *args, **kwargs)
-        stamp = stamp_slice.data[frame_index]
-
-        fig = plt.figure(1)
-        fig.set_size_inches(13, 15)
-        gs = gridspec.GridSpec(2, 2, width_ratios=[1, 1])
-        ax1 = plt.subplot(gs[:, 0])
-        ax2 = plt.subplot(gs[0, 1])
-        ax3 = plt.subplot(gs[1, 1])
-        fig.add_subplot(ax1)
-        fig.add_subplot(ax2)
-        fig.add_subplot(ax3)
-
-        source_info = self.point_sources.iloc[source_index]
-        aperture = RectangularAperture((source_info['X'], source_info['Y']), aperture_size, aperture_size, 0)
-
-        aperture_mask = aperture.to_mask(method='center')[0]
-        aperture_data = aperture_mask.cutout(stamp)
-
-        phot_table = aperture_photometry(stamp, aperture, method='center')
-
-        if show_data:
-            self.log(np.flipud(aperture_data))  # Flip the data to match plot
-
-        cax1 = ax1.imshow(stamp, cmap='cubehelix_r', norm=norm)
-        plt.colorbar(cax1, ax=ax1)
-
-        aperture.plot(color='b', ls='--', lw=2, ax=ax1)
-
-        # Bayer pattern
-        for i, val in np.ndenumerate(stamp):
-            x, y = stamp_slice.cutout.to_original_position((i[1], i[0]))
-            ax1.text(x=i[1], y=i[0], ha='center', va='center',
-                     s=utils.pixel_color(x, y, zero_based=True), fontsize=10, alpha=0.25)
-
-        # major ticks every 2, minor ticks every 1
-        x_major_ticks = np.arange(-0.5, stamp_slice.cutout.bbox_cutout[1][1], 2)
-        x_minor_ticks = np.arange(-0.5, stamp_slice.cutout.bbox_cutout[1][1], 1)
-
-        y_major_ticks = np.arange(-0.5, stamp_slice.cutout.bbox_cutout[0][1], 2)
-        y_minor_ticks = np.arange(-0.5, stamp_slice.cutout.bbox_cutout[0][1], 1)
-
-        ax1.set_xticks(x_major_ticks)
-        ax1.set_xticks(x_minor_ticks, minor=True)
-        ax1.set_yticks(y_major_ticks)
-        ax1.set_yticks(y_minor_ticks, minor=True)
-
-        ax1.grid(which='major', color='r', linestyle='-', alpha=0.25)
-        ax1.grid(which='minor', color='r', linestyle='-', alpha=0.1)
-
-        ax1.set_xticklabels([])
-        ax1.set_yticklabels([])
-        ax1.set_title("Full Stamp", fontsize=16)
-
-        # RGB values plot
-
-        # Show numbers
-        for i, val in np.ndenumerate(aperture_data):
-            #     self.log(i[0] / 10, i[1] / 10, val)
-            x_loc = (i[1] / 10) + 0.05
-            y_loc = (i[0] / 10) + 0.05
-
-            ax2.text(x=x_loc,
-                     y=y_loc,
-                     ha='center',
-                     va='center',
-                     s=int(val),
-                     fontsize=12,
-                     alpha=0.75,
-                     transform=ax2.transAxes
-                     )
-
-        ax2.set_xticks(x_major_ticks)
-        ax2.set_xticks(x_minor_ticks, minor=True)
-        ax2.set_yticks(y_major_ticks)
-        ax2.set_yticks(y_minor_ticks, minor=True)
-
-        ax2.grid(which='major', color='r', linestyle='-', alpha=0.25)
-        ax2.grid(which='minor', color='r', linestyle='-', alpha=0.1)
-
-        ax2.add_patch(patches.Rectangle(
-            (1.5, 1.5),
-            6, 6,
-            fill=False,
-            lw=2,
-            ls='dashed',
-            edgecolor='blue',
-        ))
-
-        r_a_mask, g_a_mask, b_a_mask = utils.make_masks(aperture_data)
-
-        ax2.set_xlim(-0.5, 9.5)
-        ax2.set_ylim(-0.5, 9.5)
-        ax2.set_xticklabels([])
-        ax2.set_yticklabels([])
-        ax2.imshow(np.ma.array(np.ones((10, 10)), mask=~r_a_mask), cmap='Reds', vmin=0, vmax=4., )
-        ax2.imshow(np.ma.array(np.ones((10, 10)), mask=~g_a_mask),
-                   cmap='Greens', vmin=0, vmax=4., )
-        ax2.imshow(np.ma.array(np.ones((10, 10)), mask=~b_a_mask), cmap='Blues', vmin=0, vmax=4., )
-        ax2.set_title("Values", fontsize=16)
-
-        # Contour Plot of aperture
-
-        ax3.contourf(aperture_data, cmap='cubehelix_r', vmin=stamp.min(), vmax=stamp.max())
-        ax3.add_patch(patches.Rectangle(
-            (1.5, 1.5),
-            6, 6,
-            fill=False,
-            lw=2,
-            ls='dashed',
-            edgecolor='blue',
-        ))
-        ax3.add_patch(patches.Rectangle(
-            (0, 0),
-            9, 9,
-            fill=False,
-            lw=1,
-            ls='solid',
-            edgecolor='black',
-        ))
-        ax3.set_xlim(-0.5, 9.5)
-        ax3.set_ylim(-0.5, 9.5)
-        ax3.set_xticklabels([])
-        ax3.set_yticklabels([])
-        ax3.grid(False)
-        ax3.set_facecolor('white')
-        ax3.set_title("Contour", fontsize=16)
-
-        fig.suptitle("Source {} Frame {} Aperture Flux: {}".format(source_index,
-                                                                   frame_index,
-                                                                   int(phot_table[
-                                                                       'aperture_sum'][0])
-                                                                   ),
-                     fontsize=20)
-
-        fig.tight_layout(rect=[0., 0., 1., 0.95])
-        return fig
 
     def _load_images(self):
         seq_files = sorted(glob("{}/*T*.fits*".format(self.image_dir)))

@@ -164,10 +164,6 @@ def download_blob(img_blob, save_as=None):
 
 
 def upload_to_bucket(local_path, remote_path, bucket='panoptes-survey', logger=None):
-    if logger is None:
-        def logger(msg):
-            return print(msg)
-
     assert os.path.exists(local_path)
 
     gsutil = shutil.which('gsutil')
@@ -176,16 +172,19 @@ def upload_to_bucket(local_path, remote_path, bucket='panoptes-survey', logger=N
     bucket = 'gs://{}/'.format(bucket)
     # normpath strips the trailing slash so add here so we place in directory
     run_cmd = [gsutil, '-mq', 'cp', local_path, bucket + remote_path]
-    logger.debug("Running: {}".format(run_cmd))
+    if logger:
+        logger.debug("Running: {}".format(run_cmd))
 
     try:
         completed_process = subprocess.run(run_cmd, stdout=subprocess.PIPE)
 
         if completed_process.returncode != 0:
-            logger.debug("Problem uploading")
-            logger.debug(completed_process.stdout)
+            if logger:
+                logger.debug("Problem uploading")
+                logger.debug(completed_process.stdout)
     except Exception as e:
-        logger.error("Problem uploading: {}".format(e))
+        if logger:
+            logger.error("Problem uploading: {}".format(e))
 
 
 def get_header_from_storage(blob):

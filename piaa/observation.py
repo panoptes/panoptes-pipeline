@@ -48,8 +48,15 @@ class Observation(object):
         self._data_dir = os.path.join(DATA_DIR, sequence)
         os.makedirs(self._data_dir, exist_ok=True)
 
-        logging.basicConfig(filename=os.path.join(
-            self._data_dir, 'processing.log'), level=logging.DEBUG)
+        log_file = os.path.join(self._data_dir, 'processing.log')
+        logging.basicConfig(filename=log_file, level=logging.DEBUG, format='%(asctime)s %(message)s')
+        
+        try:
+            os.remove('/var/panoptes/logs/processing.log')
+        except FileNotFoundError:
+            pass
+        finally:
+            os.symlink(log_file, '/var/panoptes/logs/processing.log')
 
         logging.info('*' * 80)
         logging.info('Setting up Observation for analysis - {}'.format(sequence))
@@ -101,7 +108,7 @@ class Observation(object):
     def stamps(self):
 
         try:
-            stamp_group = self._hdf5_stamps['stamps']
+            stamp_group = self.hdf5_stamps['stamps']
         except KeyError:
             logging.debug("Creating stamps file.")
             stamp_group = self.hdf5_stamps.create_group('stamps')
@@ -265,7 +272,7 @@ class Observation(object):
 
         return psc
 
-    def get_stamps(self, stamp_size=(10, 10), cleanup_after=True, upload=True, force_new=False):
+    def get_stamps(self, stamp_size=(10, 10), cleanup_after=True, remove_stamps_file=False, upload=True, force_new=False):
         """Makes or gets PANOPTES Stamps Cubes (PSC) file.
 
         This will first look for the HDF5 stamps file locally, then in the
@@ -281,8 +288,10 @@ class Observation(object):
                 size is for individual pixels. Stamps should have an odd number of
                 superpixels, meaning an even number of individuals pixels that in
                 integer increments of four (4), e.g. (6, 6), (10, 10), (14, 14).
-            cleanup_after (bool, optional): If files should be reoved afterward,
+            cleanup_after (bool, optional): If files should be removed afterward,
                 default True.
+            remove_stamps_file (bool, optional): If the generated stamp file should 
+                also be removed during cleanup, default False.
             upload (bool, optional): Upload stamps to storage bucket, default True.
             force_new (bool, optional): If a new stamps file should be created,
                 default False.
@@ -306,15 +315,17 @@ class Observation(object):
         fits_blobs = helpers.get_observation_blobs(self.sequence)
 
         # Download all the FITS files from a bucket
-        fits_files = list()
+        self.files = list()
         if fits_blobs:
-            for blob in tqdm(fits_blobs, desc='Downloading FITS files'):
+            for blob in tqdm(fits_blobs, desc='Downloading FITS files'.ljust(25)):
                 fits_fn = helpers.unpack_blob(blob, save_dir=self._data_dir)
-                fits_files.append(fits_fn)
+                self.files.append(fits_fn)
+                
+        self.num_frames = len(self.files)
 
         # Plate-solve all the images - safe to run again
         logging.debug('Plate-solving FITS files')
-        for fn in tqdm(fits_files, desc='Solving files'):
+        for fn in tqdm(self.files, desc='Solving files'.ljust(25)):
             fits_utils.get_solve_field(fn, timeout=90)
 
         # Lookup point sources
@@ -322,20 +333,30 @@ class Observation(object):
         # os.environ['PGPASSWORD'] = 'sup3rs3cr3t'
         logging.debug('Looking up point sources via TESS catalog')
         self.lookup_point_sources(use_sextractor=False, use_tess_catalog=True)
-        logging.debug("Number of sources detected: ", len(self.point_sources))
+        logging.debug("Number of sources detected: {}".format(len(self.point_sources)))
 
         # Create stamps
-        logging.debug('Looking up point sources via TESS catalog')
+        logging.debug('Creating stamps')
         self.create_stamp_slices(stamp_size=stamp_size)
 
         # Upload to storage bucket
-        logging.debug('Uploading stamps file to storage bucket')
-        helpers.upload_to_bucket(self._hdf5_stamps_fn, self.sequence + '.hdf5')
+        if upload:
+            logging.debug('Uploading stamps file to storage bucket')
+            helpers.upload_to_bucket(self._hdf5_stamps_fn, self.sequence + '.hdf5')
 
         # Cleanup
-        logging.debug('Cleaning up FITS files')
-        for fn in fits_files:
-            os.remove(fn)
+        if cleanup_after:
+            logging.debug('Cleaning up FITS files')
+            for fn in self.files:
+                os.remove(fn)
+                try:
+                    os.remove(fn.replace('.fits', '.solved'))
+                except Exception:
+                    pass
+            
+        if remove_stamps_file:
+            logging.debug('Removing stamps file')
+            os.remove(self._hdf5_stamps_fn)
 
     def create_stamp_slices(self, stamp_size=(10, 10), *args, **kwargs):
         """Create PANOPTES Stamp Cubes (PSC) for each point source.
@@ -354,8 +375,11 @@ class Observation(object):
 
         logging.info("Starting stamps creation")
         errors = dict()
+        
+        skip_sources = list()
 
-        for i, fn in tqdm(enumerate(self.files), total=self.num_frames):
+        for i, fn in tqdm(enumerate(self.files), total=self.num_frames, desc="Getting point sources".ljust(25)):
+            logging.debug("Staring file: {}".format(fn))
             with fits.open(fn) as hdu:
                 hdu_idx = 0
                 if fn.endswith('.fz'):
@@ -363,12 +387,21 @@ class Observation(object):
 
                 wcs = WCS(hdu[hdu_idx].header)
                 d0 = hdu[hdu_idx].data
+                
+                try:
+                    img_id = fn.split('/')[-1]
+                    # Get the time from the image
+                    img_id = img_id.split('.')[0]
+                except ValueError as e:
+                    logging.warning(e)
+                    continue
 
-            for star_row in tqdm(
-                    self.point_sources.itertuples(),
-                    total=len(self.point_sources),
-                    leave=False):
+            for star_row in self.point_sources.itertuples():
                 star_id = str(star_row.Index)
+                
+                if star_id in skip_sources:
+                    continue
+                
                 star_pos = wcs.all_world2pix(star_row.ra, star_row.dec, 0)
 
                 try:
@@ -383,17 +416,26 @@ class Observation(object):
 
                 try:
                     s0 = helpers.get_stamp_slice(star_pos[0], star_pos[1], stamp_size=stamp_size)
+                    d1 = d0[s0].flatten()
+                    
+                    if len(d1) == 0:
+                        logging.debug('Bad slice for {}, skipping'.format(star_id))
+                        skip_sources.append(star_id)
+                    
+                    dset[i] = d1
 
-                    dset[i] = d0[s0].flatten()
                     dset.attrs['picid'] = star_id
                     dset.attrs['ra'] = star_row.ra
                     dset.attrs['dec'] = star_row.dec
                     dset.attrs['twomass'] = star_row.twomass
                     dset.attrs['x'] = star_row.X
                     dset.attrs['y'] = star_row.Y
-                    dset.attrs['wcs'] = wcs
+                    dset.attrs['wcs'] = str(wcs)
+                    dset.attrs['seq_time'] = self.seq_time
+                    dset.attrs['img_time'] = img_id
                 except Exception as e:
                     if str(e) not in errors:
+                        logging.warning("Error 01")
                         logging.warning(e)
                         errors[str(e)] = True
 

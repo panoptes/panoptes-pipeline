@@ -4,22 +4,33 @@ import subprocess
 
 from warnings import warn
 
+import concurrent.futures
 from collections import namedtuple
 from glob import glob
+from itertools import product
 
-from astropy.coordinates import SkyCoord
 from astropy.io import fits
 from astropy.table import Table
 from astropy.utils.console import ProgressBar
 from astropy.visualization import SqrtStretch
 from astropy.visualization.mpl_normalize import ImageNormalize
 from astropy.wcs import WCS
+from astropy.stats import SigmaClip
+from astropy.nddata import Cutout2D, NoOverlapError, PartialOverlapError
+from astropy import units as u
+from astropy.coordinates import SkyCoord, match_coordinates_sky
+from astropy.stats import sigma_clipped_stats
+from astropy.time import Time
 
 from photutils import Background2D
 from photutils import MedianBackground
 from photutils import RectangularAperture
 from photutils import aperture_photometry
 from photutils import find_peaks
+
+from dateutil.parser import parse as date_parse
+
+from tqdm import tqdm_notebook
 
 import h5py
 import numpy as np
@@ -33,6 +44,8 @@ from matplotlib import pyplot as plt
 
 from . import utils
 
+from piaa.utils import helpers
+from piaa import exoplanets
 
 PSC = namedtuple('PSC', ['data', 'mask'])
 
@@ -51,6 +64,11 @@ class Observation(object):
         if image_dir.endswith('/'):
             image_dir = image_dir[:-1]
         self._image_dir = image_dir
+        
+        _, _, _, _, _, unit_id, field, cam_id, seq_id = self.image_dir.split('/')
+        self.seq_id = seq_id
+        self.field = field
+        self.unit_id = unit_id
 
         self.log('*' * 80)
         self.log('Setting up Observation for analysis')
@@ -74,9 +92,13 @@ class Observation(object):
         self._point_sources = None
         self._pixel_locations = None
 
+        self._image_times = None
         self._total_integration_time = None
 
+        self._planet = None
         self._wcs = None
+        
+        self._transit_info = None
 
         self._rgb_masks = None
 
@@ -85,44 +107,33 @@ class Observation(object):
 
         self._hdf5 = None
         self._hdf5_stamps = None
-        self.slices = dict()
         self.target_slice = None
 
+        self._num_frames = 0
         self._load_images()
 
         if build_data_cube:
             assert self.data_cube is not None
 
     @property
-    def data_cube(self):
-        try:
-            cube_dset = self.hdf5['cube']
-        except KeyError:
-            if self.verbose:
-                self.log("Creating data cube", end='')
-            cube_dset = self.hdf5.create_dataset(
-                'cube', (len(self.files), self._img_h, self._img_w))
-            for i, f in enumerate(self.files):
-                if self.verbose and i % 10 == 0:
-                    self.log('.', end='')
-
-                cube_dset[i] = fits.getdata(f) - self.camera_bias
-
-            self.log('Done')
-
-        return cube_dset
+    def planet(self):
+        if self._planet is None:
+            # Holds some properties about the planet
+            self._planet = exoplanets.Exoplanet(self.field)
+        
+        return self._planet
 
     @property
     def hdf5(self):
         if self._hdf5 is None:
-            self._hdf5 = h5py.File(self.image_dir + '.hdf5')
+            self._hdf5 = h5py.File(self.image_dir + '.hdf5', 'a')
 
         return self._hdf5
 
     @property
     def hdf5_stamps(self):
         if self._hdf5_stamps is None:
-            self._hdf5_stamps = h5py.File(self.image_dir + '_stamps.hdf5')
+            self._hdf5_stamps = h5py.File(self.image_dir + '_stamps.hdf5', 'a')
 
         return self._hdf5_stamps
 
@@ -146,6 +157,35 @@ class Observation(object):
         return self._image_dir
 
     @property
+    def image_times(self):
+        if self._image_times is None:
+            image_times = dict()
+
+            for fn in self.files:
+                # Get information about each image
+                try:
+                    _, _, _, _, _, unit_id, field, cam_id, seq_id, img_id = fn.split('/')
+                except ValueError as e:
+                    self.log(e)
+                    continue 
+
+                # Get the time from the image
+                img_id = img_id.split('.')[0]
+                try:
+                    t0 = Time(date_parse(img_id), format='datetime')
+                except Exception as e:
+                    self.log(e)
+                    continue
+
+                p = self.planet.get_phase(t0)
+
+                image_times[img_id] = p
+                
+            self._image_times = image_times
+
+        return self._image_times
+
+    @property
     def total_integration_time(self):
         if self._total_integration_time is None:
             self._total_integration_time = np.array(
@@ -154,40 +194,58 @@ class Observation(object):
         return self._total_integration_time
 
     @property
-    def pixel_locations(self):
-        if self._pixel_locations is None:
-            # Get RA/Dec coordinates from first frame
-            ra = self.point_sources['ALPHA_J2000']
-            dec = self.point_sources['DELTA_J2000']
-
-            locs = list()
-
-            for f in self.files:
-                wcs = WCS(f)
-                xy = np.array(wcs.all_world2pix(ra, dec, 0, ra_dec_order=True))
-
-                # Transpose
-                locs.append(xy.T)
-
-            locs = np.array(locs)
-            self._pixel_locations = pd.Panel(locs)
-
-        return self._pixel_locations
-
-    @property
     def wcs(self):
         if self._wcs is None:
-            self._wcs = WCS(self.files[0])
+            try:
+                self._wcs = WCS(self.files[0])
+            except IndexError:
+                self._wcs = WCS(self.files[0], axis=1)
 
         return self._wcs
 
     @property
     def num_frames(self):
-        return len(self.files)
+        return self._num_frames
+    
+    @num_frames.setter
+    def num_frames(self, num):
+        self._num_frames = num
 
     @property
     def num_point_sources(self):
-        return len(self.point_sources.index)
+        return len(self.point_sources)
+
+    @property
+    def data_cube(self):
+        try:
+            cube_dset = self.hdf5['cube']
+        except KeyError:
+            if self.verbose:
+                self.log("Creating data cube", end='')
+            cube_dset = self.hdf5.create_dataset('cube', (len(self.files), self._img_h, self._img_w), 'i2')
+            for i, f in enumerate(self.files):
+                if self.verbose and i % 10 == 0:
+                    self.log('.', end='')
+
+                hdu_axis = 0
+                if f.endswith('.fz'):
+                    hdu_axis = 1
+                cube_dset[i] = fits.getdata(f, hdu_axis) - self.camera_bias
+
+            self.log('Done')
+
+        return cube_dset
+    
+    @property
+    def stamps(self):
+        try:
+            stamp_group = self.hdf5_stamps['stamps']
+        except KeyError:
+            if self.verbose:
+                self.log("Creating stamps file.", end='')
+            stamp_group = self.hdf5_stamps.create_group('stamps')
+            
+        return stamp_group
 
     @property
     def rgb_masks(self):
@@ -200,7 +258,7 @@ class Observation(object):
                 and the NxM is the full frame size
         """
         if self._rgb_masks is None:
-            rgb_mask_file = '{}/rgb_masks.numpy'.format(os.getenv('PANDIR'))
+            rgb_mask_file = '{}/rgb_masks.npz'.format(os.getenv('PANDIR'))
             try:
                 self._rgb_masks = np.load(rgb_mask_file)
             except FileNotFoundError:
@@ -209,6 +267,39 @@ class Observation(object):
                 self._rgb_masks.dump(rgb_mask_file)
 
         return self._rgb_masks
+    
+    @property
+    def transit_info(self):
+        if self._transit_info is None:
+            for fn in self.files:
+                # Get information about each image
+                try:
+                    _, _, _, _, _, unit_id, field, cam_id, seq_id, img_id = fn.split('/')
+                except ValueError as e:
+                    self.log(e)
+                    continue 
+
+                # Get the time from the image
+                img_id = img_id.split('.')[0]
+                try:
+                    t0 = Time(date_parse(img_id), format='datetime')
+                except Exception as e:
+                    self.log(e)
+                    continue
+
+                # Determine if in transit
+                try:
+                    in_t = self.planet.in_transit(t0, with_times=True)
+                except Exception as e:
+                    self.log(e)     
+                    continue    
+
+                if in_t[0]:
+                    self._transit_info = in_t[1]
+                    break
+                    
+        return self._transit_info
+                    
 
     def log(self, msg, **kwargs):
         if self.verbose:
@@ -216,6 +307,15 @@ class Observation(object):
                 print(msg, end=kwargs['end'])
             else:
                 print(msg)
+                
+    def get_wcs(self, frame):
+        fn = self.files[frame]
+        
+        hdu_axis = 0
+        if fn.endswith('.fz'):
+            hdu_axis = 1
+            
+        return WCS(fn, axis=hdu_axis)
 
     def get_header_value(self, frame_index, header):
         return fits.getval(self.files[frame_index], header)
@@ -357,43 +457,21 @@ class Observation(object):
         else:
             return background_data
 
-    def get_psc(self, source, frame_slice=None):
+    def get_psc(self, source, frame_slice=None, remove_bias=False):
         try:
-            if isinstance(source, int):
-                source = self.slices[source]
-
-            if frame_slice is None:
-                frame_slice = slice(0, self.num_frames)
-
-            data = self.data_cube[frame_slice, source[0], source[1]]
-            masks = self.rgb_masks[:, source[0], source[1]]
-
-            # Mask obviously bad values
-            data[data > 5e4] = 0
-
-            psc = PSC(data=data, mask=masks)
-
+            psc = np.array(self.stamps[source])
         except KeyError:
             raise Exception("You must run create_stamps first")
+            
+        if frame_slice is not None:
+            psc = psc[frame_slice]
+            
+        if remove_bias:
+            psc -= self.camera_bias
 
         return psc
 
-    def get_ideal_psc(self, stamp_collection, coeffs, target_psc):
-        num_frames = target_psc.data.shape[0]
-        stamp_h = target_psc.data.shape[1]
-        stamp_w = target_psc.data.shape[2]
-
-        ref_frames = []
-
-        for frame_index in range(num_frames):
-            refs_frame = stamp_collection[1:, frame_index]
-            ref_frame = (refs_frame.T * coeffs[frame_index]).T.sum(0).reshape(stamp_h, stamp_w)
-            ref_frames.append(ref_frame)
-
-        return np.array(ref_frames)
-
-    def create_stamp_slices(self, target, frame_slice=None, padding=3, adjust_rgb=True,
-                            display_progress=False, *args, **kwargs):
+    def create_stamp_slices(self, stamp_size=(6, 6), *args, **kwargs):
         """Create subtracted stamps for entire data cube
 
         Creates a slice through the cube corresponding to a stamp and stores the
@@ -410,248 +488,124 @@ class Observation(object):
         """
 
         self.log("Starting stamp creation")
-
-        if frame_slice is None:
-            frame_slice = slice(0, self.num_frames)
-
-        r_min, r_max, c_min, c_max = self.get_stamp_bounds(
-            target, frame_slice=frame_slice, padding=padding)
-
-        if adjust_rgb:
-            color = utils.pixel_color(c_min, r_max, zero_based=True)
-            if color == 'B':
-                r_max += 1
-                r_min += 1
-            elif color == 'R':
-                c_min += 1
-                c_max += 1
-            elif color == 'G2':
-                c_min += 1
-                c_max += 1
-                r_max += 1
-                r_min += 1
-
-        height = r_max - r_min
-        width = c_max - c_min
-        self.target_slice = [slice(r_min, r_max), slice(c_min, c_max)]
-
-        self.log("Stamp size: {} {}".format(height, width))
-        color = utils.pixel_color(c_min, r_max, zero_based=True)
-        self.log("Target stamp color: {}".format(color))
-
-        if display_progress:
-            iterator = ProgressBar(self.point_sources.index,
-                                   ipython_widget=kwargs.get('ipython_widget', False))
-        else:
-            iterator = self.point_sources.index
-
-        self.slices = dict()
-
-        for source_index in iterator:
-
-            try:
-                r_min, r_max, c_min, c_max = self.get_stamp_bounds(
-                    int(source_index),
-                    height=height,
-                    width=width,
-                    frame_slice=frame_slice,
-                    padding=padding
-                )
-
-                if adjust_rgb:
-                    color = utils.pixel_color(c_min, r_max, zero_based=True)
-                    if color == 'B':
-                        r_max += 1
-                        r_min += 1
-                    elif color == 'R':
-                        c_min += 1
-                        c_max += 1
-                    elif color == 'G2':
-                        c_min += 1
-                        c_max += 1
-                        r_max += 1
-                        r_min += 1
-
-                self.slices[source_index] = [slice(r_min, r_max), slice(c_min, c_max)]
-
-            except Exception as e:
-                self.log("Problem creating stamp for {}: {}".format(source_index, e))
-
-    def get_stamp_bounds(self,
-                         source,
-                         height=None,
-                         width=None,
-                         frame_slice=None,
-                         padding=0,
-                         **kwargs
-                         ):
-        if frame_slice is None:
-            frame_slice = slice(0, self.num_frames)
-
-        if isinstance(source, int):
-            pix = self.pixel_locations[frame_slice][:, source]
-            x_range = pix.iloc[0]
-            y_range = pix.iloc[1]
-        elif isinstance(source, SkyCoord):
-            x = []
-            y = []
-            for f in self.files[frame_slice]:
-                wcs = WCS(f)
-                x0, y0 = wcs.all_world2pix(source.ra, source.dec, 0)
-                x.append(x0)
-                y.append(y0)
-
-            x_range = np.array(x)
-            y_range = np.array(y)
-        else:
-            warn("Source must be index or SkyCoord: {}".format(source))
-
-        if width is None:
-            col_max = int(x_range.max()) + padding
-            col_min = int(x_range.min()) - padding
-        else:
-            col_max = int(x_range.max()) + padding
-            col_min = col_max - width
-
-        if height is None:
-            row_max = int(y_range.max()) + padding
-            row_min = int(y_range.min()) - padding
-        else:
-            row_max = int(y_range.max()) + padding
-            row_min = row_max - height
-
-        return row_min, row_max, col_min, col_max
-
-    def get_variance_for_target(self, target_index, frame_slice=None,
-                                display_progress=True, force_new=True, *args, **kwargs):
+        
+        errors = dict()
+        
+        for i, fn in tqdm_notebook(enumerate(self.files), total=self.num_frames):
+            with fits.open(fn) as hdu:
+                hdu_idx = 0
+                if fn.endswith('.fz'):
+                    hdu_idx = 1
+                    
+                wcs = WCS(hdu[hdu_idx].header)
+                d0 = hdu[hdu_idx].data
+                
+            for star_row in tqdm_notebook(self.point_sources.itertuples(), total=len(self.point_sources), leave=False):
+                star_id = str(star_row.Index)
+                star_pos = wcs.all_world2pix(star_row.ra, star_row.dec, 0)
+                
+                try:
+                    dset = self.stamps[star_id]
+                except KeyError:
+                    dset = self.stamps.create_dataset(star_id, (self.num_frames, stamp_size[0]*stamp_size[1]), dtype='i2', chunks=True)
+                
+                try:
+                    slice0 = helpers.get_stamp_slice(star_pos[0], star_pos[1], stamp_size=stamp_size)
+                    dset[i] = d0[slice0].flatten()
+                    dset.attrs['ra'] = star_row.ra
+                    dset.attrs['dec'] = star_row.dec
+                except Exception as e:
+                    if str(e) not in errors:
+                        self.log(e)
+                        errors[str(e)] = True
+            
+            
+    def find_similar_stars(self, target_index, display_progress=False, force_new=True, verbose=False, *args, **kwargs):
         """ Get all variances for given target
 
         Args:
             stamps(np.array): Collection of stamps with axes: frame, PIC, pixels
             i(int): Index of target PIC
         """
-        if frame_slice is None:
-            frame_slice = slice(0, self.num_frames)
+        num_sources = len(list(self.stamps.keys()))
 
-        num_sources = self.num_point_sources
-
-        # Assume no match
+        # Assume no match, i.e. high (99) value
         data = np.ones((num_sources)) * 99.
 
-        try:
-            if force_new:
+        if force_new:
+            try:
                 del self.hdf5_stamps['vgrid']
-
+            except Exception as e:
+                pass
+        
+        try:
             vgrid_dset = self.hdf5_stamps['vgrid']
         except KeyError:
             vgrid_dset = self.hdf5_stamps.create_dataset('vgrid', data=data)
 
-        psc0 = self.get_psc(target_index, frame_slice=frame_slice).data
+        psc0 = self.get_psc(target_index)
         num_frames = psc0.shape[0]
 
         # Normalize
         self.log("Normalizing target for {} frames".format(num_frames))
         frames = []
-        normalized_psc0 = np.zeros_like(psc0)
+        normalized_psc0 = np.zeros_like(psc0, dtype='f4')
         for frame_index in range(num_frames):
             try:
                 if psc0[frame_index].sum() > 0.:
                     normalized_psc0[frame_index] = psc0[frame_index] / psc0[frame_index].sum()
                     frames.append(frame_index)
+                else:
+                    if verbose:
+                        self.log("Sum for target frame {} is 0".format(frame_index))
             except RuntimeWarning:
                 warn("Skipping frame {}".format(frame_index))
-
+                
+        iterator = list(self.stamps.keys())
         if display_progress:
-            iterator = ProgressBar(
-                range(num_sources), ipython_widget=kwargs.get('ipython_widget', False))
-        else:
-            iterator = range(num_sources)
+            iterator = ProgressBar(iterator, ipython_widget=kwargs.get('ipython_widget', False))
 
-        for source_index in iterator:
+        for i, source_index in enumerate(iterator):
             try:
-                psc1 = self.get_psc(source_index, frame_slice=frame_slice).data
+                psc1 = self.get_psc(source_index)
             except Exception:
                 continue
 
-            normalized_psc1 = np.zeros_like(psc1)
+            normalized_psc1 = np.zeros_like(psc1, dtype='f4')
 
             # Normalize
             for frame_index in frames:
-                normalized_psc1[frame_index] = psc1[frame_index] / psc1[frame_index].sum()
+                if psc1[frame_index].sum() > 0.:
+                    normalized_psc1[frame_index] = psc1[frame_index] / psc1[frame_index].sum()
 
             # Store in the grid
             try:
-                vgrid_dset[source_index] = ((normalized_psc0 - normalized_psc1) ** 2).sum()
+                v = ((normalized_psc0 - normalized_psc1) ** 2).sum()
+                data[i] = v
+                #vgrid_dset[source_index] = v
             except ValueError as e:
                 self.log("Skipping invalid stamp for source {}: {}".format(source_index, e))
+                
+        return data
 
-    def get_stamp_collection(self, frame_slice=None, num_refs=25):
-        if frame_slice is None:
-            frame_slice = slice(0, self.num_frames)
+    def get_stamp_collection(self, num_refs=25):
 
         vary = self.hdf5_stamps['vgrid']
 
         vary_series = pd.Series(vary)
         vary_series.sort_values(inplace=True)
 
-        target_psc = self.get_psc(self.target_slice, frame_slice=frame_slice)
+        target_psc = self.get_psc(self.target_slice)
 
         num_frames = target_psc.data.shape[0]
         stamp_h = target_psc.data.shape[1]
         stamp_w = target_psc.data.shape[2]
 
-        stamp_collection = np.array([self.get_psc(int(idx), frame_slice=frame_slice).data for
+        stamp_collection = np.array([self.get_psc(int(idx)).data for
                                      idx in vary_series.index[0:num_refs]])
 
         return stamp_collection.reshape(num_refs, num_frames, stamp_h * stamp_w)
 
-    def get_ideal_coeffs(self, stamp_collection, func=None, display_progress=False, **kwargs):
-        coeffs = []
-
-        def minimize_func(refs_coeffs, refs_all_but_frame, target_all_but_frame):
-            measured = (refs_coeffs * refs_all_but_frame.T).T.sum(0)
-            model = target_all_but_frame
-
-            res = ((model - measured)**2).sum()
-
-            return res
-
-        num_frames = stamp_collection.shape[1]
-
-        if display_progress:
-            iterator = ProgressBar(
-                range(num_frames), ipython_widget=kwargs.get('ipython_widget', False))
-        else:
-            iterator = range(num_frames)
-
-        if func is None:
-            func = minimize_func
-
-        for frame_index in iterator:
-
-            target_frame = stamp_collection[0, frame_index]
-            target_all_but_frame = np.delete(stamp_collection[0], frame_index, 0)
-
-            refs_frame = stamp_collection[1:, frame_index]
-            refs_all_but_frame = np.delete(stamp_collection[1:], frame_index, 1)
-
-            try:
-                refs_coeffs = coeffs[-1]
-            except IndexError:
-                refs_coeffs = np.ones(len(refs_all_but_frame))
-
-            if self.verbose and frame_index == 0:
-                print("Target frame shape: {}".format(target_frame.shape))
-                print("Target other shape: {}".format(target_all_but_frame.shape))
-                print("Refs shape: {}".format(refs_frame.shape))
-                print("Refs other shape: {}".format(refs_all_but_frame.shape))
-                print("Source coeffs shape: {}".format(refs_coeffs.shape))
-
-            res = minimize(func, refs_coeffs, args=(refs_all_but_frame, target_all_but_frame))
-
-            coeffs.append(res.x)
-
-        return np.array(coeffs)
 
     def get_stamp_mask(self, source_index, **kwargs):
         r_min, r_max, c_min, c_max = self.get_stamp_bounds(source_index, **kwargs)
@@ -697,7 +651,7 @@ class Observation(object):
 
         return depths
 
-    def lookup_point_sources(self, image_num=0, sextractor_params=None, force_new=False):
+    def lookup_point_sources(self, image_num=0, sextractor_params=None, force_new=False, use_sextractor=True, use_tess_catalog=False):
         """ Extract point sources from image
 
         Args:
@@ -711,67 +665,95 @@ class Observation(object):
         Raises:
             error.InvalidSystemCommand: Description
         """
-        # Write the sextractor catalog to a file
-        source_file = '{}/point_sources_{:02d}.cat'.format(self.image_dir, image_num)
-        self.log("Point source catalog: {}".format(source_file))
+        if use_sextractor:
+            # Write the sextractor catalog to a file
+            source_file = '{}/point_sources_{:02d}.cat'.format(self.image_dir, image_num)
+            self.log("Point source catalog: {}".format(source_file))
 
-        if not os.path.exists(source_file) or force_new:
-            self.log("No catalog found, building from sextractor")
-            # Build catalog of point sources
-            sextractor = shutil.which('sextractor')
-            if sextractor is None:
-                sextractor = shutil.which('sex')
+            if not os.path.exists(source_file) or force_new:
+                self.log("No catalog found, building from sextractor")
+                # Build catalog of point sources
+                sextractor = shutil.which('sextractor')
                 if sextractor is None:
-                    raise Exception('sextractor not found')
+                    sextractor = shutil.which('sex')
+                    if sextractor is None:
+                        raise Exception('sextractor not found')
 
-            if sextractor_params is None:
-                sextractor_params = [
-                    '-c', '{}/PIAA/resources/conf_files/sextractor/panoptes.sex'.format(
-                        os.getenv('PANDIR')),
-                    '-CATALOG_NAME', source_file,
-                ]
+                if sextractor_params is None:
+                    sextractor_params = [
+                        '-c', '{}/PIAA/resources/conf_files/sextractor/panoptes.sex'.format(os.getenv('PANDIR')),
+                        '-CATALOG_NAME', source_file,
+                    ]
 
-            self.log("Running sextractor...")
-            cmd = [sextractor, *sextractor_params, self.files[image_num]]
-            self.log(cmd)
-            subprocess.run(cmd)
+                self.log("Running sextractor...")
+                cmd = [sextractor, *sextractor_params, self.files[image_num]]
+                self.log(cmd)
+                subprocess.run(cmd)
 
-        # Read catalog
-        point_sources = Table.read(source_file, format='ascii.sextractor')
+            # Read catalog
+            point_sources = Table.read(source_file, format='ascii.sextractor')
 
-        # Remove the point sources that sextractor has flagged
-        if 'FLAGS' in point_sources.keys():
-            point_sources = point_sources[point_sources['FLAGS'] == 0]
-            point_sources.remove_columns(['FLAGS'])
+            # Remove the point sources that sextractor has flagged
+            if 'FLAGS' in point_sources.keys():
+                point_sources = point_sources[point_sources['FLAGS'] == 0]
+                point_sources.remove_columns(['FLAGS'])
 
-        # Rename columns
-        point_sources.rename_column('X_IMAGE', 'X')
-        point_sources.rename_column('Y_IMAGE', 'Y')
+            # Rename columns
+            point_sources.rename_column('X_IMAGE', 'X')
+            point_sources.rename_column('Y_IMAGE', 'Y')
 
-        # Add the SNR
-        point_sources['SNR'] = point_sources['FLUX_AUTO'] / point_sources['FLUXERR_AUTO']
+            # Add the SNR
+            point_sources['SNR'] = point_sources['FLUX_AUTO'] / point_sources['FLUXERR_AUTO']
 
-        # Filter point sources near edge
-        # w, h = data[0].shape
-        w, h = (3476, 5208)
+            # Filter point sources near edge
+            # w, h = data[0].shape
+            w, h = (3476, 5208)
 
-        stamp_size = 60
+            stamp_size = 60
 
-        top = point_sources['Y'] > stamp_size
-        bottom = point_sources['Y'] < w - stamp_size
-        left = point_sources['X'] > stamp_size
-        right = point_sources['X'] < h - stamp_size
+            top = point_sources['Y'] > stamp_size
+            bottom = point_sources['Y'] < w - stamp_size
+            left = point_sources['X'] > stamp_size
+            right = point_sources['X'] < h - stamp_size
 
-        self._point_sources = point_sources[top & bottom & right & left].to_pandas()
+            self._point_sources = point_sources[top & bottom & right & left].to_pandas()
+            ra_key = 'ALPHA_J2000'
+            dec_key = 'DELTA_J2000'
+            
+        if use_tess_catalog:
+            wcs_footprint = self.wcs.calc_footprint()
+            ra_max = max(wcs_footprint[:, 0])
+            ra_min = min(wcs_footprint[:, 0])
+            dec_max = max(wcs_footprint[:, 1])
+            dec_min = min(wcs_footprint[:, 1])
+            self.log("RA: {:.03f} - {:.03f} \t Dec: {:.03f} - {:.03f}".format(ra_min, ra_max, dec_min, dec_max))
+            self._point_sources = helpers.get_stars(ra_min, ra_max, dec_min, dec_max, cursor_only=False)
+            
+            star_pixels = self.wcs.all_world2pix(self._point_sources['ra'], self._point_sources['dec'], 0)
+            self._point_sources['X'] = star_pixels[0]
+            self._point_sources['Y'] = star_pixels[1]
+            
+            self._point_sources.add_index(['id'])
+            self._point_sources = self._point_sources.to_pandas()
+            ra_key = 'ra'
+            dec_key = 'dec'
 
-        return self._point_sources
+        
+        # Do catalog matching
+        stars = SkyCoord(ra=self._point_sources[ra_key].values * u.deg, dec=self._point_sources[dec_key].values * u.deg)
+        st0 = helpers.get_stars_from_footprint(self.wcs.calc_footprint(), cursor_only=False)
+        catalog = SkyCoord(ra=st0['ra'] * u.deg, dec=st0['dec'] * u.deg)
+        idx, d2d, d3d = match_coordinates_sky(stars, catalog)
 
-    def plot_stamp(self, source_index, frame_index, show_data=False, *args, **kwargs):
+        self._point_sources['id'] = st0[idx]['id']
+        self._point_sources.set_index('id', inplace=True)
+
+    def plot_stamp(self, source_index, frame_index, show_data=False, aperture_size=4, *args, **kwargs):
 
         norm = ImageNormalize(stretch=SqrtStretch())
 
-        stamp_slice = self.get_source_slice(source_index, *args, **kwargs)
-        stamp = self.get_frame_stamp(source_index, frame_index, reshape=True, *args, **kwargs)
+        stamp_slice = self.get_psc(source_index, *args, **kwargs)
+        stamp = stamp_slice.data[frame_index]
 
         fig = plt.figure(1)
         fig.set_size_inches(13, 15)
@@ -783,7 +765,8 @@ class Observation(object):
         fig.add_subplot(ax2)
         fig.add_subplot(ax3)
 
-        aperture = self.get_frame_aperture(source_index, frame_index, return_aperture=True)
+        source_info = self.point_sources.iloc[source_index]
+        aperture = RectangularAperture((source_info['X'], source_info['Y']), aperture_size, aperture_size, 0)
 
         aperture_mask = aperture.to_mask(method='center')[0]
         aperture_data = aperture_mask.cutout(stamp)
@@ -791,7 +774,7 @@ class Observation(object):
         phot_table = aperture_photometry(stamp, aperture, method='center')
 
         if show_data:
-            print(np.flipud(aperture_data))  # Flip the data to match plot
+            self.log(np.flipud(aperture_data))  # Flip the data to match plot
 
         cax1 = ax1.imshow(stamp, cmap='cubehelix_r', norm=norm)
         plt.colorbar(cax1, ax=ax1)
@@ -827,7 +810,7 @@ class Observation(object):
 
         # Show numbers
         for i, val in np.ndenumerate(aperture_data):
-            #     print(i[0] / 10, i[1] / 10, val)
+            #     self.log(i[0] / 10, i[1] / 10, val)
             x_loc = (i[1] / 10) + 0.05
             y_loc = (i[0] / 10) + 0.05
 
@@ -908,7 +891,8 @@ class Observation(object):
         return fig
 
     def _load_images(self):
-        seq_files = glob("{}/*T*.fits".format(self.image_dir))
-        seq_files.sort()
+        seq_files = sorted(glob("{}/*T*.fits*".format(self.image_dir)))
 
         self.files = seq_files
+        if len(self.files) > 0:
+            self._num_frames = len(self.files)

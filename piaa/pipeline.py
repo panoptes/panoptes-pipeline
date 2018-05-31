@@ -96,7 +96,8 @@ class BackgroundSubtract():
         if verbose:
             print("\tTime: {:0.2f} seconds\n".format((current_time() - start_time).sec))
 
-        for color, mask in zip(['R', 'G', 'B'], rgb_masks):
+        for color in rgb_masks.files:
+            mask = rgb_masks[color]
             if verbose:
                 print("Background channel: ", color)
             bkg_time = current_time()
@@ -117,11 +118,11 @@ class BackgroundSubtract():
             print("Total Time: {:0.2f} seconds\n".format((end_time - start_time).sec))
 
         r_bkg_data = ma.array(rgb_bkgs['R'].background, mask=~
-                              rgb_masks[0]).filled(0).astype(np.int16)
+                              rgb_masks['R']).filled(0).astype(np.int16)
         g_bkg_data = ma.array(rgb_bkgs['G'].background, mask=~
-                              rgb_masks[1]).filled(0).astype(np.int16)
+                              rgb_masks['G']).filled(0).astype(np.int16)
         b_bkg_data = ma.array(rgb_bkgs['B'].background, mask=~
-                              rgb_masks[2]).filled(0).astype(np.int16)
+                              rgb_masks['B']).filled(0).astype(np.int16)
 
         return (r_bkg_data + b_bkg_data + g_bkg_data).data
 

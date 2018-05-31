@@ -2,6 +2,7 @@
 
 import os
 import argparse
+import h5py
 import numpy as np
 import concurrent.futures
 from glob import glob
@@ -34,7 +35,6 @@ bias_node = pipeline.BiasSubtract()
 dark_node = pipeline.DarkCurrentSubtract(20)
 mask_node = pipeline.MaskBadPixels()
 back_node = pipeline.BackgroundSubtract()
-#pipe = pipeline.PanPipeline([bias_node, dark_node, mask_node, back_node])
 pipe = pipeline.PanPipeline([bias_node, mask_node])
 
 
@@ -57,8 +57,7 @@ def calibrate_image(input_args):
     return image_path
 
 
-def extract_stamp(input_args):
-    image_file, positions = input_args
+def extract_stamp(image_file, positions):
     x, y = positions
 
     # Set a default
@@ -91,6 +90,9 @@ def main(seq_id=None, image_dir=None, camera_id=None):
     psc_dir = os.path.join(working_dir, 'psc_{}'.format(stamp_size))
     os.makedirs(working_dir, exist_ok=True)
     os.makedirs(psc_dir, exist_ok=True)
+    
+    # Make HD5F file
+    h5 = h5py.File('{}/stamps.hdf5'.format(working_dir), 'w')
 
     # Get the fits files
     _print("Getting blobs")
@@ -116,67 +118,58 @@ def main(seq_id=None, image_dir=None, camera_id=None):
         '-V', f
     ]) for f in fits_files]
     
-    #fits_files = sorted(glob('{}/*{}*.fits'.format(image_dir, camera_id)))
-
-    _print("Making source mask")
-    with fits.open(fits_files[0]) as hdu:
-        source_mask = make_source_mask(
-            hdu[0].data, snr=3, npixels=3, sigclip_sigma=3, sigclip_iters=5, dilate_size=12)
-        wcs = WCS(hdu[0].header)
-
     _print("Calibrating data")
     with concurrent.futures.ProcessPoolExecutor(max_workers=4) as executor:
         calibrate_args = list(zip_longest(fits_files, [], fillvalue=working_dir))
         calibrated_list = list(executor.map(calibrate_image, calibrate_args))
+        
+    _print("Getting all WCS")
+    wcs_list = [WCS(f, naxis=0) for f in fits_files]
+    print(wcs_list[0])
 
     _print("Looking up stars")
-    wcs_footprint = wcs.calc_footprint()
+    wcs_footprint = wcs_list[0].calc_footprint()
     ra_max = max(wcs_footprint[:, 0])
     ra_min = min(wcs_footprint[:, 0])
     dec_max = max(wcs_footprint[:, 1])
     dec_min = min(wcs_footprint[:, 1])
-    star_table = get_stars(ra_min, ra_max, dec_min, dec_max)
+    _print("RA: {:.03f} - {:.03f} \t Dec: {:.03f} - {:.03f}".format(ra_min, ra_max, dec_min, dec_max))
+    star_table = get_stars(ra_min, ra_max, dec_min, dec_max, cursor_only=False)
     _print(len(star_table), "stars in field")
 
-    _print("Getting all WCS")
-    wcs_list = [WCS(f) for f in fits_files]
+    csv_file = os.path.join(working_dir, 'pscs.csv')
     
     _print("Extracting stamps from stars (size={})".format(stamp_size))
-    for i, star in enumerate(star_table):
-        if i % 2500 == 0:
-            _print(i, "{:.02%}".format(i / len(star_table)))
-
-        psc_path = os.path.join(psc_dir, str(star['id']) + '.npz')
-
-        if os.path.exists(psc_path):
-            #_print("Skipping", psc_path)
-            continue
-
-        # Lookup star xy positions for each image
-        # Use only the first WCS (see commented out code below)
-        #stamp_args = {
-        #        image_file:wcs_list[0].all_world2pix(star['ra'], star['dec'], 0)
-        #        for image_file in calibrated_list
-        #}
     
-        stamp_args = {
-                image_file:w.all_world2pix(star['ra'], star['dec'], 0)
-                for w, image_file in zip(wcs_list, calibrated_list)
-        }
+    h5_dset = h5.create_dataset("stamps", (len(star_table), len(fits_files), stamp_size*stamp_size), chunks=(1, len(fits_files), stamp_size*stamp_size))
+    
+    #with open(csv_file, 'w') as csv_fn:
+        #writer = csv.writer(csv_fn)
+        
+    for j, fits_fn in enumerate(fits_files):
+        _print(fits_fn)
+        with fits.open(fits_fn) as hdu:
+            w = WCS(hdu[0].header)
+            h = hdu[0].header
 
-        # Spin off a process for each file for this star
-        with concurrent.futures.ThreadPoolExecutor(max_workers=10*50) as executor:
-            psc = np.array(list(executor.map(extract_stamp, stamp_args.items())))
+        for i, star in enumerate(star_table):
+            picid, ra, dec, tmag, e_tmag, twomass = star
 
-        # Save the PSC (don't save zero sum or irregularly shaped)
-        try:
+            positions = w.all_world2pix(ra, dec, 0)
 
-            if psc.sum() > 0:
-                #_print("Saving cube for ", star['id'])
-                np.savez_compressed(psc_path, psc=psc, pos=np.array(list(stamp_args.values())))
-        except ValueError as e:
-            _print(e)
-            pass
+            psc = extract_stamp(calibrated_list[j], positions)
+
+            # Save the PSC (don't save zero sum or irregularly shaped)
+            try:
+                if psc.sum() > 0:
+                    #date_obs = h['DATE-OBS']
+                    #star_info = [picid, date_obs]
+                    #star_info.extend(psc)
+                    #writer.writerow(star_info)
+                    h5_dset[i, j] = psc.flatten()
+            except ValueError as e:
+                _print(e)
+                pass
         
     _print("Removing FITS files")
     for f in fits_files:

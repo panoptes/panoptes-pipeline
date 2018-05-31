@@ -330,7 +330,7 @@ class Observation(object):
 
         # Upload to storage bucket
         logging.debug('Uploading stamps file to storage bucket')
-        self._upload_to_bucket(self._hdf5_stamps_fn, self.sequence + '.hdf5')
+        helpers.upload_to_bucket(self._hdf5_stamps_fn, self.sequence + '.hdf5')
 
         # Cleanup
         logging.debug('Cleaning up FITS files')

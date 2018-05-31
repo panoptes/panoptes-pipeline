@@ -629,23 +629,3 @@ class Observation(object):
         self.files = seq_files
         if len(self.files) > 0:
             self._num_frames = len(self.files)
-
-    def _upload_to_bucket(local_path, remote_path, bucket='panoptes-survey'):
-        assert os.path.exists(local_path)
-
-        gsutil = shutil.which('gsutil')
-        assert gsutil is not None, "gsutil command line utility not found"
-
-        bucket = 'gs://{}/'.format(bucket)
-        # normpath strips the trailing slash so add here so we place in directory
-        run_cmd = [gsutil, '-mq', 'cp', local_path, bucket + remote_path]
-        logging.debug("Running: {}".format(run_cmd))
-
-        try:
-            completed_process = subprocess.run(run_cmd, stdout=subprocess.PIPE)
-
-            if completed_process.returncode != 0:
-                logging.debug("Problem uploading")
-                logging.debug(completed_process.stdout)
-        except Exception as e:
-            logging.error("Problem uploading: {}".format(e))

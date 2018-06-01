@@ -28,6 +28,7 @@ from piaa.utils import helpers
 from piaa import exoplanets
 
 from pocs.utils.images import fits as fits_utils
+from pocs.utils.error import SolveError
 
 import logging
 
@@ -326,7 +327,13 @@ class Observation(object):
         # Plate-solve all the images - safe to run again
         logging.debug('Plate-solving FITS files')
         for fn in tqdm(self.files, desc='Solving files'.ljust(25)):
-            fits_utils.get_solve_field(fn, timeout=90)
+            try:
+                fits_utils.get_solve_field(fn, timeout=90)
+            except SolveError:
+                logging.warning("Can't solve file {}".format(fn))
+                logging.debug("Stopping processing for sequence and cleaning up")
+                self._do_cleanup(remove_stamps_file=True)
+
 
         # Lookup point sources
         # You need to set the env variable for the password for TESS catalog DB (ask Wilfred)
@@ -346,17 +353,21 @@ class Observation(object):
 
         # Cleanup
         if cleanup_after:
-            logging.debug('Cleaning up FITS files')
-            for fn in self.files:
-                os.remove(fn)
-                try:
-                    os.remove(fn.replace('.fits', '.solved'))
-                except Exception:
-                    pass
-            
+            self._do_cleanup(**kwargs)
+
+    def _do_cleanup(self, remove_stamps_file=False):
+        logging.debug('Cleaning up FITS files')
+        for fn in self.files:
+            os.remove(fn)
+            try:
+                os.remove(fn.replace('.fits', '.solved'))
+            except Exception:
+                pass
+        
         if remove_stamps_file:
             logging.debug('Removing stamps file')
             os.remove(self._hdf5_stamps_fn)
+
 
     def create_stamp_slices(self, stamp_size=(10, 10), *args, **kwargs):
         """Create PANOPTES Stamp Cubes (PSC) for each point source.
@@ -408,7 +419,7 @@ class Observation(object):
                     dset = self.stamps[star_id]
                 except KeyError:
                     dset = self.stamps.create_dataset(
-                        star_id,
+                        star_id + '/data',
                         (self.num_frames, stamp_size[0] * stamp_size[1]),
                         dtype='i2',
                         chunks=True
@@ -421,6 +432,8 @@ class Observation(object):
                     if len(d1) == 0:
                         logging.debug('Bad slice for {}, skipping'.format(star_id))
                         skip_sources.append(star_id)
+                        dset.attrs['quality'] = 'incomplete'
+                        continue
                     
                     dset[i] = d1
 
@@ -438,6 +451,8 @@ class Observation(object):
                         logging.warning("Error 01")
                         logging.warning(e)
                         errors[str(e)] = True
+                finally:
+                    self.stamps.flush()
 
     def find_similar_stars(self, target_index, store=True, force_new=True, *args, **kwargs):
         """ Get all variances for given target

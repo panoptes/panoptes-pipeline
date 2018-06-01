@@ -424,16 +424,7 @@ class Observation(object):
 
                 star_pos = wcs.all_world2pix(star_row.ra, star_row.dec, 0)
 
-                try:
-                    dset = self.stamps[star_id]
-                except KeyError:
-                    dset = self.stamps.create_dataset(
-                        star_id + '/data',
-                        (self.num_frames, stamp_size[0] * stamp_size[1]),
-                        dtype='i2',
-                        chunks=True
-                    )
-
+                # Get stamp data. If problem, mark for skipping in future.
                 try:
                     s0 = helpers.get_stamp_slice(star_pos[0], star_pos[1], stamp_size=stamp_size)
                     d1 = d0[s0].flatten()
@@ -441,23 +432,40 @@ class Observation(object):
                     if len(d1) == 0:
                         logging.debug('Bad slice for {}, skipping'.format(star_id))
                         skip_sources.append(star_id)
-                        dset.attrs['quality'] = 'incomplete'
                         continue
+                except Exception as e:
+                    raise e
 
+                # Stamp metadata
+                stamp_metadata = {
+                    'picid': star_id,
+                    'ra': star_row.ra,
+                    'dec': star_row.dec,
+                    'twomass': star_row.twomass,
+                    'x': star_row.X,
+                    'y': star_row.Y,
+                    'seq_time': self.seq_time,
+                    'img_time': img_id,
+                }
+
+                # Get a dataset for the stamp
+                try:
+                    dset = self.stamps[star_id]
+                except KeyError:
+                    dset_size = (self.num_frames, stamp_size[0] * stamp_size[1])
+                    dset = self.stamps.create_dataset(
+                        star_id,
+                        dset_size,
+                        dtype='i2',
+                        chunks=True
+                    )
+
+                # Assign data and metadata to dataset
+                try:
                     dset[i] = d1
-
-                    dset.attrs['picid'] = star_id
-                    dset.attrs['ra'] = star_row.ra
-                    dset.attrs['dec'] = star_row.dec
-                    dset.attrs['twomass'] = star_row.twomass
-                    dset.attrs['x'] = star_row.X
-                    dset.attrs['y'] = star_row.Y
-                    dset.attrs['wcs'] = str(wcs)
-                    dset.attrs['seq_time'] = self.seq_time
-                    dset.attrs['img_time'] = img_id
+                    dset.attrs = stamp_metadata
                 except Exception as e:
                     if str(e) not in errors:
-                        logging.warning("Error 01")
                         logging.warning(e)
                         errors[str(e)] = True
                 finally:

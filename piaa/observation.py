@@ -49,9 +49,14 @@ class Observation(object):
         os.makedirs(self._data_dir, exist_ok=True)
 
         log_file = os.path.join(self._data_dir, 'processing.log')
-        logging.basicConfig(filename=log_file, level=logging.DEBUG, format='%(asctime)s %(message)s')
+        logging.basicConfig(
+            filename=log_file, 
+            level=logging.DEBUG, 
+            format='%(asctime)s %(message)s'
+        )
         
         try:
+            os.makedirs('/var/panoptes/logs', exist_ok=True)
             os.remove('/var/panoptes/logs/processing.log')
         except FileNotFoundError:
             pass
@@ -304,12 +309,14 @@ class Observation(object):
             return
 
         # Check if in storage bucket
-        stamp_blob = helpers.get_observation_blobs(self.sequence + '.hdf5')
+        logging.info(self.sequence + '.hdf5')
+        stamp_blob = helpers.get_observation_blobs(key=self.sequence + '.hdf5')
         if stamp_blob:
             logging.info('Downloading stamps file from storage bucket')
             helpers.download_blob(stamp_blob, save_as=self._hdf5_stamps_fn)
             return
-
+        
+        return
         # Download FITS files
         logging.debug('Downloading FITS files')
         fits_blobs = helpers.get_observation_blobs(self.sequence)

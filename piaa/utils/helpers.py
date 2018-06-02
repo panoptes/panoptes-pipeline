@@ -119,22 +119,30 @@ def get_star_info(twomass_id, table='full_catalog', verbose=False):
     return d0
 
 
-def get_observation_blobs(prefix, include_pointing=False, project_id='panoptes-survey'):
+def get_observation_blobs(prefix=None, key=None, include_pointing=False, project_id='panoptes-survey'):
     """ Returns the list of Google Objects matching the field and sequence """
 
     # The bucket we will use to fetch our objects
     bucket = storage.Bucket(project_id)
-
     objs = list()
-    for f in bucket.objects(prefix=prefix):
-        if 'pointing' in f.key and not include_pointing:
-            continue
-        elif f.key.endswith('.fz') is False:
-            continue
-        else:
-            objs.append(f)
+    
+    if prefix:
+        for f in bucket.objects(prefix=prefix):
+            if 'pointing' in f.key and not include_pointing:
+                continue
+            elif f.key.endswith('.fz') is False:
+                continue
+            else:
+                objs.append(f)
 
-    return sorted(objs, key=lambda x: x.key)
+        return sorted(objs, key=lambda x: x.key)
+    
+    if key:
+        objs = bucket.object(key)
+        if objs.exists():
+            return objs
+        
+    return None
 
 
 def unpack_blob(img_blob, save_dir='/var/panoptes/fits_files/', verbose=False):

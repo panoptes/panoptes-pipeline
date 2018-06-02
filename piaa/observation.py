@@ -221,7 +221,7 @@ class Observation(object):
         return self._rgb_masks
 
     @property
-    def transit_info(self):
+    def transit_info(self, picid):
         if self._transit_info is None:
             for fn in self.files:
                 # Get information about each image
@@ -311,20 +311,19 @@ class Observation(object):
         """
         logging.info('Creating stamps')
 
-        # Check for file locally
-        if os.path.exists(self._hdf5_stamps_fn):
-            logging.debug('Using local stamps file')
-            return
+        if not force_new:
+            # Check for file locally
+            if os.path.exists(self._hdf5_stamps_fn):
+                logging.debug('Using local stamps file')
+                return
 
-        # Check if in storage bucket
-        logging.info(self.sequence + '.hdf5')
-        stamp_blob = helpers.get_observation_blobs(key=self.sequence + '.hdf5')
-        if stamp_blob:
-            logging.info('Downloading stamps file from storage bucket')
-            helpers.download_blob(stamp_blob, save_as=self._hdf5_stamps_fn)
-            return
-        
-        return
+            # Check if in storage bucket
+            stamp_blob = helpers.get_observation_blobs(key=self.sequence + '.hdf5')
+            if stamp_blob:
+                logging.info('Downloading stamps file from storage bucket')
+                helpers.download_blob(stamp_blob, save_as=self._hdf5_stamps_fn)
+                return
+
         # Download FITS files
         logging.debug('Downloading FITS files')
         fits_blobs = helpers.get_observation_blobs(self.sequence)
@@ -366,7 +365,7 @@ class Observation(object):
 
         # Cleanup
         if cleanup_after:
-            self._do_cleanup(**kwargs)
+            self._do_cleanup(remove_stamps_file=remove_stamps_file)
 
     def _do_cleanup(self, remove_stamps_file=False):
         logging.debug('Cleaning up FITS files')
@@ -405,10 +404,11 @@ class Observation(object):
                 enumerate(self.files),
                 total=self.num_frames,
                 desc="Getting point sources".ljust(25)):
-            logging.debug("Staring file: {}".format(fn))
+            logging.debug("Starting file: {}".format(fn))
             with fits.open(fn) as hdu:
                 hdu_idx = 0
                 if fn.endswith('.fz'):
+                    logging.debug("Using compressed FITS")
                     hdu_idx = 1
 
                 wcs = WCS(hdu[hdu_idx].header)
@@ -422,6 +422,7 @@ class Observation(object):
                     logging.warning(e)
                     continue
 
+            logging.info("Looping through point sources")
             for star_row in self.point_sources.itertuples():
                 star_id = str(star_row.Index)
 
@@ -442,40 +443,44 @@ class Observation(object):
                 except Exception as e:
                     raise e
 
-                # Stamp metadata
-                stamp_metadata = {
-                    'picid': star_id,
-                    'ra': star_row.ra,
-                    'dec': star_row.dec,
-                    'twomass': star_row.twomass,
-                    'x': star_row.X,
-                    'y': star_row.Y,
-                    'seq_time': self.seq_time,
-                    'img_time': img_id,
-                }
-
-                # Get a dataset for the stamp
+                # Get or create the group to hold the PSC
                 try:
-                    dset = self.stamps[star_id]
+                    psc_group = self.stamps[star_id]
                 except KeyError:
-                    dset_size = (self.num_frames, stamp_size[0] * stamp_size[1])
-                    dset = self.stamps.create_dataset(
-                        star_id,
-                        dset_size,
-                        dtype='i2',
-                        chunks=True
-                    )
+                    logging.debug("Creating new group for star")
+                    psc_group = self.stamps.create_group(star_id)
+                    # Stamp metadata
+                    try:
+                        psc_metadata = {
+                            'ra': star_row.ra,
+                            'dec': star_row.dec,
+                            'twomass': star_row.twomass,
+                            'seq_time': self.seq_time,
+                        }
+                        for k, v in psc_metadata.items():
+                            psc_group.attrs[k] = str(v)
+                    except Exception as e:
+                        if str(e) not in errors:
+                            logging.warning(e)
+                            errors[str(e)] = True
 
-                # Assign data and metadata to dataset
+
+                # Create the dataset for the individual stamp
                 try:
-                    dset[i] = d1
-                    dset.attrs = stamp_metadata
+                    img_time = img_id.split('_')[-1]
+                    stamp_dset = psc_group.create_dataset(img_time, data=d1)
+                    stamp_metadata ={
+                        'x': star_row.X,
+                        'y': star_row.Y,
+                    }
+                    for k, v in stamp_metadata.items():
+                        stamp_dset.attrs[k] = str(v)
                 except Exception as e:
                     if str(e) not in errors:
                         logging.warning(e)
                         errors[str(e)] = True
                 finally:
-                    self.stamps.flush()
+                    self.hdf5_stamps.flush()
 
     def find_similar_stars(self, target_index, store=True, force_new=True, *args, **kwargs):
         """ Get all variances for given target

@@ -313,7 +313,7 @@ class Observation(object):
             return
 
         # Check if in storage bucket
-        stamp_blob = helpers.get_observation_blobs(self.sequence + '.hdf5')
+        stamp_blob = helpers.get_observation_blobs(key=self.sequence + '.hdf5')
         if stamp_blob:
             logging.info('Downloading stamps file from storage bucket')
             helpers.download_blob(stamp_blob, save_as=self._hdf5_stamps_fn)
@@ -383,7 +383,7 @@ class Observation(object):
 
         Args:
             remove_cube (bool, optional): Remove the full cube from the hdf5 file after
-                processing, defaults to False
+                processing, defaults to frame_slice
             *args (TYPE): Description
             **kwargs (dict): `ipython_widget=True` can be passed to display progress
                 within a notebook

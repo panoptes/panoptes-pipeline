@@ -96,7 +96,7 @@ def get_stars(
         *args,
         **kwargs):
     cur = get_cursor(instance='tess-catalog', db='v6')
-    cur.execute('SELECT id, ra, dec, tmag, e_tmag, twomass FROM {} WHERE tmag < 13 AND ra >= %s AND ra <= %s AND dec >= %s AND dec <= %s;'.format(
+    cur.execute('SELECT id, ra, dec, tmag, vmag, e_tmag, twomass FROM {} WHERE tmag < 13 AND ra >= %s AND ra <= %s AND dec >= %s AND dec <= %s;'.format(
         table), (ra_min, ra_max, dec_min, dec_max))
 
     if cursor_only:
@@ -107,8 +107,8 @@ def get_stars(
         print(d0)
     return Table(
         data=d0,
-        names=['id', 'ra', 'dec', 'tmag', 'e_tmag', 'twomass'],
-        dtype=['i4', 'f8', 'f8', 'f4', 'f4', 'U26'])
+        names=['id', 'ra', 'dec', 'tmag', 'vmag', 'e_tmag', 'twomass'],
+        dtype=['i4', 'f8', 'f8', 'f4', 'f4', 'f4', 'U26'])
 
 
 def get_star_info(twomass_id, table='full_catalog', verbose=False):
@@ -232,7 +232,7 @@ def get_header_from_storage(blob):
         i += 1
 
 
-def get_rgb_masks(data, separate_green=False, force_new=False):
+def get_rgb_masks(data, separate_green=False, force_new=False, verbose=False):
 
     rgb_mask_file = 'rgb_masks.npz'
 
@@ -245,7 +245,8 @@ def get_rgb_masks(data, separate_green=False, force_new=False):
     try:
         return np.load(rgb_mask_file)
     except FileNotFoundError:
-        print("Making RGB masks")
+        if verbose:
+            print("Making RGB masks")
 
         if data.ndim > 2:
             data = data[0]

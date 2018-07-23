@@ -256,9 +256,9 @@ class Observation(object):
     def get_header_value(self, frame_index, header):
         return fits.getval(self.files[frame_index], header)
 
-    def get_psc(self, picid, frame_slice=None):
+    def get_psc(self, picid, frame_slice=None, subtract_bias=2048):
         try:
-            psc = np.array(self.stamps[picid]['data'])
+            psc = np.array(self.stamps[picid]['data']) - subtract_bias
         except KeyError:
             raise Exception("{} not found in the stamp collection.".format(picid))
 
@@ -350,7 +350,7 @@ class Observation(object):
         # You need to set the env variable for the password for TESS catalog DB (ask Wilfred)
         # os.environ['PGPASSWORD'] = 'sup3rs3cr3t'
         logging.info('Looking up point sources via TESS catalog')
-        self.lookup_point_sources(use_sextractor=False, use_tess_catalog=True)
+        self.lookup_point_sources(use_sextractor=False, use_tess_catalog=True, **kwargs)
         logging.info("Number of sources detected: {}".format(len(self.point_sources)))
 
         # Create stamps
@@ -379,7 +379,7 @@ class Observation(object):
             logging.info('Removing stamps file')
             os.remove(self._hdf5_stamps_fn)
 
-    def create_stamp_slices(self, stamp_size=(10, 10), *args, **kwargs):
+    def create_stamp_slices(self, stamp_size=(10, 10), snr_limit=5, *args, **kwargs):
         """Create PANOPTES Stamp Cubes (PSC) for each point source.
 
         Creates a slice through the cube corresponding to a stamp and stores the
@@ -420,9 +420,12 @@ class Observation(object):
                 except ValueError as e:
                     logging.warning(e)
                     continue
+                    
+            high_snr = self.point_sources.snr > snr_limit
+            sources = self.point_sources[high_snr]
 
-            logging.info("Looping through point sources")
-            for star_row in self.point_sources.itertuples():
+            logging.info("Looping through point sources: {}/{}".format(i, len(self.files)))
+            for star_row in sources.itertuples():
                 star_id = str(star_row.Index)
 
                 if star_id in skip_sources:
@@ -436,7 +439,7 @@ class Observation(object):
                     d1 = d0[s0].flatten()
 
                     if len(d1) == 0:
-                        logging.debug('Bad slice for {}, skipping'.format(star_id))
+                        logging.warning('Bad slice for {}, skipping'.format(star_id))
                         skip_sources.append(star_id)
                         continue
                 except Exception as e:
@@ -454,6 +457,8 @@ class Observation(object):
                             'ra': star_row.ra,
                             'dec': star_row.dec,
                             'twomass': star_row.twomass,
+                            'vmag': star_row.vmag,
+                            'tmag': star_row.tmag,
                             'seq_time': self.seq_time,
                         }
                         for k, v in psc_metadata.items():
@@ -495,15 +500,7 @@ class Observation(object):
                             'original_position', metadata_size, dtype='u2', chunks=True)
 
                     # Assign the data
-                    metadata_dset[i] = (star_row.X, star_row.Y)
-
-                    #img_time = img_id.split('_')[-1]
-                    #stamp_metadata ={
-                    #    'x': star_row.X,
-                    #    'y': star_row.Y,
-                    #}
-                    #for k, v in stamp_metadata.items():
-                    #    stamp_dset.attrs[k] = str(v)
+                    metadata_dset[i] = (star_row.x, star_row.y)
                 finally:
                     self.hdf5_stamps.flush()
 
@@ -639,7 +636,8 @@ class Observation(object):
                              use_sextractor=True,
                              use_tess_catalog=False,
                              sextractor_params=None,
-                             force_new=False
+                             force_new=False,
+                             **kwargs
                              ):
         """ Extract point sources from image
 
@@ -707,8 +705,13 @@ class Observation(object):
             right = point_sources['X'] < h - stamp_size
 
             self._point_sources = point_sources[top & bottom & right & left].to_pandas()
-            ra_key = 'ALPHA_J2000'
-            dec_key = 'DELTA_J2000'
+            self._point_sources.columns = [
+                'x', 'y', 
+                'ra', 'dec', 
+                'background', 
+                'flux_auto', 'flux_max', 'fluxerr_auto', 
+                'fwhm', 'snr'
+            ]
 
         if use_tess_catalog:
             wcs_footprint = self.wcs.calc_footprint()
@@ -721,7 +724,7 @@ class Observation(object):
                                                                                    dec_min,
                                                                                    dec_max))
             self._point_sources = helpers.get_stars(
-                ra_min, ra_max, dec_min, dec_max, cursor_only=False, table='ctl')
+                ra_min, ra_max, dec_min, dec_max, cursor_only=False, table=kwargs.get('table', 'full_catalog'))
 
             star_pixels = self.wcs.all_world2pix(
                 self._point_sources['ra'], self._point_sources['dec'], 0)
@@ -730,23 +733,26 @@ class Observation(object):
 
             self._point_sources.add_index(['id'])
             self._point_sources = self._point_sources.to_pandas()
-            ra_key = 'ra'
-            dec_key = 'dec'
 
         # Do catalog matching
-        stars = SkyCoord(ra=self._point_sources[ra_key].values *
-                         u.deg, dec=self._point_sources[dec_key].values * u.deg)
-        st0 = helpers.get_stars_from_footprint(self.wcs.calc_footprint(), cursor_only=False, table='ctl')
+        stars = SkyCoord(ra=self._point_sources['ra'].values *
+                         u.deg, dec=self._point_sources['dec'].values * u.deg)
+        st0 = helpers.get_stars_from_footprint(self.wcs.calc_footprint(), cursor_only=False, table=kwargs.get('table', 'full_catalog'))
         catalog = SkyCoord(ra=st0['ra'] * u.deg, dec=st0['dec'] * u.deg)
         idx, d2d, d3d = match_coordinates_sky(stars, catalog)
 
         self._point_sources['id'] = st0[idx]['id']
+        self._point_sources['twomass'] = st0[idx]['twomass']
+        self._point_sources['tmag'] = st0[idx]['tmag']
+        self._point_sources['vmag'] = st0[idx]['vmag']
         self._point_sources.set_index('id', inplace=True)
+        
+        return d2d
         
     def normalize(self, cube):
         return (cube.T / cube.sum(1)).T
 
-    def run_piaa(self, picid, num_refs=50, aperture_size=6, exp_time=120, save_csv=True, force_new=False, new_comparisons=False, show_stamps=False, verbose=False, subtract_bias=False):
+    def run_piaa(self, picid, num_refs=50, aperture_size=6, exp_time=120, save_csv=True, force_new=False, new_comparisons=False, show_stamps=False, verbose=False):
         try:
             diff_group = self.stamps['diffs']
         except KeyError:
@@ -766,8 +772,8 @@ class Observation(object):
         vary_series = self.find_similar_stars(picid, force_new=new_comparisons, display_progress=False, store=True)
 
         logging.info("Building collection")
-        ref_collection = np.array([self.get_psc(str(idx)) for idx in vary_series.index[:num_refs]])
-        #ref_collection = np.array([self.get_psc(str(idx)) for idx in vary_series.index[:num_refs:2]])
+        #ref_collection = np.array([self.get_psc(str(idx)) for idx in vary_series.index[:num_refs]])
+        ref_collection = np.array([self.get_psc(str(idx)) for idx in vary_series.index[:num_refs:3]])
         self.num_frames = ref_collection[0].shape[0]
         logging.info("Ref collection shape: {}".format(ref_collection.shape))
 
@@ -796,7 +802,8 @@ class Observation(object):
         stamp_side = int(np.sqrt(target_psc.shape[1]))
         stamp_size = (stamp_side, stamp_side)
 
-        rgb_stamp_masks = helpers.get_rgb_masks(target_psc[0].reshape(stamp_size[0], stamp_size[1]), force_new=False, separate_green=False)
+        rgb_stamp_masks = helpers.get_rgb_masks(target_psc[0].reshape(stamp_size[0], stamp_size[1]), force_new=True, separate_green=False)
+        
 
         diff = list()
         for frame_idx in range(self.num_frames):
@@ -816,106 +823,63 @@ class Observation(object):
                 aperture_position = (5, 5)
                 
             logging.info("Getting cutout at {} of size {}".format(aperture_position, aperture_size))
-
-            try:
-                d1 = Cutout2D(d0, aperture_position, aperture_size, mode='partial', fill_value=2048) # Bias
-                i1 = Cutout2D(i0, aperture_position, aperture_size, mode='partial', fill_value=2048) # Bias
-            except (PartialOverlapError, NoOverlapError) as e:
-                logging.warning("Bad overlap frame {}".format(frame_idx))
-                logging.warning(aperture_position)
-                continue
-
-            d2 = d1.data
-            i2 = i1.data
             
-            if subtract_bias:
-                d2 = d2 - 2048
-                i2 = i2 - 2048
-            
-            if show_stamps:
-                helpers.show_stamps(
-                    pscs=[ d2, i2 ], 
-                    show_residual=True, 
-                    save_name='/var/panoptes/images/lc/stamps/{}_{}_{}_{}.png'.format(
-                        self.cam_id, 
-                        picid, 
-                        self.seq_time, 
-                        frame_idx
-                    )
-                ) 
+            color_flux = list()
+            stamps = list()
+            for color, mask in zip('rgb', rgb_stamp_masks):
                 
-            logging.info("Slicing masks")
+                d1 = np.ma.array(d0, mask=~mask)
+                i1 = np.ma.array(i0, mask=~mask)
+            
+                try:
+                    d2 = Cutout2D(d1, aperture_position, aperture_size, mode='strict')
+                    i2 = Cutout2D(i1, aperture_position, aperture_size, mode='strict')
+                except (PartialOverlapError, NoOverlapError) as e:
+                    logging.warning("Bad overlap frame {}, color {}".format(frame_idx, color))
+                    logging.warning(aperture_position)
+                    continue
+                except Exception as e:
+                    logging.warning("Prolem with cutout: {}".format(e))
+                    continue
 
-            r_mask = ~rgb_stamp_masks[0][d1.slices_original]
-            g1_mask = ~rgb_stamp_masks[1][d1.slices_original]
-            b_mask = ~rgb_stamp_masks[2][d1.slices_original]
+                d3 = d2.data
+                i3 = i2.data
 
-            r_target = np.ma.array(d2, mask=r_mask)
-            g1_target = np.ma.array(d2, mask=g1_mask)
-            b_target = np.ma.array(d2, mask=b_mask)
-
-            r_ideal = np.ma.array(i2, mask=r_mask)
-            g1_ideal = np.ma.array(i2, mask=g1_mask)
-            b_ideal = np.ma.array(i2, mask=b_mask)
-
-            r_target_imag = -2.5 * np.log10(r_target.sum() / exp_time)
-            g1_target_imag = -2.5 * np.log10(g1_target.sum() / exp_time)
-            b_target_imag = -2.5 * np.log10(b_target.sum() / exp_time)
-
-            r_ideal_imag = -2.5 * np.log10(r_ideal.sum() / exp_time)
-            g1_ideal_imag = -2.5 * np.log10(g1_ideal.sum() / exp_time)
-            b_ideal_imag = -2.5 * np.log10(b_ideal.sum() / exp_time)        
-
-            total_diff = d2.sum() / i2.sum()
-            total_diff_mag = (-2.5 * np.log10(d2.sum() / exp_time)) - (-2.5 * np.log10(i2.sum() / exp_time))
-
-            results = (
-                r_target.sum(),
-                r_target_imag,
-                r_ideal.sum(),
-                r_ideal_imag,
-
-                g1_target.sum(),
-                g1_target_imag,
-                g1_ideal.sum(),
-                g1_ideal_imag,            
-
-                b_target.sum(),
-                b_target_imag,
-                b_ideal.sum(),
-                b_ideal_imag,
-
-                total_diff,
-                total_diff_mag,
-
-                aperture_position[0],
-                aperture_position[1],
-            )
-            diff.append(results)
-
+                color_flux.append(d3.sum())
+                color_flux.append(i3.sum())
+                
+                stamps.append([d3, i3])
+                
+            if show_stamps:
+                target_s = stamps[0][0].filled(0) + stamps[1][0].filled(0) + stamps[2][0].filled(0)
+                ideal_s = stamps[0][1].filled(0) + stamps[1][1].filled(0) + stamps[2][1].filled(0)
+                helpers.show_stamps(
+                    [target_s,ideal_s], 
+                    stamp_size=aperture_size, 
+                    save_name='/var/panoptes/images/lc/stamps/{}_{}_{}_{:02d}.png'.format(
+                        self.cam_id, picid, self.seq_time, frame_idx
+                    )
+                )
+                
+            diff.append(color_flux)
+            
         diffs = np.array(diff)
+        logging.info(diffs.shape)
+        logging.info(diffs)
+        image_times = Time(self.stamps['image_times'], format='mjd')
 
-        dset = diff_group.create_dataset(picid, data=diffs, dtype='f4')
-        dset.attrs['aperture_size'] = aperture_size
-        
-        # Get information about transit
-        image_times = Time(np.array(self.stamps['image_times']), format='mjd')
-        phases = [self.planet.get_phase(t0) for t0 in image_times]
-
-        if save_csv:
-            lc = pd.DataFrame(diffs, index=image_times.to_datetime(), columns=[
-                'red_target', 'red_target_mag', 'red_ideal', 'red_ideal_mag', 
-                'green_target', 'green_target_mag', 'green_ideal', 'green_ideal_mag', 
-                'blue_target', 'blue_target_mag', 'blue_ideal', 'blue_ideal_mag', 
-                'total_diff', 'total_diff_mag',
-                'aperture_x', 'aperture_y',
+        try:
+            lc = pd.DataFrame(diffs, index=image_times, columns=[
+                'r_target', 'r_ideal',
+                'g_target', 'g_ideal',
+                'b_target', 'b_ideal',
             ])            
-            lc['phases'] = phases
 
             csv_file = '/var/panoptes/images/lc/{}_{}_diff.csv'.format(self.sequence.replace('/', '_'), picid)
             logging.info("Writing csv to {}".format(csv_file))
             lc.to_csv(csv_file)
-
+        except Exception as e:
+            logging.warning("Problem createing CSV file: {}".format(e))
 
         return target_psc, ideal
 

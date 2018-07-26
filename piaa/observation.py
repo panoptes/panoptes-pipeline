@@ -206,7 +206,7 @@ class Observation(object):
             try:
                 self._rgb_masks = np.load(rgb_mask_file)
             except FileNotFoundError:
-                logging.debug("Making RGB masks - {}".format(rgb_mask_file))
+                logging.info("Making RGB masks - {}".format(rgb_mask_file))
                 self._rgb_masks = np.array(make_masks(self.data_cube[0]))
                 self._rgb_masks.dump(rgb_mask_file)
 
@@ -340,7 +340,7 @@ class Observation(object):
                 solved_files.append(fn)
             except Exception:
                 logging.warning("Can't solve file {}".format(fn))
-                logging.debug("Stopping processing for sequence and cleaning up")
+                logging.info("Stopping processing for sequence and cleaning up")
                 continue
                 #self._do_cleanup(remove_stamps_file=True)
                 
@@ -403,11 +403,11 @@ class Observation(object):
                 enumerate(self.files),
                 total=self.num_frames,
                 desc="Getting point sources".ljust(25)):
-            logging.debug("Starting file: {}".format(fn))
+            logging.info("Starting file: {}".format(fn))
             with fits.open(fn) as hdu:
                 hdu_idx = 0
                 if fn.endswith('.fz'):
-                    logging.debug("Using compressed FITS")
+                    logging.info("Using compressed FITS")
                     hdu_idx = 1
 
                 wcs = WCS(hdu[hdu_idx].header)
@@ -449,7 +449,7 @@ class Observation(object):
                 try:
                     psc_group = self.stamps[star_id]
                 except KeyError:
-                    logging.debug("Creating new group for star {}".format(star_id))
+                    logging.info("Creating new group for star {}".format(star_id))
                     psc_group = self.stamps.create_group(star_id)
                     # Stamp metadata
                     try:
@@ -473,7 +473,7 @@ class Observation(object):
                     # Assign stamp values
                     psc_group['data'][i] = d1
                 except KeyError:
-                    logging.debug("Creating new PSC dataset for {}".format(star_id))
+                    logging.info("Creating new PSC dataset for {}".format(star_id))
                     psc_size = (self.num_frames, len(d1))
 
                     # Create the dataset
@@ -486,13 +486,13 @@ class Observation(object):
                 # Sets the metadata. Create metadata dataset if needed.
                     key = str(e) + star_id
                     if key not in errors:
-                        logging.debug(e)
+                        logging.info(e)
                         errors[key] = True
 
                 try:
                     psc_group['original_position'][i] = (star_pos[0], star_pos[1])
                 except KeyError:
-                    logging.debug("Creating new metadata dataset for {}".format(star_id))
+                    logging.info("Creating new metadata dataset for {}".format(star_id))
                     metadata_size = (self.num_frames, 2)
 
                     # Create the dataset
@@ -514,7 +514,7 @@ class Observation(object):
         vary_fn = '/var/panoptes/images/lc/{}_{}.csv'.format(self.sequence.replace('/','_'), target_index)
         if force_new:
             try:
-                logging.debug("Removing exsting comparison stars and forcing new")
+                logging.info("Removing exsting comparison stars and forcing new")
                 os.remove(vary_fn)
             except FileNotFoundError as e:
                 pass
@@ -522,7 +522,7 @@ class Observation(object):
         try:
             return pd.read_csv(vary_fn, index_col=[0])
         except Exception:
-            logging.debug("Can't find stored similar stars, generating new")
+            logging.info("Can't find stored similar stars, generating new")
             
         num_sources = len(list(self.stamps.keys()))
 
@@ -533,7 +533,7 @@ class Observation(object):
         num_frames = psc0.shape[0]
 
         # Normalize
-        logging.debug("Normalizing target for {} frames".format(num_frames))
+        logging.info("Normalizing target for {} frames".format(num_frames))
         frames = []
         normalized_psc0 = np.zeros_like(psc0, dtype='f4')
         for frame_index in range(num_frames):
@@ -542,7 +542,7 @@ class Observation(object):
                     normalized_psc0[frame_index] = psc0[frame_index] / psc0[frame_index].sum()
                     frames.append(frame_index)
                 else:
-                    logging.debug("Sum for target frame {} is 0".format(frame_index))
+                    logging.info("Sum for target frame {} is 0".format(frame_index))
             except RuntimeWarning:
                 warn("Skipping frame {}".format(frame_index))
 
@@ -566,7 +566,7 @@ class Observation(object):
                 v = ((normalized_psc0 - normalized_psc1) ** 2).sum()
                 data[source_index] = v
             except ValueError as e:
-                logging.debug("Skipping invalid stamp for source {}: {}".format(source_index, e))
+                logging.info("Skipping invalid stamp for source {}: {}".format(source_index, e))
                 
         df0 = pd.DataFrame(
                 {'v': list(data.values())}, 
@@ -655,10 +655,10 @@ class Observation(object):
         if use_sextractor:
             # Write the sextractor catalog to a file
             source_file = '{}/point_sources_{:02d}.cat'.format(self.data_dir, image_num)
-            logging.debug("Point source catalog: {}".format(source_file))
+            logging.info("Point source catalog: {}".format(source_file))
 
             if not os.path.exists(source_file) or force_new:
-                logging.debug("No catalog found, building from sextractor")
+                logging.info("No catalog found, building from sextractor")
                 # Build catalog of point sources
                 sextractor = shutil.which('sextractor')
                 if sextractor is None:
@@ -673,18 +673,18 @@ class Observation(object):
                         '-CATALOG_NAME', source_file,
                     ]
 
-                logging.debug("Running sextractor...")
+                logging.info("Running sextractor...")
                 cmd = [sextractor, *sextractor_params, self.files[image_num]]
-                logging.debug(cmd)
+                logging.info(cmd)
                 subprocess.run(cmd)
 
             # Read catalog
             point_sources = Table.read(source_file, format='ascii.sextractor')
 
             # Remove the point sources that sextractor has flagged
-            if 'FLAGS' in point_sources.keys():
-                point_sources = point_sources[point_sources['FLAGS'] == 0]
-                point_sources.remove_columns(['FLAGS'])
+            #if 'FLAGS' in point_sources.keys():
+            #    point_sources = point_sources[point_sources['FLAGS'] == 0]
+            #    point_sources.remove_columns(['FLAGS'])
 
             # Rename columns
             point_sources.rename_column('X_IMAGE', 'X')
@@ -710,7 +710,7 @@ class Observation(object):
                 'ra', 'dec', 
                 'background', 
                 'flux_auto', 'flux_max', 'fluxerr_auto', 
-                'fwhm', 'snr'
+                'fwhm', 'flags', 'snr'
             ]
 
         if use_tess_catalog:
@@ -719,7 +719,7 @@ class Observation(object):
             ra_min = min(wcs_footprint[:, 0])
             dec_max = max(wcs_footprint[:, 1])
             dec_min = min(wcs_footprint[:, 1])
-            logging.debug("RA: {:.03f} - {:.03f} \t Dec: {:.03f} - {:.03f}".format(ra_min,
+            logging.info("RA: {:.03f} - {:.03f} \t Dec: {:.03f} - {:.03f}".format(ra_min,
                                                                                    ra_max,
                                                                                    dec_min,
                                                                                    dec_max))
@@ -772,8 +772,8 @@ class Observation(object):
         vary_series = self.find_similar_stars(picid, force_new=new_comparisons, display_progress=False, store=True)
 
         logging.info("Building collection")
-        #ref_collection = np.array([self.get_psc(str(idx)) for idx in vary_series.index[:num_refs]])
-        ref_collection = np.array([self.get_psc(str(idx)) for idx in vary_series.index[:num_refs:3]])
+        ref_collection = np.array([self.get_psc(str(idx)) for idx in vary_series.index[:num_refs]])
+        #ref_collection = np.array([self.get_psc(str(idx)) for idx in vary_series.index[:num_refs:3]])
         self.num_frames = ref_collection[0].shape[0]
         logging.info("Ref collection shape: {}".format(ref_collection.shape))
 
@@ -787,7 +787,7 @@ class Observation(object):
         logging.info("Getting coefficients: num_refs={} aperture={}".format(num_refs, aperture_size))
         coeffs = self.get_ideal_full_coeffs(normalized_collection, verbose=verbose)
         logging.info(coeffs)
-        logging.debug(normalized_collection)
+        logging.info(normalized_collection)
 
         # Build the template from the coeffs with non-normalized data
         logging.info("Building ideal stamp")

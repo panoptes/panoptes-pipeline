@@ -127,13 +127,17 @@ def get_star_info(picid=None, twomass_id=None, table='full_catalog', verbose=Fal
     return cur.fetchone()
 
 
-def get_observation_blobs(prefix=None, key=None, include_pointing=False, project_id='panoptes-survey'):
+def get_observation_blobs(
+        prefix=None,
+        key=None,
+        include_pointing=False,
+        project_id='panoptes-survey'):
     """ Returns the list of Google Objects matching the field and sequence """
 
     # The bucket we will use to fetch our objects
     bucket = storage.Bucket(project_id)
     objs = list()
-    
+
     if prefix:
         for f in bucket.objects(prefix=prefix):
             if 'pointing' in f.key and not include_pointing:
@@ -144,12 +148,12 @@ def get_observation_blobs(prefix=None, key=None, include_pointing=False, project
                 objs.append(f)
 
         return sorted(objs, key=lambda x: x.key)
-    
+
     if key:
         objs = bucket.object(key)
         if objs.exists():
             return objs
-        
+
     return None
 
 

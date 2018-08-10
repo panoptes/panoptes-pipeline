@@ -387,7 +387,7 @@ class Observation(object):
 
         Args:
             remove_cube (bool, optional): Remove the full cube from the hdf5 file after
-                processing, defaults to False
+                processing, defaults to frame_slice
             *args (TYPE): Description
             **kwargs (dict): `ipython_widget=True` can be passed to display progress
                 within a notebook

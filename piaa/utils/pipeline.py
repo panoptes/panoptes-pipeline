@@ -31,6 +31,7 @@ from pocs.utils.images import fits as fits_utils
 
 import logging
 
+
 def normalize(cube):
     return (cube.T / cube.sum(1)).T
 
@@ -60,12 +61,12 @@ def lookup_point_sources(fits_files,
     """
     if catalog_match or use_tess_catalog:
         assert wcs is not None and wcs.is_celestial, logging.warning("Need a valid WCS")
-        
+
     if use_sextractor:
         # Write the sextractor catalog to a file
         source_file = os.path.join(
-            os.environ['PANDIR'], 
-            'psc', 
+            os.environ['PANDIR'],
+            'psc',
             'point_sources_{}.cat'.format(fits_files[image_num].replace('/', '_'))
         )
         logging.info("Point source catalog: {}".format(source_file))
@@ -95,7 +96,7 @@ def lookup_point_sources(fits_files,
         point_sources = Table.read(source_file, format='ascii.sextractor')
 
         # Remove the point sources that sextractor has flagged
-        #if 'FLAGS' in point_sources.keys():
+        # if 'FLAGS' in point_sources.keys():
         #    point_sources = point_sources[point_sources['FLAGS'] == 0]
         #    point_sources.remove_columns(['FLAGS'])
 
@@ -119,21 +120,21 @@ def lookup_point_sources(fits_files,
 
         point_sources = point_sources[top & bottom & right & left].to_pandas()
         point_sources.columns = [
-            'x', 'y', 
-            'ra', 'dec', 
-            'background', 
-            'flux_auto', 'flux_max', 'fluxerr_auto', 
+            'x', 'y',
+            'ra', 'dec',
+            'background',
+            'flux_auto', 'flux_max', 'fluxerr_auto',
             'fwhm', 'flags', 'snr'
         ]
 
     if use_tess_catalog:
         wcs_footprint = wcs.calc_footprint()
         logging.info("WCS footprint: {}".format(wcs_footprint))
-                                                                              
+
         # Get stars from TESS catalog
         point_sources = helpers.get_stars_from_footprint(
             wcs_footprint,
-            cursor_only=False, 
+            cursor_only=False,
             table=kwargs.get('table', 'full_catalog')
         )
 
@@ -147,23 +148,23 @@ def lookup_point_sources(fits_files,
 
     # Get coords from detected point sources
     stars_coords = SkyCoord(
-        ra=point_sources['ra'].values * u.deg, 
+        ra=point_sources['ra'].values * u.deg,
         dec=point_sources['dec'].values * u.deg
     )
-    
+
     # Lookup stars in catalog
     catalog_stars = helpers.get_stars_from_footprint(
-        wcs.calc_footprint(), 
-        cursor_only=False, 
+        wcs.calc_footprint(),
+        cursor_only=False,
         table=kwargs.get('table', 'full_catalog')
     )
-    
+
     # Get coords for catalog stars
     catalog_coords = SkyCoord(
-        ra=catalog_stars['ra'] * u.deg, 
+        ra=catalog_stars['ra'] * u.deg,
         dec=catalog_stars['dec'] * u.deg
     )
-    
+
     # Do catalog matching
     idx, d2d, d3d = match_coordinates_sky(stars_coords, catalog_coords)
 
@@ -173,7 +174,7 @@ def lookup_point_sources(fits_files,
     point_sources['tmag'] = catalog_stars[idx]['tmag']
     point_sources['vmag'] = catalog_stars[idx]['vmag']
     point_sources['d2d'] = d2d
-    
+
     # Change the index to the picid
     point_sources.set_index('id', inplace=True)
 
@@ -181,13 +182,13 @@ def lookup_point_sources(fits_files,
 
 
 def create_stamp_slices(
-        sequence,
-        fits_files, 
-        point_sources, 
-        stamp_size=(14, 14), 
-        force_new=False,
-        *args, **kwargs
-    ):
+    sequence,
+    fits_files,
+    point_sources,
+    stamp_size=(14, 14),
+    force_new=False,
+    *args, **kwargs
+):
     """Create PANOPTES Stamp Cubes (PSC) for each point source.
 
     Creates a slice through the cube corresponding to a stamp and stores the
@@ -204,20 +205,21 @@ def create_stamp_slices(
 
     num_sources = len(point_sources)
     num_frames = len(fits_files)
-    
+
     stamps_fn = os.path.join(
-        os.environ['PANDIR'], 
-        'psc', 
+        os.environ['PANDIR'],
+        'psc',
         sequence.replace('/', '_') + '.hdf5'
     )
     stamps = h5py.File(stamps_fn, 'a')
 
-    image_times = np.array([Time(date_parse(fits.getval(fn, 'DATE-OBS'))).mjd for fn in fits_files])
+    image_times = np.array(
+        [Time(date_parse(fits.getval(fn, 'DATE-OBS'))).mjd for fn in fits_files])
     airmass = np.array([fits.getval(fn, 'AIRMASS') for fn in fits_files])
-    
+
     stamps.attrs['image_times'] = image_times
     stamps.attrs['airmass'] = airmass
-    
+
     with ProgressBar(num_frames) as bar:
         for i, fn in enumerate(fits_files):
             # Get stamp data.
@@ -241,9 +243,10 @@ def create_stamp_slices(
                 # Get stamp data. If problem, mark for skipping in future.
                 try:
                     # This handles the RGGB pattern
-                    slice0 = helpers.get_stamp_slice(star_pos[0], star_pos[1], stamp_size=stamp_size)
+                    slice0 = helpers.get_stamp_slice(
+                        star_pos[0], star_pos[1], stamp_size=stamp_size)
                     d1 = d0[slice0].flatten()
-                    
+
                     if len(d1) == 0:
                         logging.warning('Bad slice for {}, skipping'.format(star_id))
                         continue
@@ -283,12 +286,13 @@ def create_stamp_slices(
                     psc_size = (num_frames, len(d1))
 
                     # Create the dataset
-                    stamp_dset = psc_group.create_dataset('data', psc_size, dtype='u2', chunks=True)
+                    stamp_dset = psc_group.create_dataset(
+                        'data', psc_size, dtype='u2', chunks=True)
 
                     # Assign the data
                     stamp_dset[i] = d1
                 except TypeError as e:
-                # Sets the metadata. Create metadata dataset if needed.
+                    # Sets the metadata. Create metadata dataset if needed.
                     key = str(e) + star_id
                     if key not in errors:
                         logging.info(e)
@@ -302,18 +306,18 @@ def create_stamp_slices(
 
                     # Create the dataset
                     metadata_dset = psc_group.create_dataset(
-                            'original_position', metadata_size, dtype='u2', chunks=True)
+                        'original_position', metadata_size, dtype='u2', chunks=True)
 
                     # Assign the data
                     metadata_dset[i] = (star_row.x, star_row.y)
 
                 stamps.flush()
-                
+
             if errors:
                 logging.warning(errors)
-                
+
             bar.update(i)
-            
+
     return stamps_fn
 
 
@@ -330,14 +334,14 @@ def get_psc(picid, stamps, frame_slice=None):
 
 
 def find_similar_stars(
-    picid, 
-    stamps, 
-    out_fn=None, 
-    camera_bias=2048,
-    num_refs=100, 
-    snr_limit=10,
-    show_progress=True,
-    *args, **kwargs):
+        picid,
+        stamps,
+        out_fn=None,
+        camera_bias=2048,
+        num_refs=100,
+        snr_limit=10,
+        show_progress=True,
+        *args, **kwargs):
     """ Get all variances for given target
 
     Args:
@@ -348,7 +352,7 @@ def find_similar_stars(
         return pd.read_csv(out_fn, index_col=[0])
     except Exception:
         pass
-    
+
     num_sources = len(stamps)
 
     data = dict()
@@ -374,7 +378,7 @@ def find_similar_stars(
     if show_progress:
         iterator = tqdm(
             iterator,
-            total=len(stamps), 
+            total=len(stamps),
             desc="Finding similar",
             leave=False
         )
@@ -408,9 +412,9 @@ def find_similar_stars(
             logging.info("Skipping invalid stamp for source {}: {}".format(source_index, e))
 
     df0 = pd.DataFrame(
-            {'v': list(data.values())}, 
-            index=list(data.keys())).sort_values(by='v')
-    
+        {'v': list(data.values())},
+        index=list(data.keys())).sort_values(by='v')
+
     if out_fn:
         df0[:num_refs].to_csv(out_fn)
 

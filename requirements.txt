@@ -6,3 +6,4 @@ numpy
 photutils
 psycopg2
 tqdm
+ipython-autotime

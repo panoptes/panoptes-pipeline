@@ -15,9 +15,11 @@ from astropy.table import Table
 from astropy.wcs import WCS
 from astropy import units as u
 from astropy.coordinates import SkyCoord, match_coordinates_sky
+from astropy.nddata.utils import Cutout2D, PartialOverlapError, NoOverlapError
 from astropy.time import Time
 
 from scipy.sparse.linalg import lsmr
+from scipy import linalg
 
 from dateutil.parser import parse as date_parse
 
@@ -28,7 +30,6 @@ from piaa.utils import helpers
 from piaa import exoplanets
 
 from pocs.utils.images import fits as fits_utils
-from pocs.utils.error import SolveError
 
 import logging
 
@@ -49,17 +50,13 @@ class Observation(object):
         self._data_dir = os.path.join(DATA_DIR, sequence)
         os.makedirs(self._data_dir, exist_ok=True)
 
-        log_file = os.path.join(self._data_dir, 'processing.log')
-        logging.basicConfig(filename=log_file, level=logging.DEBUG,
-                            format='%(asctime)s %(message)s')
-
-        try:
-            os.remove('/var/panoptes/logs/processing.log')
-        except FileNotFoundError:
-            pass
-        finally:
-            os.symlink(log_file, '/var/panoptes/logs/processing.log')
-
+        log_file = '/var/panoptes/logs/{}.log'.format(sequence.replace('/', '_'))
+        logging.basicConfig(
+            filename=log_file, 
+            level=logging.INFO, 
+            format='%(asctime)s %(message)s'
+        )
+        
         logging.info('*' * 80)
         logging.info('Setting up Observation for analysis - {}'.format(sequence))
 
@@ -112,8 +109,13 @@ class Observation(object):
         try:
             stamp_group = self.hdf5_stamps['stamps']
         except KeyError:
-            logging.debug("Creating stamps file.")
+            logging.info("Creating stamps file.")
             stamp_group = self.hdf5_stamps.create_group('stamps')
+
+            # Attach image times to group
+            logging.info("Adding image times to stamps file")
+            stamp_group.create_dataset('image_times', data=self.image_times)
+            self.hdf5_stamps.flush()
 
         return stamp_group
 
@@ -139,27 +141,21 @@ class Observation(object):
     @property
     def image_times(self):
         if self._image_times is None:
-            image_times = dict()
+            image_times = list()
 
-            for fn in self.files:
-                # Get information about each image
-                try:
-                    _, _, _, _, _, unit_id, field, cam_id, seq_id, img_id = fn.split('/')
-                except ValueError as e:
-                    logging.warning(e)
-                    continue
+            try:
+                for i, fn in enumerate(self.files):
+                    # Get the time from the image
+                    try:
+                        date_obs = self.get_header_value(i, 'IMAGEID').split('_')[-1]
+                        t0 = Time(date_parse(date_obs))
+                    except Exception as e:
+                        logging.warning(e)
+                        continue
 
-                # Get the time from the image
-                img_id = img_id.split('.')[0]
-                try:
-                    t0 = Time(date_parse(img_id), format='datetime')
-                except Exception as e:
-                    logging.warning(e)
-                    continue
-
-                p = self.planet.get_phase(t0)
-
-                image_times[img_id] = p
+                    image_times.append(t0.mjd)
+            except AttributeError: # Don't have files
+                image_times = Time(self.stamps['image_times'], format='mjd')
 
             self._image_times = image_times
 
@@ -210,14 +206,14 @@ class Observation(object):
             try:
                 self._rgb_masks = np.load(rgb_mask_file)
             except FileNotFoundError:
-                logging.debug("Making RGB masks")
+                logging.info("Making RGB masks - {}".format(rgb_mask_file))
                 self._rgb_masks = np.array(make_masks(self.data_cube[0]))
                 self._rgb_masks.dump(rgb_mask_file)
 
         return self._rgb_masks
 
     @property
-    def transit_info(self):
+    def transit_info(self, picid):
         if self._transit_info is None:
             for fn in self.files:
                 # Get information about each image
@@ -260,17 +256,14 @@ class Observation(object):
     def get_header_value(self, frame_index, header):
         return fits.getval(self.files[frame_index], header)
 
-    def get_psc(self, source, frame_slice=None, remove_bias=False):
+    def get_psc(self, picid, frame_slice=None, subtract_bias=2048):
         try:
-            psc = np.array(self.stamps[source])
+            psc = np.array(self.stamps[picid]['data']) - subtract_bias
         except KeyError:
-            raise Exception("You must run create_stamps first")
+            raise Exception("{} not found in the stamp collection.".format(picid))
 
         if frame_slice is not None:
             psc = psc[frame_slice]
-
-        if remove_bias:
-            psc -= self.camera_bias
 
         return psc
 
@@ -305,23 +298,29 @@ class Observation(object):
             force_new (bool, optional): If a new stamps file should be created,
                 default False.
         """
-        logging.info('Creating stamps')
+        logging.info('Creating stamps for {}'.format(self.sequence))
 
-        # Check for file locally
-        if os.path.exists(self._hdf5_stamps_fn):
-            logging.debug('Using local stamps file')
-            return
+        if not force_new:
+            # Check for file locally
+            if os.path.exists(self._hdf5_stamps_fn):
+                logging.info('Using local stamps file')
+                return
 
-        # Check if in storage bucket
-        stamp_blob = helpers.get_observation_blobs(key=self.sequence + '.hdf5')
-        if stamp_blob:
-            logging.info('Downloading stamps file from storage bucket')
-            helpers.download_blob(stamp_blob, save_as=self._hdf5_stamps_fn)
-            return
+            # Check if in storage bucket
+            stamp_blob = helpers.get_observation_blobs(key=self.sequence + '.hdf5')
+            if stamp_blob:
+                logging.info('Downloading stamps file from storage bucket')
+                helpers.download_blob(stamp_blob, save_as=self._hdf5_stamps_fn)
+                return
 
         # Download FITS files
-        logging.debug('Downloading FITS files')
+        logging.info('Downloading FITS files')
         fits_blobs = helpers.get_observation_blobs(self.sequence)
+        
+        # Skip short observations
+        if len(fits_blobs) < 20:
+            logging.info('Skipping short observations')
+            raise Exception('Skipping short observations')
 
         # Download all the FITS files from a bucket
         self.files = list()
@@ -333,37 +332,42 @@ class Observation(object):
         self.num_frames = len(self.files)
 
         # Plate-solve all the images - safe to run again
-        logging.debug('Plate-solving FITS files')
+        logging.info('Plate-solving FITS files')
+        solved_files = list()
         for fn in tqdm(self.files, desc='Solving files'.ljust(25)):
             try:
                 fits_utils.get_solve_field(fn, timeout=90)
-            except SolveError:
+                solved_files.append(fn)
+            except Exception:
                 logging.warning("Can't solve file {}".format(fn))
-                logging.debug("Stopping processing for sequence and cleaning up")
-                self._do_cleanup(remove_stamps_file=True)
+                logging.info("Stopping processing for sequence and cleaning up")
+                continue
+                #self._do_cleanup(remove_stamps_file=True)
+                
+        self.files = solved_files
 
         # Lookup point sources
         # You need to set the env variable for the password for TESS catalog DB (ask Wilfred)
         # os.environ['PGPASSWORD'] = 'sup3rs3cr3t'
-        logging.debug('Looking up point sources via TESS catalog')
-        self.lookup_point_sources(use_sextractor=False, use_tess_catalog=True)
-        logging.debug("Number of sources detected: {}".format(len(self.point_sources)))
+        logging.info('Looking up point sources via TESS catalog')
+        self.lookup_point_sources(use_sextractor=False, use_tess_catalog=True, **kwargs)
+        logging.info("Number of sources detected: {}".format(len(self.point_sources)))
 
         # Create stamps
-        logging.debug('Creating stamps')
+        logging.info('Creating stamps')
         self.create_stamp_slices(stamp_size=stamp_size)
 
         # Upload to storage bucket
         if upload:
-            logging.debug('Uploading stamps file to storage bucket')
+            logging.info('Uploading stamps file to storage bucket')
             helpers.upload_to_bucket(self._hdf5_stamps_fn, self.sequence + '.hdf5')
 
         # Cleanup
         if cleanup_after:
-            self._do_cleanup(**kwargs)
+            self._do_cleanup(remove_stamps_file=remove_stamps_file)
 
     def _do_cleanup(self, remove_stamps_file=False):
-        logging.debug('Cleaning up FITS files')
+        logging.info('Cleaning up FITS files')
         for fn in self.files:
             os.remove(fn)
             try:
@@ -372,10 +376,10 @@ class Observation(object):
                 pass
 
         if remove_stamps_file:
-            logging.debug('Removing stamps file')
+            logging.info('Removing stamps file')
             os.remove(self._hdf5_stamps_fn)
 
-    def create_stamp_slices(self, stamp_size=(10, 10), *args, **kwargs):
+    def create_stamp_slices(self, stamp_size=(10, 10), snr_limit=5, *args, **kwargs):
         """Create PANOPTES Stamp Cubes (PSC) for each point source.
 
         Creates a slice through the cube corresponding to a stamp and stores the
@@ -399,10 +403,11 @@ class Observation(object):
                 enumerate(self.files),
                 total=self.num_frames,
                 desc="Getting point sources".ljust(25)):
-            logging.debug("Staring file: {}".format(fn))
+            logging.info("Starting file: {}".format(fn))
             with fits.open(fn) as hdu:
                 hdu_idx = 0
                 if fn.endswith('.fz'):
+                    logging.info("Using compressed FITS")
                     hdu_idx = 1
 
                 wcs = WCS(hdu[hdu_idx].header)
@@ -415,8 +420,12 @@ class Observation(object):
                 except ValueError as e:
                     logging.warning(e)
                     continue
+                    
+            high_snr = self.point_sources.snr > snr_limit
+            sources = self.point_sources[high_snr]
 
-            for star_row in self.point_sources.itertuples():
+            logging.info("Looping through point sources: {}/{}".format(i, len(self.files)))
+            for star_row in sources.itertuples():
                 star_id = str(star_row.Index)
 
                 if star_id in skip_sources:
@@ -430,75 +439,101 @@ class Observation(object):
                     d1 = d0[s0].flatten()
 
                     if len(d1) == 0:
-                        logging.debug('Bad slice for {}, skipping'.format(star_id))
+                        logging.warning('Bad slice for {}, skipping'.format(star_id))
                         skip_sources.append(star_id)
                         continue
                 except Exception as e:
                     raise e
 
-                # Stamp metadata
-                stamp_metadata = {
-                    'picid': star_id,
-                    'ra': star_row.ra,
-                    'dec': star_row.dec,
-                    'twomass': star_row.twomass,
-                    'x': star_row.X,
-                    'y': star_row.Y,
-                    'seq_time': self.seq_time,
-                    'img_time': img_id,
-                }
-
-                # Get a dataset for the stamp
+                # Get or create the group to hold the PSC
                 try:
-                    dset = self.stamps[star_id]
+                    psc_group = self.stamps[star_id]
                 except KeyError:
-                    dset_size = (self.num_frames, stamp_size[0] * stamp_size[1])
-                    dset = self.stamps.create_dataset(
-                        star_id,
-                        dset_size,
-                        dtype='i2',
-                        chunks=True
-                    )
+                    logging.info("Creating new group for star {}".format(star_id))
+                    psc_group = self.stamps.create_group(star_id)
+                    # Stamp metadata
+                    try:
+                        psc_metadata = {
+                            'ra': star_row.ra,
+                            'dec': star_row.dec,
+                            'twomass': star_row.twomass,
+                            'vmag': star_row.vmag,
+                            'tmag': star_row.tmag,
+                            'seq_time': self.seq_time,
+                        }
+                        for k, v in psc_metadata.items():
+                            psc_group.attrs[k] = str(v)
+                    except Exception as e:
+                        if str(e) not in errors:
+                            logging.warning(e)
+                            errors[str(e)] = True
 
-                # Assign data and metadata to dataset
+                # Set the data for the stamp. Create PSC dataset if needed.
                 try:
-                    dset[i] = d1
-                    dset.attrs = stamp_metadata
-                except Exception as e:
-                    if str(e) not in errors:
-                        logging.warning(e)
-                        errors[str(e)] = True
-                finally:
-                    self.stamps.flush()
+                    # Assign stamp values
+                    psc_group['data'][i] = d1
+                except KeyError:
+                    logging.info("Creating new PSC dataset for {}".format(star_id))
+                    psc_size = (self.num_frames, len(d1))
 
-    def find_similar_stars(self, target_index, store=True, force_new=True, *args, **kwargs):
+                    # Create the dataset
+                    stamp_dset = psc_group.create_dataset(
+                            'data', psc_size, dtype='u2', chunks=True)
+
+                    # Assign the data
+                    stamp_dset[i] = d1
+                except TypeError as e:
+                # Sets the metadata. Create metadata dataset if needed.
+                    key = str(e) + star_id
+                    if key not in errors:
+                        logging.info(e)
+                        errors[key] = True
+
+                try:
+                    psc_group['original_position'][i] = (star_pos[0], star_pos[1])
+                except KeyError:
+                    logging.info("Creating new metadata dataset for {}".format(star_id))
+                    metadata_size = (self.num_frames, 2)
+
+                    # Create the dataset
+                    metadata_dset = psc_group.create_dataset(
+                            'original_position', metadata_size, dtype='u2', chunks=True)
+
+                    # Assign the data
+                    metadata_dset[i] = (star_row.x, star_row.y)
+                finally:
+                    self.hdf5_stamps.flush()
+
+    def find_similar_stars(self, target_index, store=True, force_new=False, *args, **kwargs):
         """ Get all variances for given target
 
         Args:
             stamps(np.array): Collection of stamps with axes: frame, PIC, pixels
             i(int): Index of target PIC
         """
+        vary_fn = '/var/panoptes/images/lc/{}_{}.csv'.format(self.sequence.replace('/','_'), target_index)
+        if force_new:
+            try:
+                logging.info("Removing exsting comparison stars and forcing new")
+                os.remove(vary_fn)
+            except FileNotFoundError as e:
+                pass
+            
+        try:
+            return pd.read_csv(vary_fn, index_col=[0])
+        except Exception:
+            logging.info("Can't find stored similar stars, generating new")
+            
         num_sources = len(list(self.stamps.keys()))
 
         # Assume no match, i.e. high (99) value
-        data = np.ones((num_sources)) * 99.
-
-        if force_new:
-            try:
-                del self.hdf5_stamps['vgrid']
-            except Exception as e:
-                pass
-
-        try:
-            vgrid_dset = self.hdf5_stamps['vgrid']
-        except KeyError:
-            vgrid_dset = self.hdf5_stamps.create_dataset('vgrid', data=data)
-
+        data = dict()
+    
         psc0 = self.get_psc(target_index)
         num_frames = psc0.shape[0]
 
         # Normalize
-        logging.debug("Normalizing target for {} frames".format(num_frames))
+        logging.info("Normalizing target for {} frames".format(num_frames))
         frames = []
         normalized_psc0 = np.zeros_like(psc0, dtype='f4')
         for frame_index in range(num_frames):
@@ -507,13 +542,13 @@ class Observation(object):
                     normalized_psc0[frame_index] = psc0[frame_index] / psc0[frame_index].sum()
                     frames.append(frame_index)
                 else:
-                    logging.debug("Sum for target frame {} is 0".format(frame_index))
+                    logging.info("Sum for target frame {} is 0".format(frame_index))
             except RuntimeWarning:
                 warn("Skipping frame {}".format(frame_index))
 
         iterator = list(self.stamps.keys())
 
-        for i, source_index in tqdm(enumerate(iterator)):
+        for i, source_index in tqdm(enumerate(iterator), desc="Finding similar sources", total=len(self.stamps)):
             try:
                 psc1 = self.get_psc(source_index)
             except Exception:
@@ -529,13 +564,18 @@ class Observation(object):
             # Store in the grid
             try:
                 v = ((normalized_psc0 - normalized_psc1) ** 2).sum()
-                data[i] = v
-                if store:
-                    vgrid_dset[source_index] = v
+                data[source_index] = v
             except ValueError as e:
-                logging.debug("Skipping invalid stamp for source {}: {}".format(source_index, e))
+                logging.info("Skipping invalid stamp for source {}: {}".format(source_index, e))
+                
+        df0 = pd.DataFrame(
+                {'v': list(data.values())}, 
+                index=list(data.keys())).sort_values(by='v')
+        
+        if store:
+            df0[0:500].to_csv(vary_fn)
 
-        return data
+        return df0
 
     def get_stamp_collection(self, num_refs=25):
 
@@ -555,19 +595,20 @@ class Observation(object):
 
         return stamp_collection.reshape(num_refs, num_frames, stamp_h * stamp_w)
 
-    def get_ideal_full_coeffs(self, stamp_collection, damp=1, func=lsmr, verbose=False):
+    def get_ideal_full_coeffs(self, stamp_collection, verbose=False):
 
         num_frames = stamp_collection.shape[1]
         num_pixels = stamp_collection.shape[2]
 
         target_frames = stamp_collection[0].flatten()
         refs_frames = stamp_collection[1:].reshape(-1, num_frames * num_pixels).T
-
+        
         if verbose:
-            print("Target other shape: {}".format(target_frames.shape))
-            print("Refs other shape: {}".format(refs_frames.shape))
+            print("Stamp collection shape: {}".format(stamp_collection.shape))
+            print("Target shape: {}".format(target_frames.shape))
+            print("Refs shape: {}".format(refs_frames.shape))
 
-        coeffs = func(refs_frames, target_frames, damp)
+        coeffs = linalg.lstsq(refs_frames, target_frames)
 
         return coeffs
 
@@ -576,6 +617,8 @@ class Observation(object):
         refs = stamp_collection[1:]
 
         created_frame = (refs.T * coeffs).sum(2).T
+        #print("USING MEAN FOR COMPARISON")
+        #created_frame = refs.mean(0)
 
         return created_frame
 
@@ -593,7 +636,8 @@ class Observation(object):
                              use_sextractor=True,
                              use_tess_catalog=False,
                              sextractor_params=None,
-                             force_new=False
+                             force_new=False,
+                             **kwargs
                              ):
         """ Extract point sources from image
 
@@ -611,10 +655,10 @@ class Observation(object):
         if use_sextractor:
             # Write the sextractor catalog to a file
             source_file = '{}/point_sources_{:02d}.cat'.format(self.data_dir, image_num)
-            logging.debug("Point source catalog: {}".format(source_file))
+            logging.info("Point source catalog: {}".format(source_file))
 
             if not os.path.exists(source_file) or force_new:
-                logging.debug("No catalog found, building from sextractor")
+                logging.info("No catalog found, building from sextractor")
                 # Build catalog of point sources
                 sextractor = shutil.which('sextractor')
                 if sextractor is None:
@@ -629,18 +673,18 @@ class Observation(object):
                         '-CATALOG_NAME', source_file,
                     ]
 
-                logging.debug("Running sextractor...")
+                logging.info("Running sextractor...")
                 cmd = [sextractor, *sextractor_params, self.files[image_num]]
-                logging.debug(cmd)
+                logging.info(cmd)
                 subprocess.run(cmd)
 
             # Read catalog
             point_sources = Table.read(source_file, format='ascii.sextractor')
 
             # Remove the point sources that sextractor has flagged
-            if 'FLAGS' in point_sources.keys():
-                point_sources = point_sources[point_sources['FLAGS'] == 0]
-                point_sources.remove_columns(['FLAGS'])
+            #if 'FLAGS' in point_sources.keys():
+            #    point_sources = point_sources[point_sources['FLAGS'] == 0]
+            #    point_sources.remove_columns(['FLAGS'])
 
             # Rename columns
             point_sources.rename_column('X_IMAGE', 'X')
@@ -661,8 +705,13 @@ class Observation(object):
             right = point_sources['X'] < h - stamp_size
 
             self._point_sources = point_sources[top & bottom & right & left].to_pandas()
-            ra_key = 'ALPHA_J2000'
-            dec_key = 'DELTA_J2000'
+            self._point_sources.columns = [
+                'x', 'y', 
+                'ra', 'dec', 
+                'background', 
+                'flux_auto', 'flux_max', 'fluxerr_auto', 
+                'fwhm', 'flags', 'snr'
+            ]
 
         if use_tess_catalog:
             wcs_footprint = self.wcs.calc_footprint()
@@ -670,12 +719,12 @@ class Observation(object):
             ra_min = min(wcs_footprint[:, 0])
             dec_max = max(wcs_footprint[:, 1])
             dec_min = min(wcs_footprint[:, 1])
-            logging.debug("RA: {:.03f} - {:.03f} \t Dec: {:.03f} - {:.03f}".format(ra_min,
+            logging.info("RA: {:.03f} - {:.03f} \t Dec: {:.03f} - {:.03f}".format(ra_min,
                                                                                    ra_max,
                                                                                    dec_min,
                                                                                    dec_max))
             self._point_sources = helpers.get_stars(
-                ra_min, ra_max, dec_min, dec_max, cursor_only=False)
+                ra_min, ra_max, dec_min, dec_max, cursor_only=False, table=kwargs.get('table', 'full_catalog'))
 
             star_pixels = self.wcs.all_world2pix(
                 self._point_sources['ra'], self._point_sources['dec'], 0)
@@ -684,18 +733,155 @@ class Observation(object):
 
             self._point_sources.add_index(['id'])
             self._point_sources = self._point_sources.to_pandas()
-            ra_key = 'ra'
-            dec_key = 'dec'
 
         # Do catalog matching
-        stars = SkyCoord(ra=self._point_sources[ra_key].values *
-                         u.deg, dec=self._point_sources[dec_key].values * u.deg)
-        st0 = helpers.get_stars_from_footprint(self.wcs.calc_footprint(), cursor_only=False)
+        stars = SkyCoord(ra=self._point_sources['ra'].values *
+                         u.deg, dec=self._point_sources['dec'].values * u.deg)
+        st0 = helpers.get_stars_from_footprint(self.wcs.calc_footprint(), cursor_only=False, table=kwargs.get('table', 'full_catalog'))
         catalog = SkyCoord(ra=st0['ra'] * u.deg, dec=st0['dec'] * u.deg)
         idx, d2d, d3d = match_coordinates_sky(stars, catalog)
 
         self._point_sources['id'] = st0[idx]['id']
+        self._point_sources['twomass'] = st0[idx]['twomass']
+        self._point_sources['tmag'] = st0[idx]['tmag']
+        self._point_sources['vmag'] = st0[idx]['vmag']
         self._point_sources.set_index('id', inplace=True)
+        
+        return d2d
+        
+    def normalize(self, cube):
+        return (cube.T / cube.sum(1)).T
+
+    def run_piaa(self, picid, num_refs=50, aperture_size=6, exp_time=120, save_csv=True, force_new=False, new_comparisons=False, show_stamps=False, verbose=False):
+        try:
+            diff_group = self.stamps['diffs']
+        except KeyError:
+            diff_group = self.stamps.create_group('diffs')
+
+        if force_new:
+            try:
+                del diff_group[picid]
+            except KeyError:
+                pass
+            
+        temp_psc = self.get_psc(str(picid))
+        if len(temp_psc) < 20:
+            raise Exception("Not enough frames for sequence.")
+            
+        logging.info("Running the PIAA reduction")
+        vary_series = self.find_similar_stars(picid, force_new=new_comparisons, display_progress=False, store=True)
+
+        logging.info("Building collection")
+        ref_collection = np.array([self.get_psc(str(idx)) for idx in vary_series.index[:num_refs]])
+        #ref_collection = np.array([self.get_psc(str(idx)) for idx in vary_series.index[:num_refs:3]])
+        self.num_frames = ref_collection[0].shape[0]
+        logging.info("Ref collection shape: {}".format(ref_collection.shape))
+
+        # Normalize each PSC
+        logging.info("Normalizing collection")
+        normalized_collection = np.array([self.normalize(s) for s in ref_collection])
+        logging.info("Normalized ref collection shape: {}".format(normalized_collection.shape))
+        logging.info(normalized_collection.sum(2))
+
+        # Build the coeffs off the normalized PSC
+        logging.info("Getting coefficients: num_refs={} aperture={}".format(num_refs, aperture_size))
+        coeffs = self.get_ideal_full_coeffs(normalized_collection, verbose=verbose)
+        logging.info(coeffs)
+        logging.info(normalized_collection)
+
+        # Build the template from the coeffs with non-normalized data
+        logging.info("Building ideal stamp")
+        ideal = self.get_ideal_full_psc(ref_collection, coeffs[0], verbose=verbose).reshape(self.num_frames, -1)
+
+        target_psc = ref_collection[0]
+        
+        if picid in diff_group:
+            logging.info('Results exists from previous')
+            return target_psc, ideal
+        
+        stamp_side = int(np.sqrt(target_psc.shape[1]))
+        stamp_size = (stamp_side, stamp_side)
+
+        rgb_stamp_masks = helpers.get_rgb_masks(target_psc[0].reshape(stamp_size[0], stamp_size[1]), force_new=True, separate_green=False)
+        
+
+        diff = list()
+        for frame_idx in range(self.num_frames):
+            d0 = target_psc[frame_idx].reshape(stamp_size[0], stamp_size[1])
+            i0 = ideal[frame_idx].reshape(stamp_size[0], stamp_size[1])
+
+            star_pos = np.array(self.stamps[picid]['original_position'])[frame_idx]
+            slice0 = helpers.get_stamp_slice(star_pos[0], star_pos[1], stamp_size=stamp_size)
+
+            try:
+                #aperture_position = (star_pos[0] - slice0[1].start, star_pos[1] - slice0[0].start)
+                #aperture_position = (star_pos[1] - slice0[0].start, star_pos[0] - slice0[1].start)
+                y_pos, x_pos = np.argwhere(d0 == d0.max())[0]
+                aperture_position = (x_pos, y_pos)
+            except IndexError:
+                logging.warning("No star position: ", frame_idx, slice0, star_pos)
+                aperture_position = (5, 5)
+                
+            logging.info("Getting cutout at {} of size {}".format(aperture_position, aperture_size))
+            
+            color_flux = list()
+            stamps = list()
+            for color, mask in zip('rgb', rgb_stamp_masks):
+                
+                d1 = np.ma.array(d0, mask=~mask)
+                i1 = np.ma.array(i0, mask=~mask)
+            
+                try:
+                    d2 = Cutout2D(d1, aperture_position, aperture_size, mode='strict')
+                    i2 = Cutout2D(i1, aperture_position, aperture_size, mode='strict')
+                except (PartialOverlapError, NoOverlapError) as e:
+                    logging.warning("Bad overlap frame {}, color {}".format(frame_idx, color))
+                    logging.warning(aperture_position)
+                    continue
+                except Exception as e:
+                    logging.warning("Prolem with cutout: {}".format(e))
+                    continue
+
+                d3 = d2.data
+                i3 = i2.data
+
+                color_flux.append(d3.sum())
+                color_flux.append(i3.sum())
+                
+                stamps.append([d3, i3])
+                
+            if show_stamps:
+                target_s = stamps[0][0].filled(0) + stamps[1][0].filled(0) + stamps[2][0].filled(0)
+                ideal_s = stamps[0][1].filled(0) + stamps[1][1].filled(0) + stamps[2][1].filled(0)
+                helpers.show_stamps(
+                    [target_s,ideal_s], 
+                    stamp_size=aperture_size, 
+                    save_name='/var/panoptes/images/lc/stamps/{}_{}_{}_{:02d}.png'.format(
+                        self.cam_id, picid, self.seq_time, frame_idx
+                    )
+                )
+                
+            diff.append(color_flux)
+            
+        diffs = np.array(diff)
+        logging.info(diffs.shape)
+        logging.info(diffs)
+        image_times = Time(self.stamps['image_times'], format='mjd')
+
+        try:
+            lc = pd.DataFrame(diffs, index=image_times, columns=[
+                'r_target', 'r_ideal',
+                'g_target', 'g_ideal',
+                'b_target', 'b_ideal',
+            ])            
+
+            csv_file = '/var/panoptes/images/lc/{}_{}_diff.csv'.format(self.sequence.replace('/', '_'), picid)
+            logging.info("Writing csv to {}".format(csv_file))
+            lc.to_csv(csv_file)
+        except Exception as e:
+            logging.warning("Problem createing CSV file: {}".format(e))
+
+        return target_psc, ideal
 
     def _load_images(self):
         seq_files = sorted(glob("{}/*T*.fits*".format(self.data_dir)))

@@ -6,6 +6,7 @@ import google.datalab.storage as storage
 
 import numpy as np
 import psycopg2
+from psycopg2.extras import DictCursor
 from astropy.table import Table
 
 from astropy.visualization import LogStretch, ImageNormalize, LinearStretch
@@ -13,6 +14,7 @@ from astropy.visualization import LogStretch, ImageNormalize, LinearStretch
 from matplotlib import pyplot as plt
 import matplotlib.animation as animation
 from matplotlib import rc
+from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 from photutils import RectangularAnnulus, RectangularAperture
 
@@ -55,9 +57,10 @@ def get_db_conn(instance='panoptes-meta', db='panoptes', **kwargs):
     return conn
 
 
-def get_cursor(**kwargs):
+def get_cursor(with_columns=False, **kwargs):
     conn = get_db_conn(**kwargs)
-    cur = conn.cursor()
+
+    cur = conn.cursor(cursor_factory=DictCursor)
 
     return cur
 
@@ -94,8 +97,8 @@ def get_stars(
         verbose=False,
         *args,
         **kwargs):
-    cur = get_cursor(instance='tess-catalog', db='v6')
-    cur.execute('SELECT id, ra, dec, tmag, e_tmag, twomass FROM {} WHERE tmag < 13 AND ra >= %s AND ra <= %s AND dec >= %s AND dec <= %s;'.format(
+    cur = get_cursor(instance='tess-catalog', db='v6', **kwargs)
+    cur.execute('SELECT id, ra, dec, tmag, vmag, e_tmag, twomass FROM {} WHERE tmag < 13 AND ra >= %s AND ra <= %s AND dec >= %s AND dec <= %s;'.format(
         table), (ra_min, ra_max, dec_min, dec_max))
 
     if cursor_only:
@@ -106,17 +109,22 @@ def get_stars(
         print(d0)
     return Table(
         data=d0,
-        names=['id', 'ra', 'dec', 'tmag', 'e_tmag', 'twomass'],
-        dtype=['i4', 'f8', 'f8', 'f4', 'f4', 'U26'])
+        names=['id', 'ra', 'dec', 'tmag', 'vmag', 'e_tmag', 'twomass'],
+        dtype=['i4', 'f8', 'f8', 'f4', 'f4', 'f4', 'U26'])
 
 
-def get_star_info(twomass_id, table='full_catalog', verbose=False):
-    cur = get_cursor(instance='tess-catalog', db='v6')
-    cur.execute('SELECT * FROM {} WHERE twomass=%s'.format(table), (twomass_id,))
-    d0 = np.array(cur.fetchall())
-    if verbose:
-        print(d0)
-    return d0
+def get_star_info(picid=None, twomass_id=None, table='full_catalog', verbose=False, **kwargs):
+    cur = get_cursor(instance='tess-catalog', db='v6', **kwargs)
+    
+    if picid:
+        val = picid
+        col = 'id'
+    elif twomass_id:
+        val = twomass_id
+        col = 'twomass'
+    
+    cur.execute('SELECT * FROM {} WHERE {}=%s'.format(table, col), (val,))
+    return cur.fetchone()
 
 
 def get_observation_blobs(
@@ -128,8 +136,8 @@ def get_observation_blobs(
 
     # The bucket we will use to fetch our objects
     bucket = storage.Bucket(project_id)
-
     objs = list()
+
     if prefix:
         for f in bucket.objects(prefix=prefix):
             if 'pointing' in f.key and not include_pointing:
@@ -235,7 +243,7 @@ def get_header_from_storage(blob):
         i += 1
 
 
-def get_rgb_masks(data, separate_green=False, force_new=False):
+def get_rgb_masks(data, separate_green=False, force_new=False, verbose=False):
 
     rgb_mask_file = 'rgb_masks.npz'
 
@@ -248,7 +256,8 @@ def get_rgb_masks(data, separate_green=False, force_new=False):
     try:
         return np.load(rgb_mask_file)
     except FileNotFoundError:
-        print("Making RGB masks")
+        if verbose:
+            print("Making RGB masks")
 
         if data.ndim > 2:
             data = data[0]
@@ -285,29 +294,43 @@ def get_rgb_masks(data, separate_green=False, force_new=False):
         return _rgb_masks
 
 
-def show_stamps(pscs, frame_idx=0, stamp_size=11, aperture_size=4, show_residual=False, stretch=None, **kwargs):
+def show_stamps(pscs, frame_idx=None, stamp_size=11, aperture_position=None, aperture_size=None, show_normal=False, show_residual=False, stretch=None, save_name=None, **kwargs):
 
-    midpoint = (stamp_size - 1) / 2
-    aperture = RectangularAperture((midpoint, midpoint), w=aperture_size, h=aperture_size, theta=0)
-    annulus = RectangularAnnulus((midpoint, midpoint), w_in=aperture_size,
-                                 w_out=stamp_size, h_out=stamp_size, theta=0)
+    if aperture_position is None:
+        midpoint = (stamp_size - 1) / 2
+        aperture_position = (midpoint, midpoint)
+
+    if aperture_size:
+        aperture = RectangularAperture(aperture_position, w=aperture_size, h=aperture_size, theta=0)
+        annulus = RectangularAnnulus(aperture_position, w_in=aperture_size, w_out=stamp_size, h_out=stamp_size, theta=0)
 
     ncols = len(pscs)
 
     if show_residual:
         ncols += 1
 
-    fig, ax = plt.subplots(nrows=2, ncols=ncols)
-    fig.set_figheight(6)
-    fig.set_figwidth(12)
+    nrows = 1
+    if show_normal:
+        nrows = 2
+    fig, ax = plt.subplots(nrows=nrows, ncols=ncols)
+    fig.set_dpi(100)
+    fig.set_figheight(4)
+    fig.set_figwidth(9)
 
     norm = [normalize(p.reshape(p.shape[0], -1)).reshape(p.shape) for p in pscs]
 
-    s0 = pscs[0][frame_idx]
-    n0 = norm[0][frame_idx]
+    if frame_idx is not None:
+        s0 = pscs[0][frame_idx]
+        n0 = norm[0][frame_idx]
 
-    s1 = pscs[1][frame_idx]
-    n1 = norm[1][frame_idx]
+        s1 = pscs[1][frame_idx]
+        n1 = norm[1][frame_idx]
+    else:
+        s0 = pscs[0]
+        n0 = norm[0]
+
+        s1 = pscs[1]
+        n1 = norm[1]
 
     if stretch == 'log':
         stretch = LogStretch()
@@ -315,57 +338,92 @@ def show_stamps(pscs, frame_idx=0, stamp_size=11, aperture_size=4, show_residual
         stretch = LinearStretch()
 
     # Target
-    ax1 = ax[0][0]
+    if show_normal:
+        ax1 = ax[0][0]
+    else:
+        ax1 = ax[0]
     im = ax1.imshow(s0, origin='lower', cmap=palette, norm=ImageNormalize(stretch=stretch))
-    aperture.plot(color='r', lw=4, ax=ax1)
-    annulus.plot(color='c', lw=2, ls='--', ax=ax1)
-    fig.colorbar(im, ax=ax1)
-    #ax1.set_title('Stamp {:.02f}'.format(get_sum(s0, stamp_size=stamp_size)))
+    if aperture_size:
+        aperture.plot(color='r', lw=4, ax=ax1)
+        #annulus.plot(color='c', lw=2, ls='--', ax=ax1)
+    # create an axes on the right side of ax. The width of cax will be 5%
+    # of ax and the padding between cax and ax will be fixed at 0.05 inch.
+    # https://stackoverflow.com/questions/18195758/set-matplotlib-colorbar-size-to-match-graph
+    divider = make_axes_locatable(ax1)
+    cax = divider.append_axes("right", size="5%", pad=0.05)
+    plt.colorbar(im, cax=cax)        
+    ax1.set_title('Target')
 
     # Normalized target
-    ax2 = ax[1][0]
-    im = ax2.imshow(n0, origin='lower', cmap=palette, norm=ImageNormalize(stretch=stretch))
-    aperture.plot(color='r', lw=4, ax=ax2)
-    annulus.plot(color='c', lw=2, ls='--', ax=ax2)
-    fig.colorbar(im, ax=ax2)
-    ax2.set_title('Normalized Stamp')
-
-    # Comparison
-    ax1 = ax[0][1]
-    im = ax1.imshow(s1, origin='lower', cmap=palette, norm=ImageNormalize(stretch=stretch))
-    aperture.plot(color='r', lw=4, ax=ax1)
-    annulus.plot(color='c', lw=2, ls='--', ax=ax1)
-    fig.colorbar(im, ax=ax1)
-    #ax1.set_title('Stamp {:.02f}'.format(get_sum(s1, stamp_size=stamp_size)))
-
-    # Normalized comparison
-    ax2 = ax[1][1]
-    im = ax2.imshow(n1, origin='lower', cmap=palette, norm=ImageNormalize(stretch=stretch))
-    aperture.plot(color='r', lw=4, ax=ax2)
-    annulus.plot(color='c', lw=2, ls='--', ax=ax2)
-    fig.colorbar(im, ax=ax2)
-    ax2.set_title('Normalized Stamp')
-
-    if show_residual:
-
-        # Residual
-        ax1 = ax[0][2]
-        im = ax1.imshow((s0 - s1), origin='lower', cmap=palette,
-                        norm=ImageNormalize(stretch=stretch))
-        aperture.plot(color='r', lw=4, ax=ax1)
-        annulus.plot(color='c', lw=2, ls='--', ax=ax1)
-        fig.colorbar(im, ax=ax1)
-        ax1.set_title('Stamp Residual - {:.02f}'.format((s0 - s1).sum()))
-
-        # Normalized residual
-        ax2 = ax[1][2]
-        im = ax2.imshow((n0 - n1), origin='lower', cmap=palette)
+    if show_normal:
+        ax2 = ax[1][0]
+        im = ax2.imshow(n0, origin='lower', cmap=palette, norm=ImageNormalize(stretch=stretch))
         aperture.plot(color='r', lw=4, ax=ax2)
-        annulus.plot(color='c', lw=2, ls='--', ax=ax2)
+        #annulus.plot(color='c', lw=2, ls='--', ax=ax2)
         fig.colorbar(im, ax=ax2)
         ax2.set_title('Normalized Stamp')
 
-    fig.tight_layout()
+    # Comparison
+    if show_normal:
+        ax1 = ax[0][1]
+    else:
+        ax1 = ax[1]
+    im = ax1.imshow(s1, origin='lower', cmap=palette, norm=ImageNormalize(stretch=stretch))
+    if aperture_size:
+        aperture.plot(color='r', lw=4, ax=ax1)
+        #annulus.plot(color='c', lw=2, ls='--', ax=ax1)
+    # create an axes on the right side of ax. The width of cax will be 5%
+    # of ax and the padding between cax and ax will be fixed at 0.05 inch.
+    # https://stackoverflow.com/questions/18195758/set-matplotlib-colorbar-size-to-match-graph
+    divider = make_axes_locatable(ax1)
+    cax = divider.append_axes("right", size="5%", pad=0.05)
+    plt.colorbar(im, cax=cax)        
+    ax1.set_title('Comparison')
+        
+    #ax1.set_title('Stamp {:.02f}'.format(get_sum(s1, stamp_size=stamp_size)))
+
+    # Normalized comparison
+    if show_normal:
+        ax2 = ax[1][1]
+        im = ax2.imshow(n1, origin='lower', cmap=palette, norm=ImageNormalize(stretch=stretch))
+        aperture.plot(color='r', lw=4, ax=ax2)
+        #annulus.plot(color='c', lw=2, ls='--', ax=ax2)
+        fig.colorbar(im, ax=ax2)
+        ax2.set_title('Normalized Stamp')
+
+    if show_residual:
+        if show_normal:
+            ax1 = ax[0][2]
+        else:
+            ax1 = ax[2]
+
+        # Residual
+        im = ax1.imshow((s0 / s1), origin='lower', cmap=palette, norm=ImageNormalize(stretch=stretch))
+        
+        divider = make_axes_locatable(ax1)
+        cax = divider.append_axes("right", size="5%", pad=0.05)
+        plt.colorbar(im, cax=cax)        
+        #ax1.set_title('Residual')
+        residual = 1 - (s0.sum() / s1.sum())
+        ax1.set_title('Residual {:.01%}'.format(residual))
+        
+        # Normalized residual
+        if show_normal:
+            ax2 = ax[1][2]
+            im = ax2.imshow((n0 - n1), origin='lower', cmap=palette)
+            aperture.plot(color='r', lw=4, ax=ax2)
+            #annulus.plot(color='c', lw=2, ls='--', ax=ax2)
+            fig.colorbar(im, ax=ax2)
+            ax2.set_title('Normalized Stamp')
+
+    #fig.tight_layout()
+    
+    if save_name:
+        try:
+            fig.savefig(save_name)
+            plt.close(fig)
+        except Exception as e:
+            warn("Can't save figure: {}".format(e))
 
 
 def normalize(cube):
@@ -420,7 +478,7 @@ def pixel_color(x, y):
             return 'G1'
 
 
-def get_stamp_slice(x, y, stamp_size=(10, 10), verbose=False):
+def get_stamp_slice(x, y, stamp_size=(14, 14), verbose=False):
 
     for m in stamp_size:
         m -= 2  # Subtract center superpixel
@@ -458,7 +516,7 @@ def get_stamp_slice(x, y, stamp_size=(10, 10), verbose=False):
     if verbose:
         print(x_min, x_max, y_min, y_max)
 
-    return [slice(y_min, y_max), slice(x_min, x_max)]
+    return (slice(y_min, y_max), slice(x_min, x_max))
 
 
 def animate_stamp(d0):

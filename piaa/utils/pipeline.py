@@ -3,8 +3,6 @@ import shutil
 import subprocess
 
 from warnings import warn
-from collections import namedtuple
-from glob import glob
 
 import h5py
 import numpy as np
@@ -15,19 +13,14 @@ from astropy.table import Table
 from astropy.wcs import WCS
 from astropy import units as u
 from astropy.coordinates import SkyCoord, match_coordinates_sky
-from astropy.nddata.utils import Cutout2D, PartialOverlapError, NoOverlapError
 from astropy.time import Time
-from tqdm import tqdm, tqdm_notebook
+from tqdm import tqdm
 
-from scipy.sparse.linalg import lsmr
 from scipy import linalg
 
 from dateutil.parser import parse as date_parse
 
 from piaa.utils import helpers
-from piaa import exoplanets
-
-from pocs.utils.images import fits as fits_utils
 
 import logging
 
@@ -90,7 +83,7 @@ def lookup_point_sources(fits_files,
             logging.info("Running sextractor...")
             cmd = [sextractor, *sextractor_params, fits_files[image_num]]
             logging.info(cmd)
-            completed_proc = subprocess.run(cmd, stdout=subprocess.PIPE)
+            subprocess.run(cmd, stdout=subprocess.PIPE)
 
         # Read catalog
         point_sources = Table.read(source_file, format='ascii.sextractor')
@@ -203,7 +196,6 @@ def create_stamp_slices(
 
     errors = dict()
 
-    num_sources = len(point_sources)
     num_frames = len(fits_files)
 
     stamps_fn = os.path.join(
@@ -220,103 +212,100 @@ def create_stamp_slices(
     stamps.attrs['image_times'] = image_times
     stamps.attrs['airmass'] = airmass
 
-    with ProgressBar(num_frames) as bar:
-        for i, fn in enumerate(fits_files):
-            # Get stamp data.
-            with fits.open(fn) as hdu:
-                hdu_idx = 0
-                if fn.endswith('.fz'):
-                    logging.info("Using compressed FITS")
-                    hdu_idx = 1
+    for i, fn in enumerate(fits_files):
+        # Get stamp data.
+        with fits.open(fn) as hdu:
+            hdu_idx = 0
+            if fn.endswith('.fz'):
+                logging.info("Using compressed FITS")
+                hdu_idx = 1
 
-                wcs = WCS(hdu[hdu_idx].header)
-                d0 = hdu[hdu_idx].data
+            wcs = WCS(hdu[hdu_idx].header)
+            d0 = hdu[hdu_idx].data
 
-            for star_row in point_sources.itertuples():
-                star_id = str(star_row.Index)
+        for star_row in point_sources.itertuples():
+            star_id = str(star_row.Index)
 
-                if star_id in stamps and np.array(stamps[star_id]['data'][i]).sum() > 0:
+            if star_id in stamps and np.array(stamps[star_id]['data'][i]).sum() > 0:
+                continue
+
+            star_pos = wcs.all_world2pix(star_row.ra, star_row.dec, 0)
+
+            # Get stamp data. If problem, mark for skipping in future.
+            try:
+                # This handles the RGGB pattern
+                slice0 = helpers.get_stamp_slice(
+                    star_pos[0], star_pos[1], stamp_size=stamp_size)
+                d1 = d0[slice0].flatten()
+
+                if len(d1) == 0:
+                    logging.warning('Bad slice for {}, skipping'.format(star_id))
                     continue
+            except Exception as e:
+                raise e
 
-                star_pos = wcs.all_world2pix(star_row.ra, star_row.dec, 0)
-
-                # Get stamp data. If problem, mark for skipping in future.
+            # Create group for stamp and add metadata
+            try:
+                psc_group = stamps[star_id]
+            except KeyError:
+                logging.debug("Creating new group for star {}".format(star_id))
+                psc_group = stamps.create_group(star_id)
+                # Stamp metadata
                 try:
-                    # This handles the RGGB pattern
-                    slice0 = helpers.get_stamp_slice(
-                        star_pos[0], star_pos[1], stamp_size=stamp_size)
-                    d1 = d0[slice0].flatten()
-
-                    if len(d1) == 0:
-                        logging.warning('Bad slice for {}, skipping'.format(star_id))
-                        continue
+                    psc_metadata = {
+                        'ra': star_row.ra,
+                        'dec': star_row.dec,
+                        'twomass': star_row.twomass,
+                        'vmag': star_row.vmag,
+                        'tmag': star_row.tmag,
+                        'flags': star_row.flags,
+                        'snr': star_row.snr,
+                    }
+                    for k, v in psc_metadata.items():
+                        psc_group.attrs[k] = str(v)
                 except Exception as e:
-                    raise e
+                    if str(e) not in errors:
+                        logging.warning(e)
+                        errors[str(e)] = True
 
-                # Create group for stamp and add metadata
-                try:
-                    psc_group = stamps[star_id]
-                except KeyError:
-                    logging.debug("Creating new group for star {}".format(star_id))
-                    psc_group = stamps.create_group(star_id)
-                    # Stamp metadata
-                    try:
-                        psc_metadata = {
-                            'ra': star_row.ra,
-                            'dec': star_row.dec,
-                            'twomass': star_row.twomass,
-                            'vmag': star_row.vmag,
-                            'tmag': star_row.tmag,
-                            'flags': star_row.flags,
-                            'snr': star_row.snr,
-                        }
-                        for k, v in psc_metadata.items():
-                            psc_group.attrs[k] = str(v)
-                    except Exception as e:
-                        if str(e) not in errors:
-                            logging.warning(e)
-                            errors[str(e)] = True
+            # Set the data for the stamp. Create PSC dataset if needed.
+            try:
+                # Assign stamp values
+                psc_group['data'][i] = d1
+            except KeyError:
+                logging.debug("Creating new PSC dataset for {}".format(star_id))
+                psc_size = (num_frames, len(d1))
 
-                # Set the data for the stamp. Create PSC dataset if needed.
-                try:
-                    # Assign stamp values
-                    psc_group['data'][i] = d1
-                except KeyError:
-                    logging.debug("Creating new PSC dataset for {}".format(star_id))
-                    psc_size = (num_frames, len(d1))
+                # Create the dataset
+                stamp_dset = psc_group.create_dataset(
+                    'data', psc_size, dtype='u2', chunks=True)
 
-                    # Create the dataset
-                    stamp_dset = psc_group.create_dataset(
-                        'data', psc_size, dtype='u2', chunks=True)
+                # Assign the data
+                stamp_dset[i] = d1
+            except TypeError as e:
+                # Sets the metadata. Create metadata dataset if needed.
+                key = str(e) + star_id
+                if key not in errors:
+                    logging.info(e)
+                    errors[key] = True
 
-                    # Assign the data
-                    stamp_dset[i] = d1
-                except TypeError as e:
-                    # Sets the metadata. Create metadata dataset if needed.
-                    key = str(e) + star_id
-                    if key not in errors:
-                        logging.info(e)
-                        errors[key] = True
+            try:
+                psc_group['original_position'][i] = (star_row.x, star_row.y)
+            except KeyError:
+                logging.debug("Creating new metadata dataset for {}".format(star_id))
+                metadata_size = (num_frames, 2)
 
-                try:
-                    psc_group['original_position'][i] = (star_row.x, star_row.y)
-                except KeyError:
-                    logging.debug("Creating new metadata dataset for {}".format(star_id))
-                    metadata_size = (num_frames, 2)
+                # Create the dataset
+                metadata_dset = psc_group.create_dataset(
+                    'original_position', metadata_size, dtype='u2', chunks=True)
 
-                    # Create the dataset
-                    metadata_dset = psc_group.create_dataset(
-                        'original_position', metadata_size, dtype='u2', chunks=True)
+                # Assign the data
+                metadata_dset[i] = (star_row.x, star_row.y)
 
-                    # Assign the data
-                    metadata_dset[i] = (star_row.x, star_row.y)
+            stamps.flush()
 
-                stamps.flush()
-
-            if errors:
-                logging.warning(errors)
-
-            bar.update(i)
+        if errors:
+            logging.warning(errors)
 
     return stamps_fn
 
@@ -352,8 +341,6 @@ def find_similar_stars(
         return pd.read_csv(out_fn, index_col=[0])
     except Exception:
         pass
-
-    num_sources = len(stamps)
 
     data = dict()
 

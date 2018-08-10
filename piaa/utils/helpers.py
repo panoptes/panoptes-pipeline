@@ -6,6 +6,7 @@ import google.datalab.storage as storage
 
 import numpy as np
 import psycopg2
+from psycopg2.extras import DictCursor
 from astropy.table import Table
 
 from astropy.visualization import LogStretch, ImageNormalize, LinearStretch
@@ -56,9 +57,10 @@ def get_db_conn(instance='panoptes-meta', db='panoptes', **kwargs):
     return conn
 
 
-def get_cursor(**kwargs):
+def get_cursor(with_columns=False, **kwargs):
     conn = get_db_conn(**kwargs)
-    cur = conn.cursor()
+
+    cur = conn.cursor(cursor_factory=DictCursor)
 
     return cur
 
@@ -95,7 +97,7 @@ def get_stars(
         verbose=False,
         *args,
         **kwargs):
-    cur = get_cursor(instance='tess-catalog', db='v6')
+    cur = get_cursor(instance='tess-catalog', db='v6', **kwargs)
     cur.execute('SELECT id, ra, dec, tmag, vmag, e_tmag, twomass FROM {} WHERE tmag < 13 AND ra >= %s AND ra <= %s AND dec >= %s AND dec <= %s;'.format(
         table), (ra_min, ra_max, dec_min, dec_max))
 
@@ -111,13 +113,18 @@ def get_stars(
         dtype=['i4', 'f8', 'f8', 'f4', 'f4', 'f4', 'U26'])
 
 
-def get_star_info(twomass_id, table='full_catalog', verbose=False):
-    cur = get_cursor(instance='tess-catalog', db='v6')
-    cur.execute('SELECT * FROM {} WHERE twomass=%s'.format(table), (twomass_id,))
-    d0 = np.array(cur.fetchall())
-    if verbose:
-        print(d0)
-    return d0
+def get_star_info(picid=None, twomass_id=None, table='full_catalog', verbose=False, **kwargs):
+    cur = get_cursor(instance='tess-catalog', db='v6', **kwargs)
+    
+    if picid:
+        val = picid
+        col = 'id'
+    elif twomass_id:
+        val = twomass_id
+        col = 'twomass'
+    
+    cur.execute('SELECT * FROM {} WHERE {}=%s'.format(table, col), (val,))
+    return cur.fetchone()
 
 
 def get_observation_blobs(prefix=None, key=None, include_pointing=False, project_id='panoptes-survey'):
@@ -467,7 +474,7 @@ def pixel_color(x, y):
             return 'G1'
 
 
-def get_stamp_slice(x, y, stamp_size=(10, 10), verbose=False):
+def get_stamp_slice(x, y, stamp_size=(14, 14), verbose=False):
 
     for m in stamp_size:
         m -= 2  # Subtract center superpixel
@@ -505,7 +512,7 @@ def get_stamp_slice(x, y, stamp_size=(10, 10), verbose=False):
     if verbose:
         print(x_min, x_max, y_min, y_max)
 
-    return [slice(y_min, y_max), slice(x_min, x_max)]
+    return (slice(y_min, y_max), slice(x_min, x_max))
 
 
 def animate_stamp(d0):

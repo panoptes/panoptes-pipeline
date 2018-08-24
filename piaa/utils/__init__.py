@@ -1,3 +1,4 @@
+import os
 import numpy as np
 
 from decimal import Decimal
@@ -7,12 +8,14 @@ from astropy import units as u
 from astropy.coordinates import Angle
 from astropy.io import fits
 from astropy.wcs import WCS
+from astropy.modeling import models, fitting
 
 from shapely.geometry import Polygon
 
 from matplotlib import pyplot as plt
+from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
+from matplotlib.figure import Figure
 from photutils import RectangularAperture
-
 
 class StampSizeException(Exception):
     pass
@@ -291,3 +294,68 @@ def add_pixel_grid(ax1, grid_height, grid_width, show_axis_labels=True, show_sup
     if show_axis_labels is False:
         ax1.set_xticklabels([])
         ax1.set_yticklabels([])
+
+        
+def pixel_hist(hdu, bins=None, save_plot=True, out_fn=None, mask_file='/var/panoptes/rgb_masks.npz'):    
+    data = hdu.data
+    exptime = hdu.header['EXPTIME']
+    
+    # Make the rgb masks if needed
+    try:
+        rgb_masks = np.load(mask_file)
+    except FileNotFoundError:
+        rgb_masks = make_masks(data)
+        np.savez_compressed(mask_file, r=rgb_masks[0], g=rgb_masks[1], b=rgb_masks[2])    
+    
+    if bins is None:
+        bins = np.arange(2000,2100,1)
+    
+    x = bins[:-1]
+
+    fig = Figure()
+    FigureCanvas(fig)
+    
+    fig.set_size_inches(15,7)
+
+    model_fits = list()
+    for i, color in enumerate(rgb_masks.files):
+        ax = fig.add_subplot(1,3,i + 1)        
+        
+        mask = rgb_masks[color]
+        d0 = np.ma.array(data, mask=~mask)
+
+        d1 = d0.compressed()
+
+        d2, _ = np.histogram(d1, bins=bins)
+
+        y = d2
+
+        # Fit the data using a Gaussian
+        g_init = models.Gaussian1D(amplitude=y.max(), mean=x.mean(), stddev=1.)
+        fit_g = fitting.LevMarLSQFitter()
+        g = fit_g(g_init, x, y)
+
+        _ = ax.hist(d1, bins=bins, histtype='bar', alpha=0.6)
+
+        # Plot the models
+        ax.plot(x, y, 'ko', label='Pixel values', alpha=0.6)
+        ax.plot(x, g(x), label='Gaussian', c='k')
+        
+        # Plot the mean
+        ax.axvline(g.mean.value, ls='--', alpha=0.75, c='k')
+        
+        ax.set_title('{} μ={:.02f} σ={:.02f}'.format(color.capitalize(), g.mean.value, g.stddev.value))
+        ax.set_xlabel('{} Counts [adu]'.format(color.capitalize()))
+        
+        if i == 0:
+            ax.set_ylabel('Number of pixels')
+            
+        model_fits.append(g)
+
+    fig.suptitle('Average pixel counts - {} s exposure'.format(exptime), fontsize=20)   
+    
+    if out_fn is None and save_plot:
+        out_fn = os.path.splitext(hdu.header['FILENAME'])[0] + '_pixel_counts.png'
+        fig.savefig(out_fn, dpi=100)
+    
+    return model_fits

@@ -5,14 +5,19 @@ from warnings import warn
 import google.datalab.storage as storage
 
 import numpy as np
+import pandas as pd
 import psycopg2
 from psycopg2.extras import DictCursor
-from astropy.table import Table
 
+from astropy.time import Time
+from astropy.table import Table
+from astropy.wcs import WCS
 from astropy.visualization import LogStretch, ImageNormalize, LinearStretch
 
 from matplotlib import pyplot as plt
 import matplotlib.animation as animation
+from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
+from matplotlib.figure import Figure
 from matplotlib import rc
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
@@ -294,7 +299,7 @@ def get_rgb_masks(data, separate_green=False, force_new=False, verbose=False):
         return _rgb_masks
 
 
-def show_stamps(pscs, frame_idx=None, stamp_size=11, aperture_position=None, aperture_size=None, show_normal=False, show_residual=False, stretch=None, save_name=None, **kwargs):
+def show_stamps(pscs, frame_idx=None, stamp_size=11, aperture_position=None, aperture_size=None, show_residual=False, stretch=None, save_name=None, **kwargs):
 
     if aperture_position is None:
         midpoint = (stamp_size - 1) / 2
@@ -310,9 +315,9 @@ def show_stamps(pscs, frame_idx=None, stamp_size=11, aperture_position=None, ape
         ncols += 1
 
     nrows = 1
-    if show_normal:
-        nrows = 2
-    fig, ax = plt.subplots(nrows=nrows, ncols=ncols)
+        
+    fig = Figure()
+    FigureCanvas(fig)
     fig.set_dpi(100)
     fig.set_figheight(4)
     fig.set_figwidth(9)
@@ -337,11 +342,8 @@ def show_stamps(pscs, frame_idx=None, stamp_size=11, aperture_position=None, ape
     else:
         stretch = LinearStretch()
 
-    # Target
-    if show_normal:
-        ax1 = ax[0][0]
-    else:
-        ax1 = ax[0]
+    ax1 = fig.add_subplot(nrows, ncols, 1)
+    
     im = ax1.imshow(s0, origin='lower', cmap=palette, norm=ImageNormalize(stretch=stretch))
     if aperture_size:
         aperture.plot(color='r', lw=4, ax=ax1)
@@ -351,79 +353,52 @@ def show_stamps(pscs, frame_idx=None, stamp_size=11, aperture_position=None, ape
     # https://stackoverflow.com/questions/18195758/set-matplotlib-colorbar-size-to-match-graph
     divider = make_axes_locatable(ax1)
     cax = divider.append_axes("right", size="5%", pad=0.05)
-    plt.colorbar(im, cax=cax)        
+    fig.colorbar(im, cax=cax)        
     ax1.set_title('Target')
 
-    # Normalized target
-    if show_normal:
-        ax2 = ax[1][0]
-        im = ax2.imshow(n0, origin='lower', cmap=palette, norm=ImageNormalize(stretch=stretch))
-        aperture.plot(color='r', lw=4, ax=ax2)
-        #annulus.plot(color='c', lw=2, ls='--', ax=ax2)
-        fig.colorbar(im, ax=ax2)
-        ax2.set_title('Normalized Stamp')
-
     # Comparison
-    if show_normal:
-        ax1 = ax[0][1]
-    else:
-        ax1 = ax[1]
-    im = ax1.imshow(s1, origin='lower', cmap=palette, norm=ImageNormalize(stretch=stretch))
+    ax2 = fig.add_subplot(nrows, ncols, 2)
+    im = ax2.imshow(s1, origin='lower', cmap=palette, norm=ImageNormalize(stretch=stretch))
     if aperture_size:
         aperture.plot(color='r', lw=4, ax=ax1)
         #annulus.plot(color='c', lw=2, ls='--', ax=ax1)
     # create an axes on the right side of ax. The width of cax will be 5%
     # of ax and the padding between cax and ax will be fixed at 0.05 inch.
     # https://stackoverflow.com/questions/18195758/set-matplotlib-colorbar-size-to-match-graph
-    divider = make_axes_locatable(ax1)
+    divider = make_axes_locatable(ax2)
     cax = divider.append_axes("right", size="5%", pad=0.05)
-    plt.colorbar(im, cax=cax)        
-    ax1.set_title('Comparison')
+    fig.colorbar(im, cax=cax)        
+    ax2.set_title('Comparison')
         
-    #ax1.set_title('Stamp {:.02f}'.format(get_sum(s1, stamp_size=stamp_size)))
-
-    # Normalized comparison
-    if show_normal:
-        ax2 = ax[1][1]
-        im = ax2.imshow(n1, origin='lower', cmap=palette, norm=ImageNormalize(stretch=stretch))
-        aperture.plot(color='r', lw=4, ax=ax2)
-        #annulus.plot(color='c', lw=2, ls='--', ax=ax2)
-        fig.colorbar(im, ax=ax2)
-        ax2.set_title('Normalized Stamp')
 
     if show_residual:
-        if show_normal:
-            ax1 = ax[0][2]
-        else:
-            ax1 = ax[2]
+        ax3 = fig.add_subplot(nrows, ncols, 3)
 
         # Residual
-        im = ax1.imshow((s0 / s1), origin='lower', cmap=palette, norm=ImageNormalize(stretch=stretch))
+        im = ax3.imshow((s0 / s1), origin='lower', cmap=palette, norm=ImageNormalize(stretch=stretch))
         
-        divider = make_axes_locatable(ax1)
+        divider = make_axes_locatable(ax3)
         cax = divider.append_axes("right", size="5%", pad=0.05)
-        plt.colorbar(im, cax=cax)        
+        fig.colorbar(im, cax=cax)        
         #ax1.set_title('Residual')
         residual = 1 - (s0.sum() / s1.sum())
-        ax1.set_title('Residual {:.01%}'.format(residual))
+        ax3.set_title('Residual {:.01%}'.format(residual))
         
-        # Normalized residual
-        if show_normal:
-            ax2 = ax[1][2]
-            im = ax2.imshow((n0 - n1), origin='lower', cmap=palette)
-            aperture.plot(color='r', lw=4, ax=ax2)
-            #annulus.plot(color='c', lw=2, ls='--', ax=ax2)
-            fig.colorbar(im, ax=ax2)
-            ax2.set_title('Normalized Stamp')
-
-    #fig.tight_layout()
+    # Turn off tick labels
+    ax1.set_yticklabels([])
+    ax1.set_xticklabels([])
+    ax2.set_yticklabels([])
+    ax2.set_xticklabels([])
+    ax3.set_yticklabels([])
+    ax3.set_xticklabels([])
     
     if save_name:
         try:
             fig.savefig(save_name)
-            plt.close(fig)
         except Exception as e:
             warn("Can't save figure: {}".format(e))
+            
+    return fig
 
 
 def normalize(cube):
@@ -521,7 +496,10 @@ def get_stamp_slice(x, y, stamp_size=(14, 14), verbose=False):
 
 def animate_stamp(d0):
 
-    fig, ax = plt.subplots()
+    fig = Figure()
+    FigureCanvas(fig)
+    
+    ax = fig.add_subplot(111)
 
     line = ax.imshow(d0[0])
 
@@ -538,3 +516,88 @@ def animate_stamp(d0):
                                   interval=500, blit=True)
 
     return ani
+
+
+def moving_average(data_set, periods=3):
+    weights = np.ones(periods) / periods
+    return np.convolve(data_set, weights, mode='same')
+
+
+def get_pixel_drift(coords, files, ext=0):
+    """Get the pixel drift for a given set of coordinates.
+    
+    Args:
+        coords (`astropy.coordinates.SkyCoord`): Coordinates of source.
+        files (list): A list of FITS files with valid WCS.
+        
+    Returns:
+        `numpy.array, numpy.array`: A 2xN array of pixel deltas where
+            N=len(files)
+    """
+    # Get target positions for each frame
+    if files[0].endswith('fz'):
+        ext = 1
+        
+    target_pos = np.array([
+        WCS(fn, naxis=ext).all_world2pix(coords.ra, coords.dec, 0) 
+        for fn in files
+    ])
+
+    # Subtract out the mean to get just the pixel deltas
+    x_pos = target_pos[:,0]
+    y_pos = target_pos[:,1]
+
+    x_pos -= x_pos.mean()
+    y_pos -= y_pos.mean() 
+    
+    return x_pos, y_pos
+
+def plot_pixel_drift(x_pos, y_pos, index=None, out_fn=None, title=None):
+    """Plot pixel drift.
+    
+    Args:
+        x_pos (`numpy.array`): an array of pixel values.
+        y_pos (`numpy.array`): an array of pixel values.
+        index (`numpy.array`): an array to use as index, can be datetime values.
+            If no index is provided a simple range is generated.
+        out_fn (str): Filename to save image to, default is None for no save.
+        
+    Returns:
+        `matplotlib.Figure`: The `Figure` object
+    """
+    # Plot the pixel drift of target
+    if index is None:
+        index = np.arange(len(x_pos))
+        
+    pos_df = pd.DataFrame({'dx': x_pos, 'dy': y_pos}, index=index)
+    
+    fig = Figure()
+    FigureCanvas(fig)
+    
+    fig.set_figwidth(12)
+    fig.set_figheight(9)
+    
+    ax = fig.add_subplot(111)
+    ax.plot(pos_df.index, pos_df.dx, label='dx')
+    ax.plot(pos_df.index, pos_df.dy, label='dy')
+    
+    ax.set_ylabel('Δ pixel', fontsize=16)
+    ax.set_xlabel('Time [UTC]', fontsize=16)
+    
+    if title is None:
+        title = 'Pixel drift'
+        
+    ax.set_title(title, fontsize=18)
+    ax.set_ylim([-5, 5])
+
+    fig.legend(fontsize=16)
+    fig.tight_layout()
+    
+    if out_fn:
+        fig.savefig(out_fn, dpi=100)
+    
+    return fig
+
+def get_planet_phase(period, midpoint, t):
+    """Get planet phase from period and midpoint. """
+    return ((Time(t).mjd - Time(midpoint).mjd) % period) / period

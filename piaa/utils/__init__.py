@@ -10,8 +10,6 @@ from astropy.io import fits
 from astropy.wcs import WCS
 from astropy.modeling import models, fitting
 
-from shapely.geometry import Polygon
-
 from matplotlib import pyplot as plt
 from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
 from matplotlib.figure import Figure
@@ -211,6 +209,9 @@ def shift_coord(x, org=0):
 
 def get_fov_plot(observation=None, coords=None, width=15, height=10, org=0, return_polygon=False):
     """ Get points for rectangle corresponding to FOV centered around ra, dec """
+
+    from shapely.geometry import Polygon
+
     if coords is not None:
         ra = shift_coord(coords[0], org)
         dec = coords[1]

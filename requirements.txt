@@ -4,6 +4,6 @@ h5py
 matplotlib
 numpy
 photutils
-psycopg2
+psycopg2-binary
 tqdm
 ipython-autotime

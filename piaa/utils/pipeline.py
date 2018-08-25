@@ -15,6 +15,8 @@ from astropy.wcs import WCS
 from astropy import units as u
 from astropy.coordinates import SkyCoord, match_coordinates_sky
 from astropy.time import Time
+from astropy.stats import sigma_clipped_stats
+from astropy.nddata import Cutout2D, PartialOverlapError, NoOverlapError
 
 from matplotlib import gridspec
 from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
@@ -23,6 +25,8 @@ from matplotlib.figure import Figure
 from tqdm import tqdm
 
 from dateutil.parser import parse as date_parse
+
+from photutils import DAOStarFinder
 
 from piaa.utils import helpers
 
@@ -36,9 +40,7 @@ def normalize(cube):
 def lookup_point_sources(fits_files,
                          image_num=0,
                          catalog_match=True,
-                         use_sextractor=True,
-                         sextractor_params=None,
-                         use_tess_catalog=False,
+                         method='sextractor',
                          wcs=None,
                          force_new=False,
                          **kwargs
@@ -56,95 +58,23 @@ def lookup_point_sources(fits_files,
     Raises:
         error.InvalidSystemCommand: Description
     """
-    if catalog_match or use_tess_catalog:
+    if catalog_match or method == 'tess_catalog':
         assert wcs is not None and wcs.is_celestial, logging.warning("Need a valid WCS")
 
-    if use_sextractor:
-        # Write the sextractor catalog to a file
-        source_file = os.path.join(
-            os.environ['PANDIR'],
-            'psc',
-            'point_sources_{}.cat'.format(fits_files[image_num].replace('/', '_'))
-        )
-        logging.info("Point source catalog: {}".format(source_file))
+    lookup_function = {
+        'sextractor': _lookup_via_sextractor,
+        'tess_catalog': _lookup_via_tess_catalog,
+        'photutils': _lookup_via_photutils,
+    }
 
-        if not os.path.exists(source_file) or force_new:
-            logging.info("No catalog found, building from sextractor")
-            # Build catalog of point sources
-            sextractor = shutil.which('sextractor')
-            if sextractor is None:
-                sextractor = shutil.which('sex')
-                if sextractor is None:
-                    raise Exception('sextractor not found')
-
-            if sextractor_params is None:
-                sextractor_params = [
-                    '-c', '{}/PIAA/resources/conf_files/sextractor/panoptes.sex'.format(
-                        os.getenv('PANDIR')),
-                    '-CATALOG_NAME', source_file,
-                ]
-
-            logging.info("Running sextractor...")
-            cmd = [sextractor, *sextractor_params, fits_files[image_num]]
-            logging.info(cmd)
-            subprocess.run(cmd, stdout=subprocess.PIPE)
-
-        # Read catalog
-        point_sources = Table.read(source_file, format='ascii.sextractor')
-
-        # Remove the point sources that sextractor has flagged
-        # if 'FLAGS' in point_sources.keys():
-        #    point_sources = point_sources[point_sources['FLAGS'] == 0]
-        #    point_sources.remove_columns(['FLAGS'])
-
-        # Rename columns
-        point_sources.rename_column('X_IMAGE', 'x')
-        point_sources.rename_column('Y_IMAGE', 'y')
-
-        # Add the SNR
-        point_sources['SNR'] = point_sources['FLUX_AUTO'] / point_sources['FLUXERR_AUTO']
-
-        # Filter point sources near edge
-        # w, h = data[0].shape
-        w, h = (3476, 5208)
-
-        stamp_size = 60
-
-        top = point_sources['y'] > stamp_size
-        bottom = point_sources['y'] < w - stamp_size
-        left = point_sources['x'] > stamp_size
-        right = point_sources['x'] < h - stamp_size
-
-        point_sources = point_sources[top & bottom & right & left].to_pandas()
-        point_sources.columns = [
-            'x', 'y',
-            'ra', 'dec',
-            'background',
-            'flux_auto', 'flux_max', 'fluxerr_auto',
-            'fwhm', 'flags', 'snr'
-        ]
-
-    if use_tess_catalog:
-        wcs_footprint = wcs.calc_footprint()
-        logging.info("WCS footprint: {}".format(wcs_footprint))
-
-        # Get stars from TESS catalog
-        point_sources = helpers.get_stars_from_footprint(
-            wcs_footprint,
-            cursor_only=False,
-            table=kwargs.get('table', 'full_catalog')
-        )
-
-        # Get x,y coordinates
-        star_pixels = wcs.all_world2pix(point_sources['ra'], point_sources['dec'], 0)
-        point_sources['x'] = star_pixels[0]
-        point_sources['y'] = star_pixels[1]
-
-        point_sources.add_index(['id'])
-        point_sources = point_sources.to_pandas()
+    # Lookup our appropriate method and call it with the fits file and kwargs
+    point_sources = lookup_function[method](fits_files[image_num], **kwargs)
 
     if catalog_match:
         point_sources = get_catalog_match(point_sources, wcs, **kwargs)
+
+    # Change the index to the picid
+    point_sources.set_index('id', inplace=True)
 
     return point_sources
 
@@ -183,6 +113,118 @@ def get_catalog_match(point_sources, wcs, table='full_catalog'):
     point_sources.set_index('id', inplace=True)
 
     return point_sources
+
+
+def _lookup_via_sextractor(fits_file, sextractor_params=None, *args, **kwargs):
+        # Write the sextractor catalog to a file
+    source_file = os.path.join(
+        os.environ['PANDIR'],
+        'psc',
+        'point_sources_{}.cat'.format(fits_file.replace('/', '_'))
+    )
+    logging.info("Point source catalog: {}".format(source_file))
+
+    if not os.path.exists(source_file) or kwargs.get('force_new', False):
+        logging.info("No catalog found, building from sextractor")
+        # Build catalog of point sources
+        sextractor = shutil.which('sextractor')
+        if sextractor is None:
+            sextractor = shutil.which('sex')
+            if sextractor is None:
+                raise Exception('sextractor not found')
+
+        if sextractor_params is None:
+            sextractor_params = [
+                '-c', '{}/PIAA/resources/conf_files/sextractor/panoptes.sex'.format(
+                    os.getenv('PANDIR')),
+                '-CATALOG_NAME', source_file,
+            ]
+
+        logging.info("Running sextractor...")
+        cmd = [sextractor, *sextractor_params, fits_file]
+        logging.info(cmd)
+        completed_proc = subprocess.run(cmd, stdout=subprocess.PIPE)
+
+    # Read catalog
+    point_sources = Table.read(source_file, format='ascii.sextractor')
+
+    # Remove the point sources that sextractor has flagged
+    # if 'FLAGS' in point_sources.keys():
+    #    point_sources = point_sources[point_sources['FLAGS'] == 0]
+    #    point_sources.remove_columns(['FLAGS'])
+
+    # Rename columns
+    point_sources.rename_column('X_IMAGE', 'x')
+    point_sources.rename_column('Y_IMAGE', 'y')
+
+    # Add the SNR
+    point_sources['SNR'] = point_sources['FLUX_AUTO'] / point_sources['FLUXERR_AUTO']
+
+    # Filter point sources near edge
+    # w, h = data[0].shape
+    w, h = (3476, 5208)
+
+    stamp_size = 60
+
+    top = point_sources['y'] > stamp_size
+    bottom = point_sources['y'] < w - stamp_size
+    left = point_sources['x'] > stamp_size
+    right = point_sources['x'] < h - stamp_size
+
+    point_sources = point_sources[top & bottom & right & left].to_pandas()
+    point_sources.columns = [
+        'x', 'y',
+        'ra', 'dec',
+        'background',
+        'flux_auto', 'flux_max', 'fluxerr_auto',
+        'fwhm', 'flags', 'snr'
+    ]
+
+
+def _lookup_via_tess_catalog(fits_file, wcs=None, *args, **kwargs):
+    wcs_footprint = wcs.calc_footprint()
+    logging.info("WCS footprint: {}".format(wcs_footprint))
+
+    # Get stars from TESS catalog
+    point_sources = helpers.get_stars_from_footprint(
+        wcs_footprint,
+        cursor_only=False,
+        table=kwargs.get('table', 'full_catalog')
+    )
+
+    # Get x,y coordinates
+    star_pixels = wcs.all_world2pix(point_sources['ra'], point_sources['dec'], 0)
+    point_sources['x'] = star_pixels[0]
+    point_sources['y'] = star_pixels[1]
+
+    point_sources.add_index(['id'])
+    point_sources = point_sources.to_pandas()
+
+
+def _lookup_via_photutils(fits_file, wcs=None, *args, **kwargs):
+    data = fits.getdata(fits_file)
+    mean, median, std = sigma_clipped_stats(data)
+
+    fwhm = kwargs.get('fwhm', 3.0)
+    threshold = kwargs.get('threshold', 3.0)
+
+    daofind = DAOStarFinder(fwhm=fwhm, threshold=threshold * std)
+    sources = daofind(data - median).to_pandas()
+
+    sources.rename(columns={
+        'xcentroid': 'X',
+        'ycentroid': 'Y',
+    }, inplace=True)
+
+    if wcs is None:
+        wcs = WCS(fits_file)
+
+    coords = wcs.all_pix2world(sources['x'], sources['y'], 1)
+
+    sources['ra'] = coords[0]
+    sources['dec'] = coords[1]
+
+    return sources
 
 
 def create_stamp_slices(
@@ -473,14 +515,14 @@ def differential_photometry(psc0,
         psc1 (`numpy.array`): An NxM cube to be used as the comparison.
         image_times (list(`datetime`)): A list of `datetime.datetime` objects to
             be used for an index.
-        aperture_size (int): An aperture around the source that is used 
+        aperture_size (int): An aperture around the source that is used
             for photometry, default 4 pixels.
         separate_green (bool): If separate green color channels should be created,
             default False. If True, the G2 pixel is marked as `c`.
 
     Returns:
         `pandas.DataFrame`: A dataframe with `color`, `target`, `reference`, and
-            `rel_flux` columsn. 
+            `rel_flux` columsn.
 
     """
     num_frames, stamp_size = psc0.shape
@@ -506,14 +548,9 @@ def differential_photometry(psc0,
         i0 = psc1[frame_idx].reshape(stamp_side, stamp_side)
 
         # NOTE: Bad "centroiding" here
-        try:
-            y_pos, x_pos = np.argwhere(t0 == t0.max())[0]
-            aperture_position = (x_pos, y_pos)
-        except IndexError:
-            print("No star position: ", frame_idx, slice0, star_pos_x, star_pos_y)
-            continue
+        y_pos, x_pos = np.argwhere(t0 == t0.max())[0]
+        aperture_position = (x_pos, y_pos)
 
-        color_flux = dict()
         for color, mask in zip('rgcb', rgb_stamp_masks):
 
             # Get color mask data from target and reference

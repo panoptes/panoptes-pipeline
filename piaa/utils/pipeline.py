@@ -543,7 +543,7 @@ def differential_photometry(psc0,
     return lc0
 
 
-def plot_lightcurve(lc0, model_flux, transit_info, **kwargs):
+def plot_lightcurve(lc0, model_flux=None, transit_info=None, **kwargs):
     """Plot the lightcurve
     
     Args:
@@ -564,31 +564,34 @@ def plot_lightcurve(lc0, model_flux, transit_info, **kwargs):
     ax1.plot(lc0.index, lc0.rel_flux, marker='o', ls='', label='images')
 
     # Transit model
-    ax1.plot(lc0.index, model_flux, label='Model transit')
+    if model_flux is not None:
+        ax1.plot(lc0.index, model_flux, label='Model transit')
 
     # Transit lines
-    midpoint, ingress, egress = transit_info
-    ax1.axvline(midpoint, ls='-.', c='g', alpha=0.5)
-    ax1.axvline(ingress, ls='--', c='k', alpha=0.5)
-    ax1.axvline(egress, ls='--', c='k', alpha=0.5)
+    if transit_info is not None:
+        midpoint, ingress, egress = transit_info
+        ax1.axvline(midpoint, ls='-.', c='g', alpha=0.5)
+        ax1.axvline(ingress, ls='--', c='k', alpha=0.5)
+        ax1.axvline(egress, ls='--', c='k', alpha=0.5)
 
     # Unity
     ax1.axhline(1., ls='--', c='k', alpha=0.5)
     ax1.legend(fontsize=16)
 
     ax1.set_ylim([.96, 1.04])
-
-    ##### Residuals Plot #####
-    ax2 = fig.add_subplot(gs[1])
-
-    residual = lc0.rel_flux - model_flux
-    ax2.plot(residual, ls='', marker='o', label='Model {:.04f}'.format(residual.std()))
-
-    ax2.axhline(0, ls='--', alpha=0.5)
-    ax2.set_title('Model residual')
-
+    
     if 'title' in kwargs:
         ax1.set_title("{}".format(kwargs.get('title')), fontsize=18, y=1.02)
+
+    ##### Residuals Plot #####
+    if model_flux is not None:
+        ax2 = fig.add_subplot(gs[1])
+
+        residual = lc0.rel_flux - model_flux
+        ax2.plot(residual, ls='', marker='o', label='Model {:.04f}'.format(residual.std()))
+
+        ax2.axhline(0, ls='--', alpha=0.5)
+        ax2.set_title('Model residual')
 
     fig.tight_layout()
     

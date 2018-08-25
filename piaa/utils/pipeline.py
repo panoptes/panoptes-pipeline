@@ -581,7 +581,8 @@ def plot_lightcurve(lc0, model_flux, transit_info, **kwargs):
     ##### Residuals Plot #####
     ax2 = fig.add_subplot(gs[1])
 
-    ax2.plot(lc0.rel_flux - model_flux, ls='', marker='o')
+    residual = lc0.rel_flux - model_flux
+    ax2.plot(residual, ls='', marker='o', label='Model {:.04f}'.format(residual.std()))
 
     ax2.axhline(0, ls='--', alpha=0.5)
     ax2.set_title('Model residual')

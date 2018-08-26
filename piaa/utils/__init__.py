@@ -15,9 +15,6 @@ from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
 from matplotlib.figure import Figure
 from photutils import RectangularAperture
 
-class StampSizeException(Exception):
-    pass
-
 
 def show_aperture_stamps(seq_files, point_sources):
     fig, ax = plt.subplots(6, 5)
@@ -296,32 +293,32 @@ def add_pixel_grid(ax1, grid_height, grid_width, show_axis_labels=True, show_sup
         ax1.set_xticklabels([])
         ax1.set_yticklabels([])
 
-        
-def pixel_hist(hdu, bins=None, save_plot=True, out_fn=None, mask_file='/var/panoptes/rgb_masks.npz'):    
+
+def pixel_hist(hdu, bins=None, save_plot=True, out_fn=None, mask_file='/var/panoptes/rgb_masks.npz'):
     data = hdu.data
     exptime = hdu.header['EXPTIME']
-    
+
     # Make the rgb masks if needed
     try:
         rgb_masks = np.load(mask_file)
     except FileNotFoundError:
         rgb_masks = make_masks(data)
-        np.savez_compressed(mask_file, r=rgb_masks[0], g=rgb_masks[1], b=rgb_masks[2])    
-    
+        np.savez_compressed(mask_file, r=rgb_masks[0], g=rgb_masks[1], b=rgb_masks[2])
+
     if bins is None:
-        bins = np.arange(2000,2100,1)
-    
+        bins = np.arange(2000, 2100, 1)
+
     x = bins[:-1]
 
     fig = Figure()
     FigureCanvas(fig)
-    
-    fig.set_size_inches(15,7)
+
+    fig.set_size_inches(15, 7)
 
     model_fits = list()
     for i, color in enumerate(rgb_masks.files):
-        ax = fig.add_subplot(1,3,i + 1)        
-        
+        ax = fig.add_subplot(1, 3, i + 1)
+
         mask = rgb_masks[color]
         d0 = np.ma.array(data, mask=~mask)
 
@@ -341,22 +338,23 @@ def pixel_hist(hdu, bins=None, save_plot=True, out_fn=None, mask_file='/var/pano
         # Plot the models
         ax.plot(x, y, 'ko', label='Pixel values', alpha=0.6)
         ax.plot(x, g(x), label='Gaussian', c='k')
-        
+
         # Plot the mean
         ax.axvline(g.mean.value, ls='--', alpha=0.75, c='k')
-        
-        ax.set_title('{} μ={:.02f} σ={:.02f}'.format(color.capitalize(), g.mean.value, g.stddev.value))
+
+        ax.set_title('{} μ={:.02f} σ={:.02f}'.format(
+            color.capitalize(), g.mean.value, g.stddev.value))
         ax.set_xlabel('{} Counts [adu]'.format(color.capitalize()))
-        
+
         if i == 0:
             ax.set_ylabel('Number of pixels')
-            
+
         model_fits.append(g)
 
-    fig.suptitle('Average pixel counts - {} s exposure'.format(exptime), fontsize=20)   
-    
+    fig.suptitle('Average pixel counts - {} s exposure'.format(exptime), fontsize=20)
+
     if out_fn is None and save_plot:
         out_fn = os.path.splitext(hdu.header['FILENAME'])[0] + '_pixel_counts.png'
         fig.savefig(out_fn, dpi=100)
-    
+
     return model_fits

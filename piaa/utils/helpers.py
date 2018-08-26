@@ -231,11 +231,6 @@ def show_stamps(pscs,
     return fig
 
 
-def normalize(cube):
-    # Helper function to normalize a stamp
-    return (cube.T / cube.sum(1)).T
-
-
 def spiral_matrix(A):
     A = np.array(A)
     out = []

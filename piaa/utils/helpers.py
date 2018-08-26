@@ -9,7 +9,6 @@ from astropy.time import Time
 from astropy.table import Table
 from astropy.wcs import WCS
 
-
 from pong.utils import db
 
 

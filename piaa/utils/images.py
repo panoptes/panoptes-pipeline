@@ -17,6 +17,26 @@ palette.set_bad('g', 1.0)
 
 
 def improve_wcs(fname, remove_extras=True, replace=True, timeout=30, **kwargs):
+    """Improve the world-coordinate-system (WCS) of a FITS file.
+
+    This will plate-solve an already-solved field, using a verification process
+    that will also attempt a SIP distortion correction.
+
+    Args:
+        fname (str): Full path to FITS file.
+        remove_extras (bool, optional): If generated files should be removed, default True.
+        replace (bool, optional): Overwrite existing file, default True.
+        timeout (int, optional): Timeout for the solve, default 30 seconds.
+        **kwargs: Additional keyword args for `solve_field`. Can also include a
+            `verbose` flag.
+
+    Returns:
+        dict: FITS headers, including solve information.
+
+    Raises:
+        error.SolveError: Description
+        error.Timeout: Description
+    """
     verbose = kwargs.get('verbose', False)
     out_dict = {}
     output = None

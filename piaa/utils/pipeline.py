@@ -68,7 +68,11 @@ def lookup_point_sources(fits_files,
     }
 
     # Lookup our appropriate method and call it with the fits file and kwargs
-    point_sources = lookup_function[method](fits_files[image_num], **kwargs)
+    try:
+        point_sources = lookup_function[method](fits_files[image_num], **kwargs)
+    except Exception as e:
+        logging.error("Problem looking up sources: {}".format(e))
+        return
 
     if catalog_match:
         point_sources = get_catalog_match(point_sources, wcs, **kwargs)
@@ -143,7 +147,11 @@ def _lookup_via_sextractor(fits_file, sextractor_params=None, *args, **kwargs):
         logging.info("Running sextractor...")
         cmd = [sextractor, *sextractor_params, fits_file]
         logging.info(cmd)
-        completed_proc = subprocess.run(cmd, stdout=subprocess.PIPE)
+
+        try:
+            subprocess.run(cmd, stdout=subprocess.PIPE, timeout=60, check=True)
+        except subprocess.CalledProcessError as e:
+            raise Exception("Problem running sextractor: {}".format(e))
 
     # Read catalog
     point_sources = Table.read(source_file, format='ascii.sextractor')

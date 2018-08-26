@@ -1,19 +1,11 @@
 import os
 import subprocess
-
-from copy import copy
 from warnings import warn
 
-from matplotlib import pyplot as plt
 from astropy.io import fits
 
 from pocs.utils import error
 from pocs.utils.images import fits as fits_utils
-
-palette = copy(plt.cm.inferno)
-palette.set_over('w', 1.0)
-palette.set_under('k', 1.0)
-palette.set_bad('g', 1.0)
 
 
 def improve_wcs(fname, remove_extras=True, replace=True, timeout=30, **kwargs):

@@ -1,34 +1,16 @@
 import os
-from warnings import warn
 
 import numpy as np
-import pandas as pd
+
+from decimal import Decimal
+from decimal import ROUND_HALF_UP
 
 from astropy.time import Time
 from astropy.table import Table
 from astropy.wcs import WCS
-from astropy.visualization import LogStretch, ImageNormalize, LinearStretch
 
-from matplotlib import pyplot as plt
-import matplotlib.animation as animation
-from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
-from matplotlib.figure import Figure
-from matplotlib import rc
-from mpl_toolkits.axes_grid1 import make_axes_locatable
-from photutils import RectangularAperture
 
 from pong.utils import db
-
-from decimal import Decimal
-from copy import copy
-
-palette = copy(plt.cm.inferno)
-palette.set_over('w', 1.0)
-palette.set_under('k', 1.0)
-palette.set_bad('g', 1.0)
-
-rc('animation', html='html5')
-plt.style.use('bmh')
 
 
 def get_stars_from_footprint(wcs_footprint, **kwargs):
@@ -129,108 +111,6 @@ def get_rgb_masks(data, separate_green=False, force_new=False, verbose=False):
         return _rgb_masks
 
 
-def show_stamps(pscs,
-                frame_idx=None,
-                stamp_size=11,
-                aperture_position=None,
-                aperture_size=None,
-                show_normal=False,
-                show_residual=False,
-                stretch=None,
-                save_name=None,
-                **kwargs):
-
-    if aperture_position is None:
-        midpoint = (stamp_size - 1) / 2
-        aperture_position = (midpoint, midpoint)
-
-    if aperture_size:
-        aperture = RectangularAperture(
-            aperture_position, w=aperture_size, h=aperture_size, theta=0)
-
-    ncols = len(pscs)
-
-    if show_residual:
-        ncols += 1
-
-    nrows = 1
-
-    fig = Figure()
-    FigureCanvas(fig)
-    fig.set_dpi(100)
-    fig.set_figheight(4)
-    fig.set_figwidth(9)
-
-    if frame_idx is not None:
-        s0 = pscs[0][frame_idx]
-        s1 = pscs[1][frame_idx]
-    else:
-        s0 = pscs[0]
-        s1 = pscs[1]
-
-    if stretch == 'log':
-        stretch = LogStretch()
-    else:
-        stretch = LinearStretch()
-
-    ax1 = fig.add_subplot(nrows, ncols, 1)
-
-    im = ax1.imshow(s0, origin='lower', cmap=palette, norm=ImageNormalize(stretch=stretch))
-    if aperture_size:
-        aperture.plot(color='r', lw=4, ax=ax1)
-        # annulus.plot(color='c', lw=2, ls='--', ax=ax1)
-
-    # create an axes on the right side of ax. The width of cax will be 5%
-    # of ax and the padding between cax and ax will be fixed at 0.05 inch.
-    # https://stackoverflow.com/questions/18195758/set-matplotlib-colorbar-size-to-match-graph
-    divider = make_axes_locatable(ax1)
-    cax = divider.append_axes("right", size="5%", pad=0.05)
-    fig.colorbar(im, cax=cax)
-    ax1.set_title('Target')
-
-    # Comparison
-    ax2 = fig.add_subplot(nrows, ncols, 2)
-    im = ax2.imshow(s1, origin='lower', cmap=palette, norm=ImageNormalize(stretch=stretch))
-    if aperture_size:
-        aperture.plot(color='r', lw=4, ax=ax1)
-        # annulus.plot(color='c', lw=2, ls='--', ax=ax1)
-
-    divider = make_axes_locatable(ax2)
-    cax = divider.append_axes("right", size="5%", pad=0.05)
-    fig.colorbar(im, cax=cax)
-    ax2.set_title('Comparison')
-
-    if show_residual:
-        ax3 = fig.add_subplot(nrows, ncols, 3)
-
-        # Residual
-        im = ax3.imshow((s0 / s1), origin='lower', cmap=palette,
-                        norm=ImageNormalize(stretch=stretch))
-
-        divider = make_axes_locatable(ax3)
-        cax = divider.append_axes("right", size="5%", pad=0.05)
-        fig.colorbar(im, cax=cax)
-        # ax1.set_title('Residual')
-        residual = 1 - (s0.sum() / s1.sum())
-        ax3.set_title('Residual {:.01%}'.format(residual))
-
-    # Turn off tick labels
-    ax1.set_yticklabels([])
-    ax1.set_xticklabels([])
-    ax2.set_yticklabels([])
-    ax2.set_xticklabels([])
-    ax3.set_yticklabels([])
-    ax3.set_xticklabels([])
-
-    if save_name:
-        try:
-            fig.savefig(save_name)
-        except Exception as e:
-            warn("Can't save figure: {}".format(e))
-
-    return fig
-
-
 def spiral_matrix(A):
     A = np.array(A)
     out = []
@@ -238,6 +118,23 @@ def spiral_matrix(A):
         out.append(A[:, 0][::-1])  # take first row and reverse it
         A = A[:, 1:].T[::-1]       # cut off first row and rotate counterclockwise
     return np.concatenate(out)
+
+
+def get_pixel_index(x):
+    """Find corresponding index position of `x` pixel position.
+
+    Note:
+        Due to the standard rounding policy of python that will round half integers
+        to their nearest even whole integer, we instead use a `Decimal` with correct
+        round up policy.
+
+    Args:
+        x (float): x coordinate position.
+
+    Returns:
+        int: Index position for zero-based index
+    """
+    return int(Decimal(x - 1).to_integral_value(ROUND_HALF_UP))
 
 
 def pixel_color(x, y):
@@ -319,30 +216,6 @@ def get_stamp_slice(x, y, stamp_size=(14, 14), verbose=False):
     return (slice(y_min, y_max), slice(x_min, x_max))
 
 
-def animate_stamp(d0):
-
-    fig = Figure()
-    FigureCanvas(fig)
-
-    ax = fig.add_subplot(111)
-
-    line = ax.imshow(d0[0])
-
-    def animate(i):
-        line.set_data(d0[i])  # update the data
-        return line,
-
-    # Init only required for blitting to give a clean slate.
-    def init():
-        line.set_data(d0[0])
-        return line,
-
-    ani = animation.FuncAnimation(fig, animate, np.arange(0, len(d0)), init_func=init,
-                                  interval=500, blit=True)
-
-    return ani
-
-
 def moving_average(data_set, periods=3):
     weights = np.ones(periods) / periods
     return np.convolve(data_set, weights, mode='same')
@@ -376,53 +249,6 @@ def get_pixel_drift(coords, files, ext=0):
     y_pos -= y_pos.mean()
 
     return x_pos, y_pos
-
-
-def plot_pixel_drift(x_pos, y_pos, index=None, out_fn=None, title=None):
-    """Plot pixel drift.
-
-    Args:
-        x_pos (`numpy.array`): an array of pixel values.
-        y_pos (`numpy.array`): an array of pixel values.
-        index (`numpy.array`): an array to use as index, can be datetime values.
-            If no index is provided a simple range is generated.
-        out_fn (str): Filename to save image to, default is None for no save.
-
-    Returns:
-        `matplotlib.Figure`: The `Figure` object
-    """
-    # Plot the pixel drift of target
-    if index is None:
-        index = np.arange(len(x_pos))
-
-    pos_df = pd.DataFrame({'dx': x_pos, 'dy': y_pos}, index=index)
-
-    fig = Figure()
-    FigureCanvas(fig)
-
-    fig.set_figwidth(12)
-    fig.set_figheight(9)
-
-    ax = fig.add_subplot(111)
-    ax.plot(pos_df.index, pos_df.dx, label='dx')
-    ax.plot(pos_df.index, pos_df.dy, label='dy')
-
-    ax.set_ylabel('Δ pixel', fontsize=16)
-    ax.set_xlabel('Time [UTC]', fontsize=16)
-
-    if title is None:
-        title = 'Pixel drift'
-
-    ax.set_title(title, fontsize=18)
-    ax.set_ylim([-5, 5])
-
-    fig.legend(fontsize=16)
-    fig.tight_layout()
-
-    if out_fn:
-        fig.savefig(out_fn, dpi=100)
-
-    return fig
 
 
 def get_planet_phase(period, midpoint, t):

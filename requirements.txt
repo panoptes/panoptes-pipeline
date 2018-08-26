@@ -1,9 +1,9 @@
 astroplan
 astropy
 h5py
+ipython-autotime
 matplotlib
 numpy
 photutils
 psycopg2-binary
 tqdm
-ipython-autotime

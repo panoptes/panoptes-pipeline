@@ -549,6 +549,11 @@ def plot_lightcurve(lc0, model_flux=None, transit_info=None, **kwargs):
     Args:
         lc0 (`pandas.DataFrame`): The dataframe with ligthcurve info. See
             `differential_photometry` for details.
+        model_flux (`numpy.array`): An array of flux values to act as a model.
+            This could also be used to plot a fit line. Default None.
+        transit_info (tuple): A tuple with midpoint, ingress, and egress values.
+            Should be in the same formac as the `lc0.index`.
+        **kwargs: Can include the `title` and `ylim`.
     """
     fig = Figure()
     FigureCanvas(fig)
@@ -578,7 +583,8 @@ def plot_lightcurve(lc0, model_flux=None, transit_info=None, **kwargs):
     ax1.axhline(1., ls='--', c='k', alpha=0.5)
     ax1.legend(fontsize=16)
 
-    ax1.set_ylim([.96, 1.04])
+    if 'ylim' in kwargs:
+        ax1.set_ylim(kwargs.get('ylim'))
     
     if 'title' in kwargs:
         ax1.set_title("{}".format(kwargs.get('title')), fontsize=18, y=1.02)

@@ -1,5 +1,6 @@
 # PANOPTES specific files
 config_local.yaml
+examples/notebooks/*.png
 
 # Development support
 sftp-config.json

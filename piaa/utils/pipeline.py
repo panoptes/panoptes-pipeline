@@ -3,8 +3,6 @@ import shutil
 import subprocess
 
 from warnings import warn
-from collections import namedtuple
-from glob import glob
 
 import h5py
 import numpy as np
@@ -16,8 +14,9 @@ from astropy.table import Table
 from astropy.wcs import WCS
 from astropy import units as u
 from astropy.coordinates import SkyCoord, match_coordinates_sky
-from astropy.nddata.utils import Cutout2D, PartialOverlapError, NoOverlapError
 from astropy.time import Time
+from astropy.stats import sigma_clipped_stats
+from astropy.nddata import Cutout2D, PartialOverlapError, NoOverlapError
 
 from matplotlib import gridspec
 from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
@@ -27,9 +26,12 @@ from tqdm import tqdm
 
 from dateutil.parser import parse as date_parse
 
+from photutils import DAOStarFinder
+
 from piaa.utils import helpers
 
 import logging
+
 
 def normalize(cube):
     return (cube.T / cube.sum(1)).T
@@ -38,9 +40,7 @@ def normalize(cube):
 def lookup_point_sources(fits_files,
                          image_num=0,
                          catalog_match=True,
-                         use_sextractor=True,
-                         sextractor_params=None,
-                         use_tess_catalog=False,
+                         method='sextractor',
                          wcs=None,
                          force_new=False,
                          **kwargs
@@ -58,95 +58,27 @@ def lookup_point_sources(fits_files,
     Raises:
         error.InvalidSystemCommand: Description
     """
-    if catalog_match or use_tess_catalog:
+    if catalog_match or method == 'tess_catalog':
         assert wcs is not None and wcs.is_celestial, logging.warning("Need a valid WCS")
-        
-    if use_sextractor:
-        # Write the sextractor catalog to a file
-        source_file = os.path.join(
-            os.environ['PANDIR'], 
-            'psc', 
-            'point_sources_{}.cat'.format(fits_files[image_num].replace('/', '_'))
-        )
-        logging.info("Point source catalog: {}".format(source_file))
 
-        if not os.path.exists(source_file) or force_new:
-            logging.info("No catalog found, building from sextractor")
-            # Build catalog of point sources
-            sextractor = shutil.which('sextractor')
-            if sextractor is None:
-                sextractor = shutil.which('sex')
-                if sextractor is None:
-                    raise Exception('sextractor not found')
+    lookup_function = {
+        'sextractor': _lookup_via_sextractor,
+        'tess_catalog': _lookup_via_tess_catalog,
+        'photutils': _lookup_via_photutils,
+    }
 
-            if sextractor_params is None:
-                sextractor_params = [
-                    '-c', '{}/PIAA/resources/conf_files/sextractor/panoptes.sex'.format(
-                        os.getenv('PANDIR')),
-                    '-CATALOG_NAME', source_file,
-                ]
-
-            logging.info("Running sextractor...")
-            cmd = [sextractor, *sextractor_params, fits_files[image_num]]
-            logging.info(cmd)
-            completed_proc = subprocess.run(cmd, stdout=subprocess.PIPE)
-
-        # Read catalog
-        point_sources = Table.read(source_file, format='ascii.sextractor')
-
-        # Remove the point sources that sextractor has flagged
-        #if 'FLAGS' in point_sources.keys():
-        #    point_sources = point_sources[point_sources['FLAGS'] == 0]
-        #    point_sources.remove_columns(['FLAGS'])
-
-        # Rename columns
-        point_sources.rename_column('X_IMAGE', 'x')
-        point_sources.rename_column('Y_IMAGE', 'y')
-
-        # Add the SNR
-        point_sources['SNR'] = point_sources['FLUX_AUTO'] / point_sources['FLUXERR_AUTO']
-
-        # Filter point sources near edge
-        # w, h = data[0].shape
-        w, h = (3476, 5208)
-
-        stamp_size = 60
-
-        top = point_sources['y'] > stamp_size
-        bottom = point_sources['y'] < w - stamp_size
-        left = point_sources['x'] > stamp_size
-        right = point_sources['x'] < h - stamp_size
-
-        point_sources = point_sources[top & bottom & right & left].to_pandas()
-        point_sources.columns = [
-            'x', 'y', 
-            'ra', 'dec', 
-            'background', 
-            'flux_auto', 'flux_max', 'fluxerr_auto', 
-            'fwhm', 'flags', 'snr'
-        ]
-
-    if use_tess_catalog:
-        wcs_footprint = wcs.calc_footprint()
-        logging.info("WCS footprint: {}".format(wcs_footprint))
-                                                                              
-        # Get stars from TESS catalog
-        point_sources = helpers.get_stars_from_footprint(
-            wcs_footprint,
-            cursor_only=False, 
-            table=kwargs.get('table', 'full_catalog')
-        )
-
-        # Get x,y coordinates
-        star_pixels = wcs.all_world2pix(point_sources['ra'], point_sources['dec'], 0)
-        point_sources['x'] = star_pixels[0]
-        point_sources['y'] = star_pixels[1]
-
-        point_sources.add_index(['id'])
-        point_sources = point_sources.to_pandas()
+    # Lookup our appropriate method and call it with the fits file and kwargs
+    try:
+        point_sources = lookup_function[method](fits_files[image_num], **kwargs)
+    except Exception as e:
+        logging.error("Problem looking up sources: {}".format(e))
+        return
 
     if catalog_match:
         point_sources = get_catalog_match(point_sources, wcs, **kwargs)
+
+    # Change the index to the picid
+    point_sources.set_index('id', inplace=True)
 
     return point_sources
 
@@ -154,20 +86,20 @@ def lookup_point_sources(fits_files,
 def get_catalog_match(point_sources, wcs, table='full_catalog'):
     # Get coords from detected point sources
     stars_coords = SkyCoord(
-        ra=point_sources['ra'].values * u.deg, 
+        ra=point_sources['ra'].values * u.deg,
         dec=point_sources['dec'].values * u.deg
     )
 
     # Lookup stars in catalog
     catalog_stars = helpers.get_stars_from_footprint(
-        wcs.calc_footprint(), 
-        cursor_only=False, 
+        wcs.calc_footprint(),
+        cursor_only=False,
         table=table,
     )
 
     # Get coords for catalog stars
     catalog_coords = SkyCoord(
-        ra=catalog_stars['ra'] * u.deg, 
+        ra=catalog_stars['ra'] * u.deg,
         dec=catalog_stars['dec'] * u.deg
     )
 
@@ -183,18 +115,135 @@ def get_catalog_match(point_sources, wcs, table='full_catalog'):
 
     # Change the index to the picid
     point_sources.set_index('id', inplace=True)
-    
+
     return point_sources
 
 
+def _lookup_via_sextractor(fits_file, sextractor_params=None, *args, **kwargs):
+        # Write the sextractor catalog to a file
+    source_file = os.path.join(
+        os.environ['PANDIR'],
+        'psc',
+        'point_sources_{}.cat'.format(fits_file.replace('/', '_'))
+    )
+    logging.info("Point source catalog: {}".format(source_file))
+
+    if not os.path.exists(source_file) or kwargs.get('force_new', False):
+        logging.info("No catalog found, building from sextractor")
+        # Build catalog of point sources
+        sextractor = shutil.which('sextractor')
+        if sextractor is None:
+            sextractor = shutil.which('sex')
+            if sextractor is None:
+                raise Exception('sextractor not found')
+
+        if sextractor_params is None:
+            sextractor_params = [
+                '-c', '{}/PIAA/resources/conf_files/sextractor/panoptes.sex'.format(
+                    os.getenv('PANDIR')),
+                '-CATALOG_NAME', source_file,
+            ]
+
+        logging.info("Running sextractor...")
+        cmd = [sextractor, *sextractor_params, fits_file]
+        logging.info(cmd)
+
+        try:
+            subprocess.run(cmd, stdout=subprocess.PIPE, timeout=60, check=True)
+        except subprocess.CalledProcessError as e:
+            raise Exception("Problem running sextractor: {}".format(e))
+
+    # Read catalog
+    point_sources = Table.read(source_file, format='ascii.sextractor')
+
+    # Remove the point sources that sextractor has flagged
+    # if 'FLAGS' in point_sources.keys():
+    #    point_sources = point_sources[point_sources['FLAGS'] == 0]
+    #    point_sources.remove_columns(['FLAGS'])
+
+    # Rename columns
+    point_sources.rename_column('X_IMAGE', 'x')
+    point_sources.rename_column('Y_IMAGE', 'y')
+
+    # Add the SNR
+    point_sources['SNR'] = point_sources['FLUX_AUTO'] / point_sources['FLUXERR_AUTO']
+
+    # Filter point sources near edge
+    # w, h = data[0].shape
+    w, h = (3476, 5208)
+
+    stamp_size = 60
+
+    top = point_sources['y'] > stamp_size
+    bottom = point_sources['y'] < w - stamp_size
+    left = point_sources['x'] > stamp_size
+    right = point_sources['x'] < h - stamp_size
+
+    point_sources = point_sources[top & bottom & right & left].to_pandas()
+    point_sources.columns = [
+        'x', 'y',
+        'ra', 'dec',
+        'background',
+        'flux_auto', 'flux_max', 'fluxerr_auto',
+        'fwhm', 'flags', 'snr'
+    ]
+
+
+def _lookup_via_tess_catalog(fits_file, wcs=None, *args, **kwargs):
+    wcs_footprint = wcs.calc_footprint()
+    logging.info("WCS footprint: {}".format(wcs_footprint))
+
+    # Get stars from TESS catalog
+    point_sources = helpers.get_stars_from_footprint(
+        wcs_footprint,
+        cursor_only=False,
+        table=kwargs.get('table', 'full_catalog')
+    )
+
+    # Get x,y coordinates
+    star_pixels = wcs.all_world2pix(point_sources['ra'], point_sources['dec'], 0)
+    point_sources['x'] = star_pixels[0]
+    point_sources['y'] = star_pixels[1]
+
+    point_sources.add_index(['id'])
+    point_sources = point_sources.to_pandas()
+
+
+def _lookup_via_photutils(fits_file, wcs=None, *args, **kwargs):
+    data = fits.getdata(fits_file)
+    mean, median, std = sigma_clipped_stats(data)
+
+    fwhm = kwargs.get('fwhm', 3.0)
+    threshold = kwargs.get('threshold', 3.0)
+
+    daofind = DAOStarFinder(fwhm=fwhm, threshold=threshold * std)
+    sources = daofind(data - median).to_pandas()
+
+    sources.rename(columns={
+        'xcentroid': 'X',
+        'ycentroid': 'Y',
+    }, inplace=True)
+
+    if wcs is None:
+        wcs = WCS(fits_file)
+
+    coords = wcs.all_pix2world(sources['x'], sources['y'], 1)
+
+    sources['ra'] = coords[0]
+    sources['dec'] = coords[1]
+
+    return sources
+
+
 def create_stamp_slices(
-        stamp_fn,
-        fits_files, 
-        point_sources, 
-        stamp_size=(14, 14), 
-        force_new=False,
-        *args, **kwargs
-    ):
+    stamp_fn,
+    fits_files,
+    point_sources,
+    stamp_size=(14, 14),
+    force_new=False,
+    verbose=False,
+    *args, **kwargs
+):
     """Create PANOPTES Stamp Cubes (PSC) for each point source.
 
     Creates a slice through the cube corresponding to a stamp and stores the
@@ -209,12 +258,11 @@ def create_stamp_slices(
 
     errors = dict()
 
-    num_sources = len(point_sources)
     num_frames = len(fits_files)
-    
+
     stamps_fn = os.path.join(
-        os.environ['PANDIR'], 
-        'psc', 
+        os.environ['PANDIR'],
+        'psc',
         stamp_fn.replace('/', '_') + '.hdf5'
     )
     if force_new is False:
@@ -223,16 +271,25 @@ def create_stamp_slices(
             return stamps_fn
         except FileNotFoundError:
             pass
-        
+
     stamps = h5py.File(stamps_fn, 'a')
 
-    image_times = np.array([Time(date_parse(fits.getval(fn, 'DATE-OBS'))).mjd for fn in fits_files])
+    image_times = np.array(
+        [Time(date_parse(fits.getval(fn, 'DATE-OBS'))).mjd for fn in fits_files])
     airmass = np.array([fits.getval(fn, 'AIRMASS') for fn in fits_files])
-    
+
     stamps.attrs['image_times'] = image_times
     stamps.attrs['airmass'] = airmass
-    
-    for i, fn in tqdm(enumerate(fits_files), total=num_frames, desc='Looping files'):
+
+    file_iterator = enumerate(fits_files)
+    star_iterator = point_sources.itertuples()
+
+    if verbose:
+        file_iterator = tqdm(file_iterator, total=num_frames, desc='Looping files')
+        star_iterator = tqdm(star_iterator, total=len(point_sources),
+                             leave=False, desc="Point sources")
+
+    for i, fn in file_iterator:
         # Get stamp data.
         with fits.open(fn) as hdu:
             hdu_idx = 0
@@ -243,7 +300,7 @@ def create_stamp_slices(
             wcs = WCS(hdu[hdu_idx].header)
             d0 = hdu[hdu_idx].data
 
-        for star_row in tqdm(point_sources.itertuples(), total=len(point_sources), leave=False, desc='Sources'):
+        for star_row in star_iterator:
             star_id = str(star_row.Index)
 
             if star_id in stamps and np.array(stamps[star_id]['data'][i]).sum() > 0:
@@ -301,7 +358,7 @@ def create_stamp_slices(
                 # Assign the data
                 stamp_dset[i] = d1
             except TypeError as e:
-            # Sets the metadata. Create metadata dataset if needed.
+                # Sets the metadata. Create metadata dataset if needed.
                 key = str(e) + star_id
                 if key not in errors:
                     logging.info(e)
@@ -315,7 +372,7 @@ def create_stamp_slices(
 
                 # Create the dataset
                 metadata_dset = psc_group.create_dataset(
-                        'original_position', metadata_size, dtype='u2', chunks=True)
+                    'original_position', metadata_size, dtype='u2', chunks=True)
 
                 # Assign the data
                 metadata_dset[i] = (star_row.x, star_row.y)
@@ -325,7 +382,6 @@ def create_stamp_slices(
         if errors:
             logging.warning(errors)
 
-            
     return stamps_fn
 
 
@@ -342,14 +398,14 @@ def get_psc(picid, stamps, frame_slice=None):
 
 
 def find_similar_stars(
-    picid, 
-    stamps, 
-    out_fn=None, 
-    camera_bias=2048,
-    num_refs=100, 
-    snr_limit=10,
-    show_progress=True,
-    *args, **kwargs):
+        picid,
+        stamps,
+        out_fn=None,
+        camera_bias=2048,
+        num_refs=100,
+        snr_limit=10,
+        show_progress=True,
+        *args, **kwargs):
     """ Get all variances for given target
 
     Args:
@@ -360,8 +416,6 @@ def find_similar_stars(
         return pd.read_csv(out_fn, index_col=[0])
     except Exception:
         pass
-    
-    num_sources = len(stamps)
 
     data = dict()
 
@@ -386,7 +440,7 @@ def find_similar_stars(
     if show_progress:
         iterator = tqdm(
             iterator,
-            total=len(stamps), 
+            total=len(stamps),
             desc="Finding similar",
             leave=False
         )
@@ -420,9 +474,9 @@ def find_similar_stars(
             logging.info("Skipping invalid stamp for source {}: {}".format(source_index, e))
 
     df0 = pd.DataFrame(
-            {'v': list(data.values())}, 
-            index=list(data.keys())).sort_values(by='v')
-    
+        {'v': list(data.values())},
+        index=list(data.keys())).sort_values(by='v')
+
     if out_fn:
         df0[:num_refs].to_csv(out_fn)
 
@@ -447,41 +501,42 @@ def get_ideal_full_psc(stamp_collection, coeffs):
     created_frame = (refs.T * coeffs).sum(2).T
     return created_frame
 
-def differential_photometry(psc0, 
-                            psc1, 
-                            image_times, 
+
+def differential_photometry(psc0,
+                            psc1,
+                            image_times,
                             aperture_size=4,
                             separate_green=False):
     """Perform differential aperture photometry on the given PSCs.
-    
+
     `psc0` and `psc1` are Postage Stamp Cubes (PSC) of N frames x M
     pixels, where M = width x height of the stamp and is assumed to be
     square.
-    
+
     For each N frame, an aperture is placed around the source in `psc0`
     and the corresponding pixel location in `psc1`. This aperture cutout
     is then split on color channels and for each channel the sum of
     the target, the sum of the reference, and the difference is given.
-    
+
     Args:
         psc0 (`numpy.array`): An NxM cube of source postage stamps.
         psc1 (`numpy.array`): An NxM cube to be used as the comparison.
         image_times (list(`datetime`)): A list of `datetime.datetime` objects to
             be used for an index.
-        aperture_size (int): An aperture around the source that is used 
+        aperture_size (int): An aperture around the source that is used
             for photometry, default 4 pixels.
         separate_green (bool): If separate green color channels should be created,
             default False. If True, the G2 pixel is marked as `c`.
-            
+
     Returns:
         `pandas.DataFrame`: A dataframe with `color`, `target`, `reference`, and
-            `rel_flux` columsn. 
-    
+            `rel_flux` columsn.
+
     """
     num_frames, stamp_size = psc0.shape
-    
+
     stamp_side = int(np.sqrt(stamp_size))
-    
+
     try:
         single_frame = psc0[0].reshape(stamp_side, stamp_side)
 
@@ -492,7 +547,7 @@ def differential_photometry(psc0,
         )
     except ValueError:
         pass
-    
+
     diff = list()
     for frame_idx, image_time in zip(range(num_frames), image_times):
 
@@ -501,14 +556,9 @@ def differential_photometry(psc0,
         i0 = psc1[frame_idx].reshape(stamp_side, stamp_side)
 
         # NOTE: Bad "centroiding" here
-        try:
-            y_pos, x_pos = np.argwhere(t0 == t0.max())[0]
-            aperture_position = (x_pos, y_pos)
-        except IndexError:
-            print("No star position: ", frame_idx, slice0, star_pos_x, star_pos_y)
-            continue
+        y_pos, x_pos = np.argwhere(t0 == t0.max())[0]
+        aperture_position = (x_pos, y_pos)
 
-        color_flux = dict()
         for color, mask in zip('rgcb', rgb_stamp_masks):
 
             # Get color mask data from target and reference
@@ -535,17 +585,17 @@ def differential_photometry(psc0,
                 'reference': i_sum,
                 'rel_flux': t_sum / i_sum,
                 'obstime': image_time,
-            }) 
-            
+            })
+
     # Light-curve dataframe
     lc0 = pd.DataFrame(diff).set_index(['obstime'])
-        
+
     return lc0
 
 
 def plot_lightcurve(lc0, model_flux=None, transit_info=None, **kwargs):
     """Plot the lightcurve
-    
+
     Args:
         lc0 (`pandas.DataFrame`): The dataframe with ligthcurve info. See
             `differential_photometry` for details.
@@ -559,7 +609,7 @@ def plot_lightcurve(lc0, model_flux=None, transit_info=None, **kwargs):
     FigureCanvas(fig)
 
     fig.set_size_inches(12, 9)
-    gs = gridspec.GridSpec(2, 1, height_ratios=[4, 1]) 
+    gs = gridspec.GridSpec(2, 1, height_ratios=[4, 1])
 
     ##### Lightcurve Plot #####
 
@@ -600,5 +650,5 @@ def plot_lightcurve(lc0, model_flux=None, transit_info=None, **kwargs):
         ax2.set_title('Model residual')
 
     fig.tight_layout()
-    
+
     return fig

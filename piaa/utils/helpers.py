@@ -9,10 +9,21 @@ from astropy.time import Time
 from astropy.table import Table
 from astropy.wcs import WCS
 
-from pong.utils import db
+from pong.utils import clouddb
 
 
 def get_stars_from_footprint(wcs_footprint, **kwargs):
+    """Lookup star information from WCS footprint.
+
+    This is just a thin wrapper around `get_stars`.
+
+    Args:
+        wcs_footprint (`astropy.wcs.WCS`): The world coordinate system (WCS) for an image.
+        **kwargs: Optional keywords to pass to `get_stars`.
+
+    Returns:
+        TYPE: Description
+    """
     ra = wcs_footprint[:, 0]
     dec = wcs_footprint[:, 1]
 
@@ -27,11 +38,29 @@ def get_stars(
         table='full_catalog',
         cursor_only=True,
         verbose=False,
-        *args,
         **kwargs):
-    cur = db.get_cursor(instance='tess-catalog', db='v6', **kwargs)
-    cur.execute('SELECT id, ra, dec, tmag, vmag, e_tmag, twomass FROM {} WHERE tmag < 13 AND ra >= %s AND ra <= %s AND dec >= %s AND dec <= %s;'.format(
-        table), (ra_min, ra_max, dec_min, dec_max))
+    """Look star information from the TESS catalog.
+
+    Args:
+        ra_min (float): The minimum RA in degrees.
+        ra_max (float): The maximum RA in degrees.
+        dec_min (float): The minimum Dec in degress.
+        dec_max (float): The maximum Dec in degrees.
+        table (str, optional): TESS catalog table to use, default 'full_catalog'. Can also be 'ctl'
+        cursor_only (bool, optional): Return raw cursor, default False.
+        verbose (bool, optional): Verbose, default False.
+        **kwargs: Additional keyword arrs passed to `get_cursor`.
+
+    Returns:
+        `astropy.table.Table` or `psycopg2.cursor`: Table with star information be default,
+            otherwise the raw cursor if `cursor_only=True`.
+    """
+    cur = clouddb.get_cursor(instance='tess-catalog', db='v6', **kwargs)
+    cur.execute("""SELECT id, ra, dec, tmag, vmag, e_tmag, twomass
+        FROM {}
+        WHERE tmag < 13 AND ra >= %s AND ra <= %s AND dec >= %s AND dec <= %s;""".format(table),
+                (ra_min, ra_max, dec_min, dec_max)
+                )
 
     if cursor_only:
         return cur
@@ -46,7 +75,21 @@ def get_stars(
 
 
 def get_star_info(picid=None, twomass_id=None, table='full_catalog', verbose=False, **kwargs):
-    cur = db.get_cursor(instance='tess-catalog', db='v6', **kwargs)
+    """Lookup catalog information about a given star.
+
+    Args:
+        picid (str, optional): The ID of the star in the TESS catalog, also
+            known as the PANOPTES Input Catalog ID (picid).
+        twomass_id (str, optional): 2Mass ID.
+        table (str, optional): TESS catalog table to use, default 'full_catalog'.
+            Can also be 'ctl'.
+        verbose (bool, optional): Verbose, default False.
+        **kwargs: Description
+
+    Returns:
+        tuple: Values from the database.
+    """
+    cur = clouddb.get_cursor(instance='tess-catalog', db='v6', **kwargs)
 
     if picid:
         val = picid
@@ -59,18 +102,32 @@ def get_star_info(picid=None, twomass_id=None, table='full_catalog', verbose=Fal
     return cur.fetchone()
 
 
-def get_rgb_masks(data, separate_green=False, force_new=False, verbose=False):
+def get_rgb_masks(data, separate_green=False, mask_path=None, force_new=False, verbose=False):
+    """Get the RGGB Bayer pattern for the given data.
 
-    rgb_mask_file = 'rgb_masks.npz'
+    Args:
+        data (`numpy.array`): An array of data representing an image.
+        separate_green (bool, optional): If the two green channels should be separated,
+            default False.
+        mask_path (str, optional): Path to file to save/lookup mask.
+        force_new (bool, optional): If a new file should be generated, default False.
+        verbose (bool, optional): Verbose, default False.
+
+    Returns:
+        TYPE: Description
+    """
+    if mask_path is None:
+        mask_path = os.path.join(os.environ['PANDIR'], 'rgb_masks.npz')
 
     if force_new:
         try:
-            os.remove(rgb_mask_file)
+            os.remove(mask_path)
         except FileNotFoundError:
             pass
 
+    # Try to load existing file and if not generate new
     try:
-        return np.load(rgb_mask_file)
+        return np.load(mask_path)
     except FileNotFoundError:
         if verbose:
             print("Making RGB masks")
@@ -96,21 +153,40 @@ def get_rgb_masks(data, separate_green=False, force_new=False, verbose=False):
                 [(index[0] % 2 == 1 and index[1] % 2 == 0) for index, i in np.ndenumerate(data)]
             ).reshape(w, h))
 
-            _rgb_masks = np.array([red_mask, green1_mask, green2_mask, blue_mask])
+            _rgb_masks = {
+                'r': red_mask,
+                'g': green1_mask,
+                'c': green2_mask,
+                'b': blue_mask,
+            }
         else:
             green_mask = np.flipud(np.array(
-                [(index[0] % 2 == 0 and index[1] % 2 == 1) or (index[0] % 2 == 1 and index[1] % 2 == 0)
-                 for index, i in np.ndenumerate(data)]
+                [((index[0] % 2 == 0 and index[1] % 2 == 1) or
+                    (index[0] % 2 == 1 and index[1] % 2 == 0))
+                    for index, i in np.ndenumerate(data)
+                 ]
             ).reshape(w, h))
 
-            _rgb_masks = np.array([red_mask, green_mask, blue_mask])
+            _rgb_masks = {
+                'r': red_mask,
+                'g': green_mask,
+                'b': blue_mask,
+            }
 
-        _rgb_masks.dump(rgb_mask_file)
+        np.savez_compressed(mask_path, **_rgb_masks)
 
         return _rgb_masks
 
 
 def spiral_matrix(A):
+    """Simple function to spiral a matrix.
+
+    Args:
+        A (`numpy.array`): Array to spiral.
+
+    Returns:
+        `numpy.array`: Spiralled array.
+    """
     A = np.array(A)
     out = []
     while(A.size):
@@ -175,13 +251,29 @@ def pixel_color(x, y):
 
 
 def get_stamp_slice(x, y, stamp_size=(14, 14), verbose=False):
+    """Get the slice around a given position with fixed Bayer pattern.
 
-    for m in stamp_size:
-        m -= 2  # Subtract center superpixel
-        if int(m / 2) % 2 != 0:
-            print("Invalid size: ", m + 2)
+    Given an x,y pixel position, get the slice object for a stamp of a given size
+    but make sure the first position corresponds to a red-pixel. This means that
+    x,y will not necessarily be at the center of the resulting stamp.
+
+    Args:
+        x (float): X pixel position.
+        y (float): Y pixel position.
+        stamp_size (tuple, optional): The size of the cutout, default (14, 14).
+        verbose (bool, optional): Verbose, default False.
+
+    Returns:
+        `slice`: A slice object for the data.
+    """
+    # Make sure requested size can have superpixels on each side.
+    for side_length in stamp_size:
+        side_length -= 2  # Subtract center superpixel
+        if int(side_length / 2) % 2 != 0:
+            print("Invalid size: ", side_length + 2)
             return
 
+    # Pixels have nasty 0.5 rounding issues
     x = Decimal(float(x)).to_integral()
     y = Decimal(float(y)).to_integral()
     color = pixel_color(x, y)
@@ -197,6 +289,7 @@ def get_stamp_slice(x, y, stamp_size=(14, 14), verbose=False):
     y_min = int(y - y_half)
     y_max = int(y + y_half)
 
+    # Alter the bounds depending on identified center pixel
     if color == 'B':
         y_min -= 1
         y_max -= 1
@@ -216,6 +309,15 @@ def get_stamp_slice(x, y, stamp_size=(14, 14), verbose=False):
 
 
 def moving_average(data_set, periods=3):
+    """Moving average.
+
+    Args:
+        data_set (`numpy.array`): An array of values over which to perform the moving average.
+        periods (int, optional): Number of periods.
+
+    Returns:
+        `numpy.array`: An array of the computed averages.
+    """
     weights = np.ones(periods) / periods
     return np.convolve(data_set, weights, mode='same')
 
@@ -250,6 +352,15 @@ def get_pixel_drift(coords, files, ext=0):
     return x_pos, y_pos
 
 
-def get_planet_phase(period, midpoint, t):
-    """Get planet phase from period and midpoint. """
-    return ((Time(t).mjd - Time(midpoint).mjd) % period) / period
+def get_planet_phase(period, midpoint, obs_time):
+    """Get planet phase from period and midpoint.
+
+    Args:
+        period (float): The length of the period in days.
+        midpoint (`datetime.datetime`): The midpoint of the transit.
+        obs_time (`datetime.datetime`): The time at which to compute the phase.
+
+    Returns:
+        float: The phase of the planet.
+    """
+    return ((Time(obs_time).mjd - Time(midpoint).mjd) % period) / period

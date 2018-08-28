@@ -69,10 +69,11 @@ def lookup_point_sources(fits_files,
 
     # Lookup our appropriate method and call it with the fits file and kwargs
     try:
+        logging.info("Using {} method {}".format(method, lookup_function[method]))
         point_sources = lookup_function[method](fits_files[image_num], **kwargs)
     except Exception as e:
         logging.error("Problem looking up sources: {}".format(e))
-        return
+        raise Exception("Problem lookup up sources: {}".format(e))
 
     if catalog_match:
         point_sources = get_catalog_match(point_sources, wcs, **kwargs)
@@ -84,6 +85,8 @@ def lookup_point_sources(fits_files,
 
 
 def get_catalog_match(point_sources, wcs, table='full_catalog'):
+    assert point_sources is not None
+    
     # Get coords from detected point sources
     stars_coords = SkyCoord(
         ra=point_sources['ra'].values * u.deg,
@@ -113,14 +116,11 @@ def get_catalog_match(point_sources, wcs, table='full_catalog'):
     point_sources['vmag'] = catalog_stars[idx]['vmag']
     point_sources['d2d'] = d2d
 
-    # Change the index to the picid
-    point_sources.set_index('id', inplace=True)
-
     return point_sources
 
 
 def _lookup_via_sextractor(fits_file, sextractor_params=None, *args, **kwargs):
-        # Write the sextractor catalog to a file
+    # Write the sextractor catalog to a file
     source_file = os.path.join(
         os.environ['PANDIR'],
         'psc',
@@ -187,6 +187,8 @@ def _lookup_via_sextractor(fits_file, sextractor_params=None, *args, **kwargs):
         'flux_auto', 'flux_max', 'fluxerr_auto',
         'fwhm', 'flags', 'snr'
     ]
+    
+    return point_sources
 
 
 def _lookup_via_tess_catalog(fits_file, wcs=None, *args, **kwargs):
@@ -207,6 +209,8 @@ def _lookup_via_tess_catalog(fits_file, wcs=None, *args, **kwargs):
 
     point_sources.add_index(['id'])
     point_sources = point_sources.to_pandas()
+    
+    return point_sources
 
 
 def _lookup_via_photutils(fits_file, wcs=None, *args, **kwargs):
@@ -559,7 +563,7 @@ def differential_photometry(psc0,
         y_pos, x_pos = np.argwhere(t0 == t0.max())[0]
         aperture_position = (x_pos, y_pos)
 
-        for color, mask in zip('rgcb', rgb_stamp_masks):
+        for color, mask in rgb_stamp_masks.items():
 
             # Get color mask data from target and reference
             t1 = np.ma.array(t0, mask=~mask)
@@ -593,14 +597,16 @@ def differential_photometry(psc0,
     return lc0
 
 
-def plot_lightcurve(lc0, model_flux=None, transit_info=None, **kwargs):
+def plot_lightcurve(x, y, model_flux=None, use_imag=False, transit_info=None, **kwargs):
     """Plot the lightcurve
 
     Args:
-        lc0 (`pandas.DataFrame`): The dataframe with ligthcurve info. See
-            `differential_photometry` for details.
+        x (`numpy.array`): X values, usually the index of the lightcurve DataFrame.
+        y (`numpy.array`): Y values, flux or magnitude.
         model_flux (`numpy.array`): An array of flux values to act as a model.
             This could also be used to plot a fit line. Default None.
+        use_imag (bool): If instrumental magnitudes should be used instead of flux,
+            default False.
         transit_info (tuple): A tuple with midpoint, ingress, and egress values.
             Should be in the same formac as the `lc0.index`.
         **kwargs: Can include the `title` and `ylim`.
@@ -614,13 +620,13 @@ def plot_lightcurve(lc0, model_flux=None, transit_info=None, **kwargs):
     ##### Lightcurve Plot #####
 
     ax1 = fig.add_subplot(gs[0])
-
+    
     # Raw data values
-    ax1.plot(lc0.index, lc0.rel_flux, marker='o', ls='', label='images')
+    ax1.plot(x, y, marker='o', ls='', label='images')
 
     # Transit model
     if model_flux is not None:
-        ax1.plot(lc0.index, model_flux, label='Model transit')
+        ax1.plot(x, model_flux, c='r', lw=3, ls='--', label='Model transit')
 
     # Transit lines
     if transit_info is not None:
@@ -643,12 +649,21 @@ def plot_lightcurve(lc0, model_flux=None, transit_info=None, **kwargs):
     if model_flux is not None:
         ax2 = fig.add_subplot(gs[1])
 
-        residual = lc0.rel_flux - model_flux
+        residual = y - model_flux
         ax2.plot(residual, ls='', marker='o', label='Model {:.04f}'.format(residual.std()))
 
         ax2.axhline(0, ls='--', alpha=0.5)
         ax2.set_title('Model residual')
+        
+        if transit_info is not None:
+            midpoint, ingress, egress = transit_info
+            ax2.axvline(midpoint, ls='-.', c='g', alpha=0.5)
+            ax2.axvline(ingress, ls='--', c='k', alpha=0.5)
+            ax2.axvline(egress, ls='--', c='k', alpha=0.5)
 
     fig.tight_layout()
 
     return fig
+
+def get_imag(x, t=1):
+    return -2.5 * np.log10(x/t)

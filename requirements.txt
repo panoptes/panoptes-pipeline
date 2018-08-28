@@ -1,5 +1,6 @@
 astroplan
 astropy
+astroquery
 h5py
 ipython-autotime
 matplotlib

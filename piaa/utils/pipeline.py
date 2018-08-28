@@ -37,8 +37,7 @@ def normalize(cube):
     return (cube.T / cube.sum(1)).T
 
 
-def lookup_point_sources(fits_files,
-                         image_num=0,
+def lookup_point_sources(fits_file,
                          catalog_match=True,
                          method='sextractor',
                          wcs=None,
@@ -48,8 +47,7 @@ def lookup_point_sources(fits_files,
     """ Extract point sources from image
 
     Args:
-        image_num (int, optional): Frame number of observation from which to
-            extract images
+        fits_file (str, optional): Path to FITS file to search for stars.
         sextractor_params (dict, optional): Parameters for sextractor,
             defaults to settings contained in the `panoptes.sex` file
         force_new (bool, optional): Force a new catalog to be created,
@@ -533,8 +531,8 @@ def differential_photometry(psc0,
             default False. If True, the G2 pixel is marked as `c`.
 
     Returns:
-        `pandas.DataFrame`: A dataframe with `color`, `target`, `reference`, and
-            `rel_flux` columsn.
+        `pandas.DataFrame`: A dataframe with `color`, `target`, and `reference`.
+            columns.
 
     """
     num_frames, stamp_size = psc0.shape
@@ -587,7 +585,6 @@ def differential_photometry(psc0,
                 'color': color,
                 'target': t_sum,
                 'reference': i_sum,
-                'rel_flux': t_sum / i_sum,
                 'obstime': image_time,
             })
 
@@ -622,7 +619,7 @@ def plot_lightcurve(x, y, model_flux=None, use_imag=False, transit_info=None, **
     ax1 = fig.add_subplot(gs[0])
     
     # Raw data values
-    ax1.plot(x, y, marker='o', ls='', label='images')
+    ax1.plot(x, y, marker='o', ls='', color='k', label='images')
 
     # Transit model
     if model_flux is not None:

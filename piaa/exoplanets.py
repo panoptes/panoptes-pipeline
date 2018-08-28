@@ -3,6 +3,8 @@ import os
 from astropy import units as u
 from astropy.time import Time
 
+import batman
+
 # Query Exoplanet Orbit Database (exoplanets.org) for planet properties
 # Columns:http://exoplanets.org/help/common/data
 from astroquery.exoplanet_orbit_database import ExoplanetOrbitDatabase
@@ -122,3 +124,56 @@ class Exoplanet():
     def _print(self, msg, *args, **kwargs):
         if self.verbose:
             print(msg, *args, **kwargs)
+
+    def get_model_params(self, period=None):
+        """Gets the model parameters for known transit.
+
+        Uses the looked up parameters for the exoplanet to populate a set of
+        parmaeters for modelling a transit via the `batman` module.
+
+        https://www.cfa.harvard.edu/~lkreidberg/batman/index.html
+
+        Args:
+            period (None, optional): If given, should be the period in days. If
+                None, use a phase of -0.5 to 0.5 with midpoint at 0.0.
+
+        Returns:
+            `batman.TransitParams`: The parameters for use in calcualting a
+                transit.
+        """
+        semimajor_axis = self.info['A'].to(u.R_sun)
+        eccentricity = self.info['ECC']
+        planet_radius = self.info['R'].to(u.R_sun)
+        orbital_inc = self.info['I']
+        periastron = self.info['OM']
+
+        transit_params = batman.TransitParams()  # object to store transit parameters
+
+        transit_params.t0 = 0.  # time of inferior conjunction
+
+        if period:
+            transit_params.per = self.period.value
+        else:
+            transit_params.per = 1
+
+        transit_params.rp = planet_radius.value  # planet radius (stellar radii)
+        transit_params.inc = orbital_inc.value  # orbital inclination (degrees)
+
+        transit_params.a = semimajor_axis.value  # semi-major axis (stellar radii)
+        transit_params.ecc = eccentricity
+        transit_params.w = periastron.value  # longitude of periastron (in degrees)
+
+        transit_params.limb_dark = "uniform"  # limb darkening model
+        transit_params.u = []  # limb darkening coefficients [u1, u2, u3, u4]
+
+        return transit_params
+
+    def get_model_lightcurve(self, index, period=None):
+        transit_params = self.get_model_params(period=period)
+
+        transit_model = batman.TransitModel(transit_params, index)
+
+        # Get model flux
+        model_flux = transit_model.light_curve(transit_params)
+
+        return model_flux

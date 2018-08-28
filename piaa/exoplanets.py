@@ -218,3 +218,23 @@ class Exoplanet():
         )
 
         return transit_info
+
+    def phase_from_time(self, obstime):
+        """Get the phase for given time.
+
+        Args:
+            obstime (`astropy.time.Time`): Time.
+
+        Returns:
+            float: Phase in range [-0.5,0.5] where 0.0 is the midpoint of tranist.
+        """
+        transit_info = self.get_transit_info(obstime)
+        phase = (transit_info.midpoint - obstime).value / self.period.value
+
+        if phase > 0.5:
+            phase -= 1.0
+
+        if phase < -0.5:
+            phase += 1.0
+
+        return phase

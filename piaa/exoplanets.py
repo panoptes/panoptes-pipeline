@@ -1,6 +1,7 @@
 import os
 
-import pandas as pd
+from astropy import units as u
+from astropy.time import Time
 
 # Query Exoplanet Orbit Database (exoplanets.org) for planet properties
 # Columns:http://exoplanets.org/help/common/data
@@ -108,7 +109,7 @@ class Exoplanet():
     @property
     def midtransit(self):
         """ """
-        return self.get_prop('midtransit')
+        return Time(self.get_prop('midtransit'), format='jd')
 
     @property
     def star_mag(self):

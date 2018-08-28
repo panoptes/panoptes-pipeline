@@ -40,7 +40,6 @@ def normalize(cube):
 def lookup_point_sources(fits_file,
                          catalog_match=True,
                          method='sextractor',
-                         wcs=None,
                          force_new=False,
                          **kwargs
                          ):
@@ -48,8 +47,6 @@ def lookup_point_sources(fits_file,
 
     Args:
         fits_file (str, optional): Path to FITS file to search for stars.
-        sextractor_params (dict, optional): Parameters for sextractor,
-            defaults to settings contained in the `panoptes.sex` file
         force_new (bool, optional): Force a new catalog to be created,
             defaults to False
 
@@ -57,6 +54,7 @@ def lookup_point_sources(fits_file,
         error.InvalidSystemCommand: Description
     """
     if catalog_match or method == 'tess_catalog':
+        wcs = WCS(fits_file)
         assert wcs is not None and wcs.is_celestial, logging.warning("Need a valid WCS")
 
     lookup_function = {
@@ -68,7 +66,7 @@ def lookup_point_sources(fits_file,
     # Lookup our appropriate method and call it with the fits file and kwargs
     try:
         logging.info("Using {} method {}".format(method, lookup_function[method]))
-        point_sources = lookup_function[method](fits_files[image_num], **kwargs)
+        point_sources = lookup_function[method](fits_file, **kwargs)
     except Exception as e:
         logging.error("Problem looking up sources: {}".format(e))
         raise Exception("Problem lookup up sources: {}".format(e))
@@ -82,7 +80,7 @@ def lookup_point_sources(fits_file,
     return point_sources
 
 
-def get_catalog_match(point_sources, wcs, table='full_catalog'):
+def get_catalog_match(point_sources, wcs, table='full_catalog', **kwargs):
     assert point_sources is not None
     
     # Get coords from detected point sources
@@ -222,8 +220,8 @@ def _lookup_via_photutils(fits_file, wcs=None, *args, **kwargs):
     sources = daofind(data - median).to_pandas()
 
     sources.rename(columns={
-        'xcentroid': 'X',
-        'ycentroid': 'Y',
+        'xcentroid': 'x',
+        'ycentroid': 'y',
     }, inplace=True)
 
     if wcs is None:

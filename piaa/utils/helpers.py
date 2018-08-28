@@ -9,7 +9,7 @@ from astropy.time import Time
 from astropy.table import Table
 from astropy.wcs import WCS
 
-from pong.utils import clouddb
+from pocs.utils.google import clouddb
 
 
 def get_stars_from_footprint(wcs_footprint, **kwargs):
@@ -55,13 +55,12 @@ def get_stars(
         `astropy.table.Table` or `psycopg2.cursor`: Table with star information be default,
             otherwise the raw cursor if `cursor_only=True`.
     """
-    cur = clouddb.get_cursor(instance='tess-catalog', db='v6', **kwargs)
+    cur = clouddb.get_cursor(instance='tess-catalog', db_name='v6', db_user='postgres', **kwargs)
     cur.execute("""SELECT id, ra, dec, tmag, vmag, e_tmag, twomass
         FROM {}
         WHERE tmag < 13 AND ra >= %s AND ra <= %s AND dec >= %s AND dec <= %s;""".format(table),
                 (ra_min, ra_max, dec_min, dec_max)
-                )
-
+               ) 
     if cursor_only:
         return cur
 
@@ -89,7 +88,7 @@ def get_star_info(picid=None, twomass_id=None, table='full_catalog', verbose=Fal
     Returns:
         tuple: Values from the database.
     """
-    cur = clouddb.get_cursor(instance='tess-catalog', db='v6', **kwargs)
+    cur = clouddb.get_cursor(instance='tess-catalog', db_name='v6', db_user='postgres', **kwargs)
 
     if picid:
         val = picid

@@ -17,13 +17,13 @@ def test_no_exists():
         Exoplanet('Foo Bar b')
 
 
-def test_get_props(exoplanet):
-    assert exoplanet.get_props('star_mag')
-    assert exoplanet.get_props('foobar') is None
-    assert exoplanet.transit_duration == exoplanet.get_props('transit_duration')
-    assert exoplanet.period == exoplanet.get_props('transit_duration')
-    assert exoplanet.midtransit == exoplanet.get_props('midtransit')
-    assert exoplanet.star_mag == exoplanet.get_props('star_mag')
+def test_get_prop(exoplanet):
+    assert exoplanet.get_prop('star_mag')
+    assert exoplanet.get_prop('foobar') is None
+    assert exoplanet.transit_duration == exoplanet.get_prop('transit_duration')
+    assert exoplanet.period == exoplanet.get_prop('period')
+    assert exoplanet.midtransit == exoplanet.get_prop('midtransit')
+    assert exoplanet.star_mag == exoplanet.get_prop('star_mag')
 
 # # Calculate next transit times which occur after first image
 # obs_time = Time(image_times[0])

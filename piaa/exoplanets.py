@@ -30,6 +30,7 @@ EXOPLANET_DB_KEYMAP = {
         'query_method': ExoplanetOrbitDatabase.query_planet,
         'keymap': {
             'transit_duration': 'T14',
+            'transit_depth': 'DEPTH',
             'period': 'PER',
             'period_ref': 'PERREF',
             'midtransit': 'TT',
@@ -84,6 +85,7 @@ class Exoplanet():
             table_col = self._keymap[col]
         except KeyError:
             self._print("Invalid property: {}".format(col))
+            return None
 
         try:
             # Try info in table

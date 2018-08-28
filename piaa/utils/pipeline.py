@@ -82,7 +82,7 @@ def lookup_point_sources(fits_file,
 
 def get_catalog_match(point_sources, wcs, table='full_catalog', **kwargs):
     assert point_sources is not None
-    
+
     # Get coords from detected point sources
     stars_coords = SkyCoord(
         ra=point_sources['ra'].values * u.deg,
@@ -183,7 +183,7 @@ def _lookup_via_sextractor(fits_file, sextractor_params=None, *args, **kwargs):
         'flux_auto', 'flux_max', 'fluxerr_auto',
         'fwhm', 'flags', 'snr'
     ]
-    
+
     return point_sources
 
 
@@ -205,7 +205,7 @@ def _lookup_via_tess_catalog(fits_file, wcs=None, *args, **kwargs):
 
     point_sources.add_index(['id'])
     point_sources = point_sources.to_pandas()
-    
+
     return point_sources
 
 
@@ -592,7 +592,7 @@ def differential_photometry(psc0,
     return lc0
 
 
-def plot_lightcurve(x, y, model_flux=None, use_imag=False, transit_info=None, **kwargs):
+def plot_lightcurve(x, y, model_flux=None, use_imag=False, transit_info=None, color='k', **kwargs):
     """Plot the lightcurve
 
     Args:
@@ -604,7 +604,11 @@ def plot_lightcurve(x, y, model_flux=None, use_imag=False, transit_info=None, **
             default False.
         transit_info (tuple): A tuple with midpoint, ingress, and egress values.
             Should be in the same formac as the `lc0.index`.
+        color (str, optional): Color to be used for main data points, default black.
         **kwargs: Can include the `title` and `ylim`.
+
+    Returns:
+        TYPE: Description
     """
     fig = Figure()
     FigureCanvas(fig)
@@ -615,9 +619,9 @@ def plot_lightcurve(x, y, model_flux=None, use_imag=False, transit_info=None, **
     ##### Lightcurve Plot #####
 
     ax1 = fig.add_subplot(gs[0])
-    
+
     # Raw data values
-    ax1.plot(x, y, marker='o', ls='', color='k', label='images')
+    ax1.plot(x, y, marker='o', ls='', color=color, label='images')
 
     # Transit model
     if model_flux is not None:
@@ -636,7 +640,7 @@ def plot_lightcurve(x, y, model_flux=None, use_imag=False, transit_info=None, **
 
     if 'ylim' in kwargs:
         ax1.set_ylim(kwargs.get('ylim'))
-    
+
     if 'title' in kwargs:
         ax1.set_title("{}".format(kwargs.get('title')), fontsize=18, y=1.02)
 
@@ -645,11 +649,12 @@ def plot_lightcurve(x, y, model_flux=None, use_imag=False, transit_info=None, **
         ax2 = fig.add_subplot(gs[1])
 
         residual = y - model_flux
-        ax2.plot(residual, ls='', marker='o', label='Model {:.04f}'.format(residual.std()))
+        ax2.plot(residual, color=color, ls='', marker='o',
+                 label='Model {:.04f}'.format(residual.std()))
 
         ax2.axhline(0, ls='--', alpha=0.5)
         ax2.set_title('Model residual')
-        
+
         if transit_info is not None:
             midpoint, ingress, egress = transit_info
             ax2.axvline(midpoint, ls='-.', c='g', alpha=0.5)
@@ -659,6 +664,7 @@ def plot_lightcurve(x, y, model_flux=None, use_imag=False, transit_info=None, **
     fig.tight_layout()
 
     return fig
+
 
 def get_imag(x, t=1):
     return -2.5 * np.log10(x/t)

@@ -6,7 +6,7 @@ from warnings import warn
 
 from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
 from matplotlib.figure import Figure
-from matplotlib import colormap as cm
+from matplotlib import cm
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 import matplotlib.animation as animation
 from matplotlib import rc

@@ -3,12 +3,17 @@ import os
 from astropy import units as u
 from astropy.time import Time
 
+from collections import namedtuple
+
 import batman
 
 # Query Exoplanet Orbit Database (exoplanets.org) for planet properties
 # Columns:http://exoplanets.org/help/common/data
 from astroquery.exoplanet_orbit_database import ExoplanetOrbitDatabase
 from astroplan import EclipsingSystem
+
+
+TransitInfo = namedtuple('TransitInfo', ['ingress', 'midpoint', 'egress'])
 
 
 def get_exotable(name):
@@ -169,6 +174,16 @@ class Exoplanet():
         return transit_params
 
     def get_model_lightcurve(self, index, period=None):
+        """Gets the model lightcurve.
+
+        Args:
+            index (list or `numpy.array`): The index to be used, can either be a
+                list of time objects or an array of phases.
+            period (float, optional): The period passed to `get_model_params`.
+
+        Returns:
+            `numpy.array`: An array of normalized flux values.
+        """
         transit_params = self.get_model_params(period=period)
 
         transit_model = batman.TransitModel(transit_params, index)
@@ -177,3 +192,29 @@ class Exoplanet():
         model_flux = transit_model.light_curve(transit_params)
 
         return model_flux
+
+    def get_transit_info(self, obstime=None):
+        """Return the next transit information after obstime.
+
+        Args:
+            obstime (`astropy.time.Time`, optional): Time seeking next transit for.
+
+        Returns:
+            `TransitInfo`: A namedtuple with `ingress`, `midpoint`, and `egress`
+                attributes.
+        """
+        # Calculate next transit times which occur after first image
+        if obstime is None:
+            obstime = Time.now()
+
+        next_transit = self.transit_system.next_primary_eclipse_time(obstime)
+        ing_egr = self.transit_system.next_primary_ingress_egress_time(obstime)
+
+        # Get transit properties
+        transit_info = TransitInfo(
+            ing_egr.datetime[0][0],
+            next_transit[0].datetime,
+            ing_egr.datetime[0][1]
+        )
+
+        return transit_info

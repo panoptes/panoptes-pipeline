@@ -164,7 +164,7 @@ class Exoplanet():
         transit_params.rp = planet_radius.value  # planet radius (stellar radii)
         transit_params.inc = orbital_inc.value  # orbital inclination (degrees)
 
-        transit_params.a = semimajor_axis.value  # semi-major axis (stellar radii)
+        transit_params.a = semimajor_axis  # semi-major axis (stellar radii)
         transit_params.ecc = eccentricity
         transit_params.w = periastron.value  # longitude of periastron (in degrees)
 

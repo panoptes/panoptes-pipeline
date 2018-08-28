@@ -212,9 +212,9 @@ class Exoplanet():
 
         # Get transit properties
         transit_info = TransitInfo(
-            ing_egr.datetime[0][0],
-            next_transit[0].datetime,
-            ing_egr.datetime[0][1]
+            Time(ing_egr.datetime[0][0]),
+            Time(next_transit[0].datetime),
+            Time(ing_egr.datetime[0][1])
         )
 
         return transit_info

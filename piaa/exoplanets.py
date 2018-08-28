@@ -146,7 +146,7 @@ class Exoplanet():
             `batman.TransitParams`: The parameters for use in calcualting a
                 transit.
         """
-        semimajor_axis = self.info['A'].to(u.R_sun)
+        semimajor_axis = self.info['AR']
         eccentricity = self.info['ECC']
         planet_radius = self.info['R'].to(u.R_sun)
         orbital_inc = self.info['I']
@@ -219,7 +219,7 @@ class Exoplanet():
 
         return transit_info
 
-    def phase_from_time(self, obstime):
+    def get_phase(self, obstime):
         """Get the phase for given time.
 
         Args:

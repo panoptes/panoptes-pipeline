@@ -79,14 +79,17 @@ class Exoplanet():
             duration=self.transit_duration
         )
 
-    def get_prop(self, col):
+    def get_prop(self, col, raw=False):
         val = None
 
-        try:
-            table_col = self._keymap[col]
-        except KeyError:
-            self._print("Invalid property: {}".format(col))
-            return None
+        if raw is False:
+            try:
+                table_col = self._keymap[col]
+            except KeyError:
+                self._print("Invalid property: {}".format(col))
+                return None
+        else:
+            table_col = col
 
         try:
             # Try info in table

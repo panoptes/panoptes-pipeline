@@ -75,6 +75,8 @@ distribute-*.tar.gz
 .ipynb_checkpoints
 notebooks/*
 
+.pytest_cache*
+
 .idea
 *.patch
 rgb_masks.npz

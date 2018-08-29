@@ -642,7 +642,7 @@ def make_apertures_plot(apertures, num_frames=None):
                 break
 
             if all_channels is None:
-                all_channels = np.zeros_like(target).filled(0)
+                all_channels = np.zeros_like(target)
 
             all_channels = all_channels + target.filled(0)
 

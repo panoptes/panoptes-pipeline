@@ -60,7 +60,7 @@ def get_stars(
         FROM {}
         WHERE tmag < 13 AND ra >= %s AND ra <= %s AND dec >= %s AND dec <= %s;""".format(table),
                 (ra_min, ra_max, dec_min, dec_max)
-               ) 
+                )
     if cursor_only:
         return cur
 
@@ -99,6 +99,16 @@ def get_star_info(picid=None, twomass_id=None, table='full_catalog', verbose=Fal
 
     cur.execute('SELECT * FROM {} WHERE {}=%s'.format(table, col), (val,))
     return cur.fetchone()
+
+
+def get_rgb_data(data, **kwargs):
+    rgb_masks = get_rgb_masks(data, **kwargs)
+
+    r_data = np.ma.array(data, mask=~rgb_masks['r'])
+    g_data = np.ma.array(data, mask=~rgb_masks['g'])
+    b_data = np.ma.array(data, mask=~rgb_masks['b'])
+
+    return np.array([r_data, g_data, b_data])
 
 
 def get_rgb_masks(data, separate_green=False, mask_path=None, force_new=False, verbose=False):

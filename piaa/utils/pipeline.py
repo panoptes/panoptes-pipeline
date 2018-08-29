@@ -506,7 +506,9 @@ def differential_photometry(psc0,
                             psc1,
                             image_times,
                             aperture_size=4,
-                            separate_green=False):
+                            separate_green=False,
+                            plot_apertures=False,
+                            ):
     """Perform differential aperture photometry on the given PSCs.
 
     `psc0` and `psc1` are Postage Stamp Cubes (PSC) of N frames x M
@@ -527,6 +529,8 @@ def differential_photometry(psc0,
             for photometry, default 4 pixels.
         separate_green (bool): If separate green color channels should be created,
             default False. If True, the G2 pixel is marked as `c`.
+        plot_apertures (bool, optional): If a figure should be generated showing
+            each of the aperture stamps, default False.
 
     Returns:
         `pandas.DataFrame`: A dataframe with `color`, `target`, and `reference`.
@@ -548,6 +552,7 @@ def differential_photometry(psc0,
     except ValueError:
         pass
 
+    apertures = list()
     diff = list()
     for frame_idx, image_time in zip(range(num_frames), image_times):
 
@@ -579,6 +584,8 @@ def differential_photometry(psc0,
             t_sum = t2.data.sum()
             i_sum = int(i2.data.sum())
 
+            apertures.append(np.array(t2, i2))
+
             diff.append({
                 'color': color,
                 'target': t_sum,
@@ -589,7 +596,30 @@ def differential_photometry(psc0,
     # Light-curve dataframe
     lc0 = pd.DataFrame(diff).set_index(['obstime'])
 
-    return lc0
+    if plot_apertures:
+        return lc0, apertures
+    else:
+        return lc0
+
+
+def make_apertures_plot(apertures):
+    num_frames = len(apertures)
+    fig = Figure()
+    FigureCanvas(fig)
+
+    num_cols = 5
+    num_rows = (num_frames // num_cols) + 1
+
+    for i, aperture in enumerate(apertures):
+        target = aperture[0]
+        # reference = aperture[0]
+
+        ax = fig.add_subplot(num_rows, num_cols, i)
+        ax.imshow(target)
+        ax.set_yticklabels([])
+        ax.set_xticklabels([])
+
+    return fig
 
 
 def plot_lightcurve(x, y, model_flux=None, use_imag=False, transit_info=None, color='k', **kwargs):

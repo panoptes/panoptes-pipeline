@@ -148,7 +148,7 @@ class Exoplanet():
         """
         semimajor_axis = self.info['AR']
         eccentricity = self.info['ECC']
-        planet_radius = self.info['R'].to(u.R_sun)
+        planet_radius = self.info['R'].to(u.R_sun) / self.info['RSTAR']
         orbital_inc = self.info['I']
         periastron = self.info['OM']
 

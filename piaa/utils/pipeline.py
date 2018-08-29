@@ -614,7 +614,7 @@ def make_apertures_plot(apertures, num_frames=None):
     num_cols = 3
 
     if num_frames is None:
-        num_frames = (num_frames // num_cols)
+        num_frames = (len(apertures) // num_cols)
 
     fig = Figure()
     FigureCanvas(fig)

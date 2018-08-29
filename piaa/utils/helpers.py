@@ -103,7 +103,7 @@ def get_star_info(picid=None, twomass_id=None, table='full_catalog', verbose=Fal
 
 def get_rgb_data(data, **kwargs):
     rgb_masks = get_rgb_masks(data, **kwargs)
-
+    
     r_data = np.ma.array(data, mask=~rgb_masks['r'])
     g_data = np.ma.array(data, mask=~rgb_masks['g'])
     b_data = np.ma.array(data, mask=~rgb_masks['b'])
@@ -137,7 +137,8 @@ def get_rgb_masks(data, separate_green=False, mask_path=None, force_new=False, v
     # Try to load existing file and if not generate new
     try:
         loaded_masks = np.load(mask_path)
-        if loaded_masks.shape != data.shape:
+        mask_shape = loaded_masks[loaded_masks.files[0]].shape
+        if mask_shape != data.shape:
             os.remove(mask_path)
             raise FileNotFoundError
     except FileNotFoundError:

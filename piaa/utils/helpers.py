@@ -136,7 +136,10 @@ def get_rgb_masks(data, separate_green=False, mask_path=None, force_new=False, v
 
     # Try to load existing file and if not generate new
     try:
-        return np.load(mask_path)
+        loaded_masks = np.load(mask_path)
+        if loaded_masks.shape != data.shape:
+            os.remove(mask_path)
+            raise FileNotFoundError
     except FileNotFoundError:
         if verbose:
             print("Making RGB masks")

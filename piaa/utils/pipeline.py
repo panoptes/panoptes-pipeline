@@ -18,6 +18,7 @@ from astropy.time import Time
 from astropy.stats import sigma_clipped_stats
 from astropy.nddata import Cutout2D, PartialOverlapError, NoOverlapError
 
+from matplotlib import pyplot as plt
 from matplotlib import gridspec
 from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
 from matplotlib.figure import Figure
@@ -597,29 +598,72 @@ def differential_photometry(psc0,
     lc0 = pd.DataFrame(diff).set_index(['obstime'])
 
     if plot_apertures:
-        return lc0, apertures
+        fig = make_apertures_plot(apertures)
+        return lc0, fig
     else:
         return lc0
 
 
-def make_apertures_plot(apertures):
-    num_frames = len(apertures)
+def make_apertures_plot(apertures, num_frames=None):
+    """Make a plot of the final stamp aperture.
+
+    Args:
+        apertures (list): List of data to plot.
+        num_frames (int, optional): Number of frames to plot, default len(apertures).
+    """
+    num_cols = 3
+
+    if num_frames is None:
+        num_frames = 5  # (num_frames // num_cols)
+
     fig = Figure()
     FigureCanvas(fig)
+    fig.set_size_inches(num_cols + 1, num_frames)
 
-    num_cols = 5
-    num_rows = (num_frames // num_cols) + 1
+    axes = fig.subplots(num_frames, num_cols + 1, sharex=True, sharey=True)
 
-    for i, aperture in enumerate(apertures):
-        target = aperture[0]
-        # reference = aperture[0]
+    c_lookup = {
+        0: 'red',
+        1: 'green',
+        2: 'blue'
+    }
 
-        ax = fig.add_subplot(num_rows, num_cols, i)
-        ax.imshow(target)
-        ax.set_yticklabels([])
-        ax.set_xticklabels([])
+    for row_num in range(num_frames):
+        all_channels = None
+        for col_num in range(num_cols):
 
-    return fig
+            ax = axes[row_num][col_num]
+
+            idx = (row_num * (num_cols)) + col_num
+
+            try:
+                target = apertures[idx][0]
+            except IndexError:
+                break
+
+            if all_channels is None:
+                all_channels = np.zeros_like(target).filled(0)
+
+            all_channels = all_channels + target.filled(0)
+
+            ax.imshow(target)
+
+            if col_num == 2:
+                ax2 = axes[row_num][col_num + 1]
+                ax2.imshow(all_channels)
+
+                plt.setp(ax2.get_xticklabels(), visible=False)
+                plt.setp(ax2.get_yticklabels(), visible=False)
+
+            if row_num == 0:
+                ax.set_title(c_lookup[col_num])
+                if col_num == 2:
+                    ax2.set_title('All')
+
+            plt.setp(ax.get_xticklabels(), visible=False)
+            plt.setp(ax.get_yticklabels(), visible=False)
+
+    fig.tight_layout()
 
 
 def plot_lightcurve(x, y, model_flux=None, use_imag=False, transit_info=None, color='k', **kwargs):

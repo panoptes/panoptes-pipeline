@@ -665,6 +665,8 @@ def make_apertures_plot(apertures, num_frames=None):
 
     fig.tight_layout()
 
+    return fig
+
 
 def plot_lightcurve(x, y, model_flux=None, use_imag=False, transit_info=None, color='k', **kwargs):
     """Plot the lightcurve

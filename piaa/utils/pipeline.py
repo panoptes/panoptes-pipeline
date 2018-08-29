@@ -18,11 +18,6 @@ from astropy.time import Time
 from astropy.stats import sigma_clipped_stats
 from astropy.nddata import Cutout2D, PartialOverlapError, NoOverlapError
 
-from matplotlib import pyplot as plt
-from matplotlib import gridspec
-from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
-from matplotlib.figure import Figure
-
 from tqdm import tqdm
 
 from dateutil.parser import parse as date_parse
@@ -30,6 +25,7 @@ from dateutil.parser import parse as date_parse
 from photutils import DAOStarFinder
 
 from piaa.utils import helpers
+from piaa.utils import plot
 
 import logging
 
@@ -598,149 +594,11 @@ def differential_photometry(psc0,
     lc0 = pd.DataFrame(diff).set_index(['obstime'])
 
     if plot_apertures:
-        fig = make_apertures_plot(apertures)
+        fig = plot.make_apertures_plot(apertures)
         return lc0, fig
     else:
         return lc0
 
 
-def make_apertures_plot(apertures, num_frames=None):
-    """Make a plot of the final stamp aperture.
-
-    Args:
-        apertures (list): List of data to plot.
-        num_frames (int, optional): Number of frames to plot, default len(apertures).
-    """
-    num_cols = 3
-
-    if num_frames is None:
-        num_frames = (len(apertures) // num_cols)
-
-    fig = Figure()
-    FigureCanvas(fig)
-    fig.set_size_inches(num_cols + 1, num_frames)
-
-    axes = fig.subplots(num_frames, num_cols + 1, sharex=True, sharey=True)
-
-    c_lookup = {
-        0: 'red',
-        1: 'green',
-        2: 'blue'
-    }
-
-    for row_num in range(num_frames):
-        all_channels = None
-        for col_num in range(num_cols):
-
-            ax = axes[row_num][col_num]
-
-            idx = (row_num * (num_cols)) + col_num
-
-            try:
-                target = apertures[idx][0]
-            except IndexError:
-                break
-
-            if all_channels is None:
-                all_channels = np.zeros_like(target.filled(0))
-
-            all_channels = all_channels + target.filled(0)
-
-            ax.imshow(target)
-
-            if col_num == 2:
-                ax2 = axes[row_num][col_num + 1]
-                ax2.imshow(all_channels)
-
-                plt.setp(ax2.get_xticklabels(), visible=False)
-                plt.setp(ax2.get_yticklabels(), visible=False)
-
-            if row_num == 0:
-                ax.set_title(c_lookup[col_num])
-                if col_num == 2:
-                    ax2.set_title('All')
-
-            plt.setp(ax.get_xticklabels(), visible=False)
-            plt.setp(ax.get_yticklabels(), visible=False)
-
-    fig.tight_layout()
-
-    return fig
-
-
-def plot_lightcurve(x, y, model_flux=None, use_imag=False, transit_info=None, color='k', **kwargs):
-    """Plot the lightcurve
-
-    Args:
-        x (`numpy.array`): X values, usually the index of the lightcurve DataFrame.
-        y (`numpy.array`): Y values, flux or magnitude.
-        model_flux (`numpy.array`): An array of flux values to act as a model.
-            This could also be used to plot a fit line. Default None.
-        use_imag (bool): If instrumental magnitudes should be used instead of flux,
-            default False.
-        transit_info (tuple): A tuple with midpoint, ingress, and egress values.
-            Should be in the same formac as the `lc0.index`.
-        color (str, optional): Color to be used for main data points, default black.
-        **kwargs: Can include the `title` and `ylim`.
-
-    Returns:
-        TYPE: Description
-    """
-    fig = Figure()
-    FigureCanvas(fig)
-
-    fig.set_size_inches(12, 9)
-    gs = gridspec.GridSpec(2, 1, height_ratios=[4, 1])
-
-    ##### Lightcurve Plot #####
-
-    ax1 = fig.add_subplot(gs[0])
-
-    # Raw data values
-    ax1.plot(x, y, marker='o', ls='', color=color, label='images')
-
-    # Transit model
-    if model_flux is not None:
-        ax1.plot(x, model_flux, c='r', lw=3, ls='--', label='Model transit')
-
-    # Transit lines
-    if transit_info is not None:
-        midpoint, ingress, egress = transit_info
-        ax1.axvline(midpoint, ls='-.', c='g', alpha=0.5)
-        ax1.axvline(ingress, ls='--', c='k', alpha=0.5)
-        ax1.axvline(egress, ls='--', c='k', alpha=0.5)
-
-    # Unity
-    ax1.axhline(1., ls='--', c='k', alpha=0.5)
-    ax1.legend(fontsize=16)
-
-    if 'ylim' in kwargs:
-        ax1.set_ylim(kwargs.get('ylim'))
-
-    if 'title' in kwargs:
-        ax1.set_title("{}".format(kwargs.get('title')), fontsize=18, y=1.02)
-
-    ##### Residuals Plot #####
-    if model_flux is not None:
-        ax2 = fig.add_subplot(gs[1])
-
-        residual = y - model_flux
-        ax2.plot(residual, color=color, ls='', marker='o',
-                 label='Model {:.04f}'.format(residual.std()))
-
-        ax2.axhline(0, ls='--', alpha=0.5)
-        ax2.set_title('Model residual')
-
-        if transit_info is not None:
-            midpoint, ingress, egress = transit_info
-            ax2.axvline(midpoint, ls='-.', c='g', alpha=0.5)
-            ax2.axvline(ingress, ls='--', c='k', alpha=0.5)
-            ax2.axvline(egress, ls='--', c='k', alpha=0.5)
-
-    fig.tight_layout()
-
-    return fig
-
-
 def get_imag(x, t=1):
-    return -2.5 * np.log10(x/t)
+    return -2.5 * np.log10(x / t)

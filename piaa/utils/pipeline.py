@@ -585,7 +585,7 @@ def differential_photometry(psc0,
             t_sum = t2.data.sum()
             i_sum = int(i2.data.sum())
 
-            apertures.append(np.array(t2, i2))
+            apertures.append([t2, i2])
 
             diff.append({
                 'color': color,

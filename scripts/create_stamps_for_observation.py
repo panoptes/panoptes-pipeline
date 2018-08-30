@@ -68,24 +68,28 @@ def main(sequence=None, files=None, stamp_size=(14,14), snr_limit=10, *args, **k
                 continue
 
     logging.info("Looking up stars in field")
-    wcs = WCS(solved_files[0])
     # Lookup point sources
     # You need to set the env variable for the password for TESS catalog DB (ask Wilfred)
     # os.environ['PGPASSWORD'] = 'sup3rs3cr3t'
     point_sources = pipeline.lookup_point_sources(
-        solved_files, 
-        wcs=wcs, 
+        solved_files[0], 
         force_new=True
     )
     
     logging.info("Sources found: {}".format(len(point_sources)))
+    
+    high_snr = point_sources[point_sources.snr >= float(snr_limit)]
+    
+    logging.info("Sources found w/ high SNR: {}".format(len(high_snr)))
 
     # Create stamps
     stamps_fn = pipeline.create_stamp_slices(
         sequence,
         solved_files,
-        point_sources[point_sources.snr >= float(snr_limit)],
-        stamp_size=stamp_size
+        high_snr,
+        stamp_size=stamp_size,
+        verbose=True,
+        force_new=True
     )
     
     if stamps_fn:

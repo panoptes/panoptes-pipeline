@@ -23,6 +23,7 @@ from tqdm import tqdm, tqdm_notebook
 
 from dateutil.parser import parse as date_parse
 
+from photutils import aperture
 from photutils import DAOStarFinder
 
 from piaa.utils import helpers
@@ -80,8 +81,9 @@ def lookup_point_sources(fits_file,
     counts = point_sources.x.groupby('id').count()
     single_entry = counts == 1
     single_index = single_entry.loc[single_entry].index
-
-    return point_sources.loc[single_entry.loc[single_entry].index]
+    unique_sources = point_sources.loc[single_entry.loc[single_entry].index]
+    
+    return unique_sources
 
 
 def get_catalog_match(point_sources, wcs, table='full_catalog', **kwargs):
@@ -240,7 +242,7 @@ def _lookup_via_photutils(fits_file, wcs=None, *args, **kwargs):
 
 
 def create_stamp_slices(
-    stamp_fn,
+    save_dir,
     fits_files,
     point_sources,
     stamp_size=(14, 14),
@@ -263,11 +265,13 @@ def create_stamp_slices(
     errors = dict()
 
     num_frames = len(fits_files)
+    sequence = fits.getval(fits_files[0], 'SEQID')
+    
+    logging.info("{} files found for {}".format(num_frames, sequence))
 
     stamps_fn = os.path.join(
-        os.environ['PANDIR'],
-        'psc',
-        stamp_fn.replace('/', '_') + '.hdf5'
+        save_dir,
+        sequence.replace('/', '_') + '.hdf5'
     )
     logger.info("Creating stamps file: {}".format(stamps_fn))
     
@@ -486,7 +490,7 @@ def find_similar_stars(
         try:
             snr = float(stamps[source_index].attrs['snr'])
             if snr < snr_limit:
-                logging.info("Skipping PICID {}, low snr {:.02f}".format(picid, snr))
+                logging.info("Skipping PICID {}, low snr {:.02f}".format(source_index, snr))
                 continue
         except KeyError as e:
             logging.debug("No source in table: {}".format(picid))
@@ -540,13 +544,14 @@ def get_ideal_full_psc(stamp_collection, coeffs):
     return created_frame
 
 
-def differential_photometry(psc0,
-                            psc1,
-                            image_times,
-                            aperture_size=4,
-                            separate_green=False,
-                            plot_apertures=False,
-                            ):
+def get_aperture_sums(psc0,
+                      psc1,
+                      image_times,
+                      aperture_size=4,
+                      separate_green=False,
+                      subtract_back=False,
+                      plot_apertures=False,
+                      ):
     """Perform differential aperture photometry on the given PSCs.
 
     `psc0` and `psc1` are Postage Stamp Cubes (PSC) of N frames x M
@@ -567,6 +572,8 @@ def differential_photometry(psc0,
             for photometry, default 4 pixels.
         separate_green (bool): If separate green color channels should be created,
             default False. If True, the G2 pixel is marked as `c`.
+        subtract_back (bool, optional): If a background annulus should be removed
+            from the sum, default False.
         plot_apertures (bool, optional): If a figure should be generated showing
             each of the aperture stamps, default False.
 
@@ -618,11 +625,35 @@ def differential_photometry(psc0,
             except Exception as e:
                 print(e)
                 continue
+                
+            t3 = t2.data
+            i3 = i2.data
+                
+            if subtract_back:
+                #logging.info("Performing sky background subtraction within aperture")
+                #annulus = aperture.RectangularAnnulus(aperture_position, aperture_size + 2, aperture_size * 2, aperture_size + 4)
+                #back = annulus.do_photometry(t1.reshape(14, 14), method='center')[0][0]
+                #
+                #if color == 'g':
+                #    pixel_area = annulus.area() / 2
+                #else:
+                #    pixel_area = annulus.area() / 4
+                #    
+                #avg_back = back / pixel_area
+                mean, median, std = sigma_clipped_stats(t3)
+                logging.info("Average sky background for {}: {:5.2f}: {:5.2f}".format(color, mean, t3.sum()))
+                
+                t3 = t3 - mean
+                logging.info(t3.sum())
 
-            t_sum = t2.data.sum()
-            i_sum = int(i2.data.sum())
+            t_sum = t3.sum()
+            i_sum = i3.sum()
 
-            apertures.append([t2.data, i2.data])
+            aps = [t3, i3]
+            
+            if plot_apertures:
+                if subtract_back:
+                    apertures.append([t1, i1, annulus])
 
             diff.append({
                 'color': color,

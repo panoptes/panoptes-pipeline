@@ -409,8 +409,11 @@ def make_apertures_plot(apertures, num_frames=None):
         2: 'blue'
     }
 
+    # Each frame has its own row
     for row_num in range(num_frames):
         all_channels = None
+        
+        # One column for each color channel plus the sum
         for col_num in range(num_cols):
 
             ax = axes[row_num][col_num]
@@ -429,21 +432,30 @@ def make_apertures_plot(apertures, num_frames=None):
 
             ax.imshow(target)
 
-            if col_num == 0:
-                y_lab = ax.set_ylabel("{:5s}".format(str(idx // 3)))
-                y_lab.set_rotation(0)
-
+            # Show the sum
             if col_num == 2:
                 ax2 = axes[row_num][col_num + 1]
                 ax2.imshow(all_channels)
-
+                
+                try:
+                    annulus = apertures[idx][2]
+                    annulus.plot(ax=ax2)
+                except IndexError:
+                    pass
+                
                 plt.setp(ax2.get_xticklabels(), visible=False)
                 plt.setp(ax2.get_yticklabels(), visible=False)
 
+            # If first row, set column title
             if row_num == 0:
                 ax.set_title(c_lookup[col_num])
                 if col_num == 2:
                     ax2.set_title('All')
+                    
+            # If first column, show frame index to left
+            if col_num == 0:
+                y_lab = ax.set_ylabel("{:5s}".format(str(idx // 3)))
+                y_lab.set_rotation(0)
 
             plt.setp(ax.get_xticklabels(), visible=False)
             plt.setp(ax.get_yticklabels(), visible=False)

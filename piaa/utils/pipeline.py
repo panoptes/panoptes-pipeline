@@ -2,6 +2,7 @@ import os
 import shutil
 import subprocess
 
+from contextlib import suppress
 from warnings import warn
 
 import h5py
@@ -18,7 +19,7 @@ from astropy.time import Time
 from astropy.stats import sigma_clipped_stats
 from astropy.nddata import Cutout2D, PartialOverlapError, NoOverlapError
 
-from tqdm import tqdm
+from tqdm import tqdm, tqdm_notebook
 
 from dateutil.parser import parse as date_parse
 
@@ -28,6 +29,7 @@ from piaa.utils import helpers
 from piaa.utils import plot
 
 import logging
+logger = logging.getLogger(__name__)
 
 
 def normalize(cube):
@@ -52,7 +54,7 @@ def lookup_point_sources(fits_file,
     """
     if catalog_match or method == 'tess_catalog':
         wcs = WCS(fits_file)
-        assert wcs is not None and wcs.is_celestial, logging.warning("Need a valid WCS")
+        assert wcs is not None and wcs.is_celestial, logger.warning("Need a valid WCS")
 
     lookup_function = {
         'sextractor': _lookup_via_sextractor,
@@ -62,19 +64,24 @@ def lookup_point_sources(fits_file,
 
     # Lookup our appropriate method and call it with the fits file and kwargs
     try:
-        logging.info("Using {} method {}".format(method, lookup_function[method]))
+        logger.info("Using {} method {}".format(method, lookup_function[method]))
         point_sources = lookup_function[method](fits_file, **kwargs)
     except Exception as e:
-        logging.error("Problem looking up sources: {}".format(e))
+        logger.error("Problem looking up sources: {}".format(e))
         raise Exception("Problem lookup up sources: {}".format(e))
 
     if catalog_match:
         point_sources = get_catalog_match(point_sources, wcs, **kwargs)
-
+        
     # Change the index to the picid
     point_sources.set_index('id', inplace=True)
+        
+    # Remove those with more than one entry
+    counts = point_sources.x.groupby('id').count()
+    single_entry = counts == 1
+    single_index = single_entry.loc[single_entry].index
 
-    return point_sources
+    return point_sources.loc[single_entry.loc[single_entry].index]
 
 
 def get_catalog_match(point_sources, wcs, table='full_catalog', **kwargs):
@@ -119,10 +126,10 @@ def _lookup_via_sextractor(fits_file, sextractor_params=None, *args, **kwargs):
         'psc',
         'point_sources_{}.cat'.format(fits_file.replace('/', '_'))
     )
-    logging.info("Point source catalog: {}".format(source_file))
+    logger.info("Point source catalog: {}".format(source_file))
 
     if not os.path.exists(source_file) or kwargs.get('force_new', False):
-        logging.info("No catalog found, building from sextractor")
+        logger.info("No catalog found, building from sextractor")
         # Build catalog of point sources
         sextractor = shutil.which('sextractor')
         if sextractor is None:
@@ -137,9 +144,9 @@ def _lookup_via_sextractor(fits_file, sextractor_params=None, *args, **kwargs):
                 '-CATALOG_NAME', source_file,
             ]
 
-        logging.info("Running sextractor...")
+        logger.info("Running sextractor...")
         cmd = [sextractor, *sextractor_params, fits_file]
-        logging.info(cmd)
+        logger.info(cmd)
 
         try:
             subprocess.run(cmd, stdout=subprocess.PIPE, timeout=60, check=True)
@@ -186,7 +193,7 @@ def _lookup_via_sextractor(fits_file, sextractor_params=None, *args, **kwargs):
 
 def _lookup_via_tess_catalog(fits_file, wcs=None, *args, **kwargs):
     wcs_footprint = wcs.calc_footprint()
-    logging.info("WCS footprint: {}".format(wcs_footprint))
+    logger.info("WCS footprint: {}".format(wcs_footprint))
 
     # Get stars from TESS catalog
     point_sources = helpers.get_stars_from_footprint(
@@ -262,9 +269,14 @@ def create_stamp_slices(
         'psc',
         stamp_fn.replace('/', '_') + '.hdf5'
     )
+    logger.info("Creating stamps file: {}".format(stamps_fn))
+    
     if force_new is False:
+        logging.info("Looking for existing stamps file")
         try:
+            assert os.path.exists(stamps_fn)
             stamps = h5py.File(stamps_fn)
+            logging.info("Returning existing stamps file")
             return stamps_fn
         except FileNotFoundError:
             pass
@@ -279,28 +291,39 @@ def create_stamp_slices(
     stamps.attrs['airmass'] = airmass
 
     file_iterator = enumerate(fits_files)
-    star_iterator = point_sources.itertuples()
 
     if verbose:
-        file_iterator = tqdm(file_iterator, total=num_frames, desc='Looping files')
-        star_iterator = tqdm(star_iterator, total=len(point_sources),
-                             leave=False, desc="Point sources")
+        if kwargs.get('notebook', False):
+            file_iterator = tqdm_notebook(file_iterator, total=num_frames, desc='Looping files')
+        else:
+            file_iterator = tqdm(file_iterator, total=num_frames, desc='Looping files')
 
-    for i, fn in file_iterator:
+    for frame_idx, fn in file_iterator:
         # Get stamp data.
         with fits.open(fn) as hdu:
             hdu_idx = 0
             if fn.endswith('.fz'):
-                logging.info("Using compressed FITS")
+                logger.info("Using compressed FITS")
                 hdu_idx = 1
 
             wcs = WCS(hdu[hdu_idx].header)
             d0 = hdu[hdu_idx].data
+            
+        star_iterator = point_sources.itertuples()
+        if verbose:
+            if kwargs.get('notebook', False):
+                star_iterator = tqdm_notebook(star_iterator, total=len(point_sources),
+                                     leave=False, desc="Point sources")
+            else:
+                star_iterator = tqdm(star_iterator, total=len(point_sources),
+                                     leave=False, desc="Point sources")
 
         for star_row in star_iterator:
             star_id = str(star_row.Index)
 
-            if star_id in stamps and np.array(stamps[star_id]['data'][i]).sum() > 0:
+            if star_id in stamps and np.array(stamps[star_id]['data'][frame_idx]).sum() > 1:
+                logger.info("Skipping {} in frame {} for having data: {}".format(star_id, frame_idx, 
+                                                                                  np.array(stamps[star_id]['data'][frame_idx]).sum()))
                 continue
 
             star_pos = wcs.all_world2pix(star_row.ra, star_row.dec, 0)
@@ -312,7 +335,7 @@ def create_stamp_slices(
                 d1 = d0[slice0].flatten()
 
                 if len(d1) == 0:
-                    logging.warning('Bad slice for {}, skipping'.format(star_id))
+                    logger.warning('Bad slice for {}, skipping'.format(star_id))
                     continue
             except Exception as e:
                 raise e
@@ -321,7 +344,7 @@ def create_stamp_slices(
             try:
                 psc_group = stamps[star_id]
             except KeyError:
-                logging.debug("Creating new group for star {}".format(star_id))
+                logger.debug("Creating new group for star {}".format(star_id))
                 psc_group = stamps.create_group(star_id)
                 # Stamp metadata
                 try:
@@ -338,33 +361,33 @@ def create_stamp_slices(
                         psc_group.attrs[k] = str(v)
                 except Exception as e:
                     if str(e) not in errors:
-                        logging.warning(e)
+                        logger.warning(e)
                         errors[str(e)] = True
 
             # Set the data for the stamp. Create PSC dataset if needed.
             try:
                 # Assign stamp values
-                psc_group['data'][i] = d1
+                psc_group['data'][frame_idx] = d1
             except KeyError:
-                logging.debug("Creating new PSC dataset for {}".format(star_id))
+                logger.debug("Creating new PSC dataset for {}".format(star_id))
                 psc_size = (num_frames, len(d1))
 
                 # Create the dataset
                 stamp_dset = psc_group.create_dataset('data', psc_size, dtype='u2', chunks=True)
 
                 # Assign the data
-                stamp_dset[i] = d1
+                stamp_dset[frame_idx] = d1
             except TypeError as e:
                 # Sets the metadata. Create metadata dataset if needed.
                 key = str(e) + star_id
                 if key not in errors:
-                    logging.info(e)
+                    logger.info(e)
                     errors[key] = True
 
             try:
-                psc_group['original_position'][i] = (star_row.x, star_row.y)
+                psc_group['original_position'][frame_idx] = (star_row.x, star_row.y)
             except KeyError:
-                logging.debug("Creating new metadata dataset for {}".format(star_id))
+                logger.debug("Creating new metadata dataset for {}".format(star_id))
                 metadata_size = (num_frames, 2)
 
                 # Create the dataset
@@ -372,12 +395,12 @@ def create_stamp_slices(
                     'original_position', metadata_size, dtype='u2', chunks=True)
 
                 # Assign the data
-                metadata_dset[i] = (star_row.x, star_row.y)
+                metadata_dset[frame_idx] = (star_row.x, star_row.y)
 
             stamps.flush()
 
         if errors:
-            logging.warning(errors)
+            logger.warning(errors)
 
     return stamps_fn
 
@@ -397,11 +420,12 @@ def get_psc(picid, stamps, frame_slice=None):
 def find_similar_stars(
         picid,
         stamps,
-        out_fn=None,
+        csv_file=None,
         camera_bias=2048,
         num_refs=100,
         snr_limit=10,
         show_progress=True,
+        force_new=False,
         *args, **kwargs):
     """ Get all variances for given target
 
@@ -409,29 +433,44 @@ def find_similar_stars(
         stamps(np.array): Collection of stamps with axes: frame, PIC, pixels
         i(int): Index of target PIC
     """
+    logger.info("Finding similar stars for PICID {}".format(picid))
+    
+    if force_new and csv_file and os.path.exist(csv_file):
+        logger.info("Forcing new file for {}".format(picid))
+        with suppress(FileNotFoundError):
+            os.remove(csv_file)
+            
     try:
-        return pd.read_csv(out_fn, index_col=[0])
+        df0 = pd.read_csv(csv_file, index_col=[0])
+        logger.info("Found existing csv file: {}".format(df0))
+        return df0
     except Exception:
         pass
 
     data = dict()
 
+    logging.info("Getting Target PSC and subtracting bias")
     psc0 = get_psc(picid, stamps, **kwargs) - camera_bias
+    logger.info("Target PSC shape: {}".format(psc0.shape))
     num_frames = psc0.shape[0]
 
     # Normalize
-    logging.info("Normalizing target for {} frames".format(num_frames))
-    frames = []
+    logger.info("Normalizing target for {} frames".format(num_frames))
     normalized_psc0 = np.zeros_like(psc0, dtype='f4')
+    
+    good_frames = []
     for frame_index in range(num_frames):
         try:
             if psc0[frame_index].sum() > 0.:
+                # Normalize and store frame
                 normalized_psc0[frame_index] = psc0[frame_index] / psc0[frame_index].sum()
-                frames.append(frame_index)
+                
+                # Save frame index
+                good_frames.append(frame_index)
             else:
-                logging.info("Sum for target frame {} is 0".format(frame_index))
+                logger.warning("Sum for target frame {} is 0".format(frame_index))
         except RuntimeWarning:
-            warn("Skipping frame {}".format(frame_index))
+            logging.warning("Skipping frame {}".format(frame_index))
 
     iterator = enumerate(list(stamps.keys()))
     if show_progress:
@@ -447,8 +486,10 @@ def find_similar_stars(
         try:
             snr = float(stamps[source_index].attrs['snr'])
             if snr < snr_limit:
+                logging.info("Skipping PICID {}, low snr {:.02f}".format(picid, snr))
                 continue
-        except KeyError:
+        except KeyError as e:
+            logging.debug("No source in table: {}".format(picid))
             pass
 
         try:
@@ -459,7 +500,7 @@ def find_similar_stars(
         normalized_psc1 = np.zeros_like(psc1, dtype='f4')
 
         # Normalize
-        for frame_index in frames:
+        for frame_index in good_frames:
             if psc1[frame_index].sum() > 0.:
                 normalized_psc1[frame_index] = psc1[frame_index] / psc1[frame_index].sum()
 
@@ -468,14 +509,14 @@ def find_similar_stars(
             v = ((normalized_psc0 - normalized_psc1) ** 2).sum()
             data[source_index] = v
         except ValueError as e:
-            logging.info("Skipping invalid stamp for source {}: {}".format(source_index, e))
+            logger.info("Skipping invalid stamp for source {}: {}".format(source_index, e))
 
     df0 = pd.DataFrame(
         {'v': list(data.values())},
         index=list(data.keys())).sort_values(by='v')
 
-    if out_fn:
-        df0[:num_refs].to_csv(out_fn)
+    if csv_file:
+        df0[:num_refs].to_csv(csv_file)
 
     return df0
 

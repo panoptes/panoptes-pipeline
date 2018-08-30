@@ -8,7 +8,7 @@ from collections import namedtuple
 import batman
 
 # Query Exoplanet Orbit Database (exoplanets.org) for planet properties
-# Columns:http://exoplanets.org/help/common/data
+# Columns: http://exoplanets.org/help/common/data
 from astroquery.exoplanet_orbit_database import ExoplanetOrbitDatabase
 from astroplan import EclipsingSystem
 

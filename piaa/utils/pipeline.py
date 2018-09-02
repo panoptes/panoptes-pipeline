@@ -3,7 +3,6 @@ import shutil
 import subprocess
 
 from contextlib import suppress
-from warnings import warn
 
 import h5py
 import numpy as np
@@ -23,7 +22,6 @@ from tqdm import tqdm, tqdm_notebook
 
 from dateutil.parser import parse as date_parse
 
-from photutils import aperture
 from photutils import DAOStarFinder
 
 from piaa.utils import helpers
@@ -73,16 +71,16 @@ def lookup_point_sources(fits_file,
 
     if catalog_match:
         point_sources = get_catalog_match(point_sources, wcs, **kwargs)
-        
+
     # Change the index to the picid
     point_sources.set_index('id', inplace=True)
-        
+
     # Remove those with more than one entry
     counts = point_sources.x.groupby('id').count()
     single_entry = counts == 1
     single_index = single_entry.loc[single_entry].index
-    unique_sources = point_sources.loc[single_entry.loc[single_entry].index]
-    
+    unique_sources = point_sources.loc[single_index]
+
     return unique_sources
 
 
@@ -266,7 +264,7 @@ def create_stamp_slices(
 
     num_frames = len(fits_files)
     sequence = fits.getval(fits_files[0], 'SEQID')
-    
+
     logging.info("{} files found for {}".format(num_frames, sequence))
 
     stamps_fn = os.path.join(
@@ -274,7 +272,7 @@ def create_stamp_slices(
         sequence.replace('/', '_') + '.hdf5'
     )
     logger.info("Creating stamps file: {}".format(stamps_fn))
-    
+
     if force_new is False:
         logging.info("Looking for existing stamps file")
         try:
@@ -312,12 +310,12 @@ def create_stamp_slices(
 
             wcs = WCS(hdu[hdu_idx].header)
             d0 = hdu[hdu_idx].data
-            
+
         star_iterator = point_sources.itertuples()
         if verbose:
             if kwargs.get('notebook', False):
                 star_iterator = tqdm_notebook(star_iterator, total=len(point_sources),
-                                     leave=False, desc="Point sources")
+                                              leave=False, desc="Point sources")
             else:
                 star_iterator = tqdm(star_iterator, total=len(point_sources),
                                      leave=False, desc="Point sources")
@@ -325,9 +323,11 @@ def create_stamp_slices(
         for star_row in star_iterator:
             star_id = str(star_row.Index)
 
-            if star_id in stamps and np.array(stamps[star_id]['data'][frame_idx]).sum() > 1:
-                logger.info("Skipping {} in frame {} for having data: {}".format(star_id, frame_idx, 
-                                                                                  np.array(stamps[star_id]['data'][frame_idx]).sum()))
+            existing_sum = np.array(stamps[star_id]['data'][frame_idx]).sum()
+            if star_id in stamps and existing_sum:
+                logger.info("Skipping {}, {} for having data: {}".format(star_id,
+                                                                         frame_idx,
+                                                                         existing_sum))
                 continue
 
             star_pos = wcs.all_world2pix(star_row.ra, star_row.dec, 0)
@@ -438,12 +438,12 @@ def find_similar_stars(
         i(int): Index of target PIC
     """
     logger.info("Finding similar stars for PICID {}".format(picid))
-    
+
     if force_new and csv_file and os.path.exist(csv_file):
         logger.info("Forcing new file for {}".format(picid))
         with suppress(FileNotFoundError):
             os.remove(csv_file)
-            
+
     try:
         df0 = pd.read_csv(csv_file, index_col=[0])
         logger.info("Found existing csv file: {}".format(df0))
@@ -461,14 +461,14 @@ def find_similar_stars(
     # Normalize
     logger.info("Normalizing target for {} frames".format(num_frames))
     normalized_psc0 = np.zeros_like(psc0, dtype='f4')
-    
+
     good_frames = []
     for frame_index in range(num_frames):
         try:
             if psc0[frame_index].sum() > 0.:
                 # Normalize and store frame
                 normalized_psc0[frame_index] = psc0[frame_index] / psc0[frame_index].sum()
-                
+
                 # Save frame index
                 good_frames.append(frame_index)
             else:
@@ -625,35 +625,20 @@ def get_aperture_sums(psc0,
             except Exception as e:
                 print(e)
                 continue
-                
+
             t3 = t2.data
             i3 = i2.data
-                
+
             if subtract_back:
-                #logging.info("Performing sky background subtraction within aperture")
-                #annulus = aperture.RectangularAnnulus(aperture_position, aperture_size + 2, aperture_size * 2, aperture_size + 4)
-                #back = annulus.do_photometry(t1.reshape(14, 14), method='center')[0][0]
-                #
-                #if color == 'g':
-                #    pixel_area = annulus.area() / 2
-                #else:
-                #    pixel_area = annulus.area() / 4
-                #    
-                #avg_back = back / pixel_area
                 mean, median, std = sigma_clipped_stats(t3)
-                logging.info("Average sky background for {}: {:5.2f}: {:5.2f}".format(color, mean, t3.sum()))
-                
+                logging.info("Average sky background for {}: {:5.2f}: {:5.2f}".format(
+                    color, mean, t3.sum()))
+
                 t3 = t3 - mean
                 logging.info(t3.sum())
 
             t_sum = t3.sum()
             i_sum = i3.sum()
-
-            aps = [t3, i3]
-            
-            if plot_apertures:
-                if subtract_back:
-                    apertures.append([t1, i1, annulus])
 
             diff.append({
                 'color': color,
@@ -673,4 +658,13 @@ def get_aperture_sums(psc0,
 
 
 def get_imag(x, t=1):
+    """Instrumental magnitude.
+
+    Args:
+        x (float|list(float)): Flux values.
+        t (int, optional): Exposure time.
+
+    Returns:
+        float|list(float): Instrumental magnitudes.
+    """
     return -2.5 * np.log10(x / t)

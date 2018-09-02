@@ -11,6 +11,9 @@ from astropy.wcs import WCS
 
 from pocs.utils.google import clouddb
 
+import logging
+logger = logging.getLogger(__name__)
+
 
 def get_stars_from_footprint(wcs_footprint, **kwargs):
     """Lookup star information from WCS footprint.
@@ -104,11 +107,13 @@ def get_star_info(picid=None, twomass_id=None, table='full_catalog', verbose=Fal
 def get_rgb_data(data, **kwargs):
     rgb_masks = get_rgb_masks(data, **kwargs)
     
+    assert rgb_masks is not None
+    
     r_data = np.ma.array(data, mask=~rgb_masks['r'])
     g_data = np.ma.array(data, mask=~rgb_masks['g'])
     b_data = np.ma.array(data, mask=~rgb_masks['b'])
 
-    return np.array([r_data, g_data, b_data])
+    return np.ma.array([r_data, g_data, b_data])
 
 
 def get_rgb_masks(data, separate_green=False, mask_path=None, force_new=False, verbose=False):
@@ -127,8 +132,11 @@ def get_rgb_masks(data, separate_green=False, mask_path=None, force_new=False, v
     """
     if mask_path is None:
         mask_path = os.path.join(os.environ['PANDIR'], 'rgb_masks.npz')
+        
+    logger.debug('Mask path: {}'.format(mask_path))
 
     if force_new:
+        logger.info("Forcing a new mask file")
         try:
             os.remove(mask_path)
         except FileNotFoundError:
@@ -137,13 +145,17 @@ def get_rgb_masks(data, separate_green=False, mask_path=None, force_new=False, v
     # Try to load existing file and if not generate new
     try:
         loaded_masks = np.load(mask_path)
+        logger.debug("Loaded masks")
         mask_shape = loaded_masks[loaded_masks.files[0]].shape
         if mask_shape != data.shape:
+            logger.debug("Removing mask with wrong size")
             os.remove(mask_path)
             raise FileNotFoundError
+        else:
+            logger.debug("Using saved masks")
+            _rgb_masks = {color:loaded_masks[color] for color in loaded_masks.files}
     except FileNotFoundError:
-        if verbose:
-            print("Making RGB masks")
+        logger.info("Making RGB masks")
 
         if data.ndim > 2:
             data = data[0]
@@ -159,6 +171,7 @@ def get_rgb_masks(data, separate_green=False, mask_path=None, force_new=False, v
         ).reshape(w, h))
 
         if separate_green:
+            logger.debug("Making separate green masks")
             green1_mask = np.flipud(np.array(
                 [(index[0] % 2 == 0 and index[1] % 2 == 1) for index, i in np.ndenumerate(data)]
             ).reshape(w, h))
@@ -186,9 +199,10 @@ def get_rgb_masks(data, separate_green=False, mask_path=None, force_new=False, v
                 'b': blue_mask,
             }
 
+        logger.info("Saving masks files")
         np.savez_compressed(mask_path, **_rgb_masks)
 
-        return _rgb_masks
+    return _rgb_masks
 
 
 def spiral_matrix(A):

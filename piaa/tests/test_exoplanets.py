@@ -22,7 +22,7 @@ def test_get_prop(exoplanet):
     assert exoplanet.get_prop('foobar') is None
     assert exoplanet.transit_duration == exoplanet.get_prop('transit_duration')
     assert exoplanet.period == exoplanet.get_prop('period')
-    assert exoplanet.midtransit == exoplanet.get_prop('midtransit')
+    assert exoplanet.midtransit.value == exoplanet.get_prop('midtransit')
     assert exoplanet.star_mag == exoplanet.get_prop('star_mag')
 
 # # Calculate next transit times which occur after first image

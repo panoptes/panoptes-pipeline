@@ -2,7 +2,6 @@ sudo: required
 language: python
 python:
   - "3.6"
-  - "3.7"
 cache:
   - pip
 env:
@@ -40,6 +39,6 @@ script:
   - python setup.py test
   # - coverage run --source=piaa setup.py test
 after_success:
-    - if [[ $TRAVIS_PYTHON_VERSION == 3.7* ]]; then
+    - if [[ $TRAVIS_PYTHON_VERSION == 3.6* ]]; then
           coveralls;
       fi

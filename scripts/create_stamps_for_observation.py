@@ -19,6 +19,12 @@ import logging
 def main(sequence=None, files=None, stamp_size=(14, 14), snr_limit=10, *args, **kwargs):
     start_time = current_time()
 
+    data_dir = os.path.join(
+        os.environ['PANDIR'],
+        'images', 'fields',
+        sequence
+    )
+
     if files is None and sequence is not None:
         logging.info("Begin sequence: {}".format(sequence))
         # Download FITS files
@@ -28,12 +34,6 @@ def main(sequence=None, files=None, stamp_size=(14, 14), snr_limit=10, *args, **
         if len(fits_blobs) < 10:
             logging.warning("Not enough images, exiting")
             return
-
-        data_dir = os.path.join(
-            os.environ['PANDIR'],
-            'images', 'fields',
-            sequence
-        )
 
         # Download all the FITS files from a bucket
         logging.info("Getting files from storage bucket")
@@ -48,6 +48,7 @@ def main(sequence=None, files=None, stamp_size=(14, 14), snr_limit=10, *args, **
 
     num_frames = len(fits_files)
     logging.info("Using sequence id {} with {} frames".format(sequence, num_frames))
+    logging.info("Data directory: {}".format(data_dir))
 
     # Plate-solve all the images - safe to run again
     logging.info("Plate-solving all images")
@@ -57,7 +58,7 @@ def main(sequence=None, files=None, stamp_size=(14, 14), snr_limit=10, *args, **
             fits_utils.get_solve_field(fn, timeout=90, verbose=True)
             solved_files.append(fn)
         except Exception as e:
-            print("Can't solve file {} {}".format(fn, e))
+            logging.info("Can't solve file {} {}".format(fn, e))
             continue
 
     logging.info("Looking up stars in field")
@@ -77,8 +78,8 @@ def main(sequence=None, files=None, stamp_size=(14, 14), snr_limit=10, *args, **
 
     # Create stamps
     stamps_fn = pipeline.create_stamp_slices(
-        sequence,
-        solved_files,
+        data_dir,
+        solved_files[0],
         high_snr,
         stamp_size=stamp_size,
         verbose=True,

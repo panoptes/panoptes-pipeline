@@ -106,9 +106,9 @@ def get_star_info(picid=None, twomass_id=None, table='full_catalog', verbose=Fal
 
 def get_rgb_data(data, **kwargs):
     rgb_masks = get_rgb_masks(data, **kwargs)
-    
+
     assert rgb_masks is not None
-    
+
     r_data = np.ma.array(data, mask=~rgb_masks['r'])
     g_data = np.ma.array(data, mask=~rgb_masks['g'])
     b_data = np.ma.array(data, mask=~rgb_masks['b'])
@@ -132,7 +132,7 @@ def get_rgb_masks(data, separate_green=False, mask_path=None, force_new=False, v
     """
     if mask_path is None:
         mask_path = os.path.join(os.environ['PANDIR'], 'rgb_masks.npz')
-        
+
     logger.debug('Mask path: {}'.format(mask_path))
 
     if force_new:
@@ -153,7 +153,7 @@ def get_rgb_masks(data, separate_green=False, mask_path=None, force_new=False, v
             raise FileNotFoundError
         else:
             logger.debug("Using saved masks")
-            _rgb_masks = {color:loaded_masks[color] for color in loaded_masks.files}
+            _rgb_masks = {color: loaded_masks[color] for color in loaded_masks.files}
     except FileNotFoundError:
         logger.info("Making RGB masks")
 

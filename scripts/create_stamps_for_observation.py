@@ -8,7 +8,6 @@ from contextlib import suppress
 
 from astropy.io import fits
 
-from pong.utils.storage import get_observation_blobs, download_fits_file
 from piaa.utils import pipeline
 from pocs.utils import current_time
 from pocs.utils.images import fits as fits_utils
@@ -16,35 +15,17 @@ from pocs.utils.images import fits as fits_utils
 import logging
 
 
-def main(sequence=None, files=None, stamp_size=(14, 14), snr_limit=10, *args, **kwargs):
+def main(files, stamp_size=(14, 14), snr_limit=10, *args, **kwargs):
     start_time = current_time()
+
+    fits_files = files
+    sequence = fits.getval(fits_files[0], 'SEQID')
 
     data_dir = os.path.join(
         os.environ['PANDIR'],
         'images', 'fields',
         sequence
     )
-
-    if files is None and sequence is not None:
-        logging.info("Begin sequence: {}".format(sequence))
-        # Download FITS files
-        fits_blobs = get_observation_blobs(sequence)
-        logging.info("Number of images in sequence: {}".format(len(fits_blobs)))
-
-        if len(fits_blobs) < 10:
-            logging.warning("Not enough images, exiting")
-            return
-
-        # Download all the FITS files from a bucket
-        logging.info("Getting files from storage bucket")
-        fits_files = list()
-        if fits_blobs:
-            for i, blob in enumerate(fits_blobs):
-                fits_fn = download_fits_file(blob, save_dir=data_dir, unpack=False)
-                fits_files.append(fits_fn)
-    elif files is not None:
-        fits_files = files
-        sequence = fits.getval(fits_files[0], 'SEQID')
 
     num_frames = len(fits_files)
     logging.info("Using sequence id {} with {} frames".format(sequence, num_frames))
@@ -98,7 +79,6 @@ def main(sequence=None, files=None, stamp_size=(14, 14), snr_limit=10, *args, **
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Create a PSC for each detected source.")
     group = parser.add_mutually_exclusive_group()
-    group.add_argument('--sequence', default=None, type=str, help="Observation sequence.")
     group.add_argument('--directory', default=None, type=str,
                        help="Directory containing observation images.")
     parser.add_argument('--stamp-size', default=14, help="Square stamp size")

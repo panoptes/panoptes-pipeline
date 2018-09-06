@@ -18,6 +18,7 @@ from astropy.coordinates import Angle
 from astropy.modeling import models, fitting
 from astropy import units as u
 from astropy.visualization import LogStretch, ImageNormalize, LinearStretch
+from astropy.stats import sigma_clip
 from photutils import RectangularAperture
 
 from piaa.utils import helpers
@@ -252,17 +253,13 @@ def add_pixel_grid(ax1, grid_height, grid_width, show_axis_labels=True, show_sup
         ax1.set_yticklabels([])
 
 
-def pixel_hist(hdu, bins=None, save_plot=True, out_fn=None):
+def pixel_hist(hdu, save_plot=True, out_fn=None):
     data = hdu.data
     exptime = hdu.header['EXPTIME']
 
     # Make the rgb masks if needed
     rgb_masks = helpers.get_rgb_masks(data)
 
-    if bins is None:
-        bins = np.arange(2000, 2100, 1)
-
-    x = bins[:-1]
 
     fig = Figure()
     FigureCanvas(fig)
@@ -270,20 +267,23 @@ def pixel_hist(hdu, bins=None, save_plot=True, out_fn=None):
     fig.set_size_inches(15, 7)
 
     model_fits = list()
-    for i, color in enumerate(rgb_masks.files):
+    for i, color in enumerate(rgb_masks.keys()):
         ax = fig.add_subplot(1, 3, i + 1)
 
         mask = rgb_masks[color]
         d0 = np.ma.array(data, mask=~mask)
 
-        d1 = d0.compressed()
+        d1 = sigma_clip(d0.compressed(), iters=2)
+        
+        bins = np.arange(d1.min(), d1.max(), 25)
+        x = bins[:-1]
 
         d2, _ = np.histogram(d1, bins=bins)
 
         y = d2
 
         # Fit the data using a Gaussian
-        g_init = models.Gaussian1D(amplitude=y.max(), mean=x.mean(), stddev=1.)
+        g_init = models.Gaussian1D(amplitude=y.max(), mean=d1.mean(), stddev=d1.std())
         fit_g = fitting.LevMarLSQFitter()
         g = fit_g(g_init, x, y)
 

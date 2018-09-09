@@ -1,4 +1,5 @@
 import os
+import re
 import shutil
 import subprocess
 
@@ -98,6 +99,7 @@ def get_catalog_match(point_sources, wcs, table='full_catalog', **kwargs):
         wcs.calc_footprint(),
         cursor_only=False,
         table=table,
+        **kwargs
     )
 
     # Get coords for catalog stars
@@ -263,7 +265,9 @@ def create_stamp_slices(
     errors = dict()
 
     num_frames = len(fits_files)
-    sequence = fits.getval(fits_files[0], 'SEQID')
+    unit_id, cam_id, seq_time = fits.getval(fits_files[0], 'SEQID').split('_')
+    unit_id = re.match(r'.*(PAN\d\d\d).*', unit_id)[1]
+    sequence = '_'.join([unit_id, cam_id, seq_time])
 
     logging.info("{} files found for {}".format(num_frames, sequence))
 
@@ -285,8 +289,22 @@ def create_stamp_slices(
 
     stamps = h5py.File(stamps_fn, 'a')
 
-    image_times = np.array(
-        [Time(date_parse(fits.getval(fn, 'DATE-OBS'))).mjd for fn in fits_files])
+    # Currently a bug with DATE-OBS so use time from filename.
+    try:
+        image_times = np.array([Time(
+            date_parse(os.path.splitext(fn.split('/')[-1])[0]) # .split('_')[4]
+        ).mjd
+        for fn in fits_files if 'pointing' not in fn])
+    except ValueError:
+        image_times = np.array([Time(
+            date_parse(os.path.splitext(fn.split('/')[-1])[0].split('_')[4])
+        ).mjd
+        for fn in fits_files if 'pointing' not in fn])
+        
+    
+    #image_times = np.array(
+    #    [Time(date_parse(fits.getval(fn, 'DATE-OBS'))).mjd for fn in fits_files])
+    
     airmass = np.array([fits.getval(fn, 'AIRMASS') for fn in fits_files])
 
     stamps.attrs['image_times'] = image_times

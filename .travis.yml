@@ -39,6 +39,6 @@ script:
   - python setup.py test
   # - coverage run --source=piaa setup.py test
 after_success:
-    - if [[ $TRAVIS_PYTHON_VERSION == 3.6* ]]; then
-          coveralls;
-      fi
+  - if [[ $TRAVIS_PYTHON_VERSION == 3.6* ]]; then
+        bash <(curl -s https://codecov.io/bash);
+    fi

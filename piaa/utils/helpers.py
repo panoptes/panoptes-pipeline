@@ -40,6 +40,7 @@ def get_stars(
         dec_min,
         dec_max,
         table='full_catalog',
+        cursor=None,
         cursor_only=True,
         verbose=False,
         **kwargs):
@@ -59,16 +60,18 @@ def get_stars(
         `astropy.table.Table` or `psycopg2.cursor`: Table with star information be default,
             otherwise the raw cursor if `cursor_only=True`.
     """
-    cur = clouddb.get_cursor(instance='tess-catalog', db_name='v6', db_user='postgres', **kwargs)
-    cur.execute("""SELECT id, ra, dec, tmag, vmag, e_tmag, twomass
+    if not cursor:
+        cursor = clouddb.get_cursor(instance='tess-catalog', db_name='v6', db_user='postgres', **kwargs)
+        
+    cursor.execute("""SELECT id, ra, dec, tmag, vmag, e_tmag, twomass
         FROM {}
         WHERE tmag < 13 AND ra >= %s AND ra <= %s AND dec >= %s AND dec <= %s;""".format(table),
                 (ra_min, ra_max, dec_min, dec_max)
                 )
     if cursor_only:
-        return cur
+        return cursor
 
-    d0 = np.array(cur.fetchall())
+    d0 = np.array(cursor.fetchall())
     if verbose:
         print(d0)
     return Table(

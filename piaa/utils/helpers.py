@@ -1,6 +1,7 @@
 import os
 
 import numpy as np
+from collections import namedtuple
 
 from decimal import Decimal
 from decimal import ROUND_HALF_UP
@@ -76,7 +77,7 @@ def get_stars(
         dtype=['i4', 'f8', 'f8', 'f4', 'f4', 'f4', 'U26'])
 
 
-def get_star_info(picid=None, twomass_id=None, table='full_catalog', verbose=False, **kwargs):
+def get_star_info(picid=None, twomass_id=None, table='full_catalog', cursor=None, raw=False, verbose=False, **kwargs):
     """Lookup catalog information about a given star.
 
     Args:
@@ -91,7 +92,8 @@ def get_star_info(picid=None, twomass_id=None, table='full_catalog', verbose=Fal
     Returns:
         tuple: Values from the database.
     """
-    cur = clouddb.get_cursor(instance='tess-catalog', db_name='v6', db_user='postgres', **kwargs)
+    if not cursor:
+        cursor = clouddb.get_cursor(db_name='v6', db_user='postgres', **kwargs)
 
     if picid:
         val = picid
@@ -100,8 +102,15 @@ def get_star_info(picid=None, twomass_id=None, table='full_catalog', verbose=Fal
         val = twomass_id
         col = 'twomass'
 
-    cur.execute('SELECT * FROM {} WHERE {}=%s'.format(table, col), (val,))
-    return cur.fetchone()
+    cursor.execute('SELECT * FROM {} WHERE {}=%s'.format(table, col), (val,))
+    
+    rec = cursor.fetchone()
+    
+    if rec and not raw:
+        StarInfo = namedtuple('StarInfo', sorted(rec.keys()))
+        rec = StarInfo(**rec)
+        
+    return rec
 
 
 def get_rgb_data(data, **kwargs):

@@ -323,12 +323,15 @@ def create_stamp_slices(
         for star_row in star_iterator:
             star_id = str(star_row.Index)
 
-            existing_sum = np.array(stamps[star_id]['data'][frame_idx]).sum()
-            if star_id in stamps and existing_sum:
-                logger.info("Skipping {}, {} for having data: {}".format(star_id,
-                                                                         frame_idx,
-                                                                         existing_sum))
-                continue
+            try:
+                existing_sum = np.array(stamps[star_id]['data'][frame_idx]).sum()
+                if star_id in stamps and existing_sum:
+                    logger.info("Skipping {}, {} for having data: {}".format(star_id,
+                                                                             frame_idx,
+                                                                             existing_sum))
+                    continue
+            except KeyError:
+                pass
 
             star_pos = wcs.all_world2pix(star_row.ra, star_row.dec, 0)
 

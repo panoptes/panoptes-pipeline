@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import os
+import re
 import argparse
 from glob import glob
 from getpass import getpass
@@ -20,12 +21,12 @@ def main(files, stamp_size=(14, 14), snr_limit=10, *args, **kwargs):
 
     fits_files = files
     sequence = fits.getval(fits_files[0], 'SEQID')
+    
+    unit_id, cam_id, seq_time = fits.getval(fits_files[0], 'SEQID').split('_')
+    unit_id = re.match(r'.*(PAN\d\d\d).*', unit_id)[1]
+    sequence = '_'.join([unit_id, cam_id, seq_time])
 
-    data_dir = os.path.join(
-        os.environ['PANDIR'],
-        'images', 'fields',
-        sequence.replace('_', '/')
-    )
+    data_dir =  os.path.dirname(fits_files[0])
 
     num_frames = len(fits_files)
     logging.info("Using sequence id {} with {} frames".format(sequence, num_frames))

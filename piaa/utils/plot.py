@@ -526,7 +526,7 @@ def plot_lightcurve(x, y, model_flux=None, use_imag=False, transit_info=None, co
                  label='Model {:.04f}'.format(residual.std()))
 
         ax2.axhline(0, ls='--', alpha=0.5)
-        ax2.set_title('Model residual')
+        ax2.set_title('Model residual {:.02%}'.format(residual.std()))
 
         if transit_info is not None:
             midpoint, ingress, egress = transit_info

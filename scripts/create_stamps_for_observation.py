@@ -24,7 +24,7 @@ def main(files, stamp_size=(14, 14), snr_limit=10, *args, **kwargs):
     data_dir = os.path.join(
         os.environ['PANDIR'],
         'images', 'fields',
-        sequence
+        sequence.replace('_', '/')
     )
 
     num_frames = len(fits_files)
@@ -60,7 +60,7 @@ def main(files, stamp_size=(14, 14), snr_limit=10, *args, **kwargs):
     # Create stamps
     stamps_fn = pipeline.create_stamp_slices(
         data_dir,
-        solved_files[0],
+        solved_files,
         high_snr,
         stamp_size=stamp_size,
         verbose=True,

@@ -10,7 +10,7 @@ from astropy.time import Time
 from astropy.table import Table
 from astropy.wcs import WCS
 
-from pocs.utils.google import clouddb
+from pocs.utils.db import postgres as clouddb
 
 import logging
 logger = logging.getLogger(__name__)

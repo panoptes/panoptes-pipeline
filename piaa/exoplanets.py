@@ -70,10 +70,15 @@ class Exoplanet():
         self._print("Looking up info for {}".format(self.name))
 
         try:
-            self._keymap = EXOPLANET_DB_KEYMAP[db]['keymap']
-            self.info = EXOPLANET_DB_KEYMAP[db]['query_method'](name)
+            db_map = EXOPLANET_DB_KEYMAP[db]
         except KeyError:
             raise Exception("No exoplanet DB called {}".format(db))
+
+        try:
+            self._keymap = db_map['keymap']
+            self.info = db_map['query_method'](name)
+        except KeyError:
+            raise Exception("No exoplanet {}".format(name))
         else:
             assert self.info is not None
             self._db = db

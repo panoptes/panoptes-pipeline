@@ -20,9 +20,12 @@ def main(files, stamp_size=(14, 14), snr_limit=10, *args, **kwargs):
     start_time = current_time()
 
     fits_files = files
-    sequence = fits.getval(fits_files[0], 'SEQID')
+    ext = 0
+    if fits_files[0].endswith('.fz'):
+        ext = 1
+    sequence = fits.getval(fits_files[0], 'SEQID', ext=ext)
     
-    unit_id, cam_id, seq_time = fits.getval(fits_files[0], 'SEQID').split('_')
+    unit_id, cam_id, seq_time = sequence.split('_')
     unit_id = re.match(r'.*(PAN\d\d\d).*', unit_id)[1]
     sequence = '_'.join([unit_id, cam_id, seq_time])
 

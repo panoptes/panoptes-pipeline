@@ -1,8 +1,7 @@
 sudo: required
 language: python
 python:
-  - "3.4"
-  - "3.5"
+  - "3.6"
 cache:
   - pip
 env:
@@ -37,9 +36,8 @@ install:
   - pip install -r requirements.txt
   - python setup.py install
 script:
-  - python setup.py test
-  # - coverage run --source=piaa setup.py test
+  - coverage run --source=piaa setup.py test
 after_success:
-    - if [[ $TRAVIS_PYTHON_VERSION == 3.5* ]]; then
-          coveralls;
-      fi
+  - if [[ $TRAVIS_PYTHON_VERSION == 3.6* ]]; then
+        bash <(curl -s https://codecov.io/bash);
+    fi

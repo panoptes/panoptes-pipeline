@@ -1,207 +1,245 @@
 import os
-import numpy as np
-import requests
-
-import gzip
-import io
-
-from warnings import warn
-
-from astropy.time import Time
-from astropy.time import TimeDelta
-from astropy.table import Table
 
 from astropy import units as u
+from astropy.time import Time
+
 from collections import namedtuple
 
-from dateutil.parser import parse as date_parse
+import batman
 
-Transit = namedtuple('Transit', ['ingress', 'midpoint', 'egress'])
+# Query Exoplanet Orbit Database (exoplanets.org) for planet properties
+# Columns: http://exoplanets.org/help/common/data
+from astroquery.exoplanet_orbit_database import ExoplanetOrbitDatabase
+from astroplan import EclipsingSystem
+
+
+TransitInfo = namedtuple('TransitInfo', ['ingress', 'midpoint', 'egress'])
+
+
+def get_exotable(name):
+    from astropy.table import Table
+    planets_file = os.path.join(os.environ['PANDIR'], 'PIAA', 'resources', 'planets.csv')
+    assert os.path.exists(planets_file)
+
+    # TODO convert to pd.read_csv
+    exo_table = Table.read(planets_file, format='ascii.csv',
+                           comment='#', header_start=0, data_start=1).to_pandas()
+
+    # Make planet names that match ours
+    exo_table['clean_name'] = [row.title().replace(' ', '').replace('-', '')
+                               for row in exo_table['pl_hostname']]
+    exo_table.set_index(['clean_name'], inplace=True)
+
+    return exo_table.loc[name]
+
+
+EXOPLANET_DB_KEYMAP = {
+    'exoplanet_orbit_database': {
+        'query_method': ExoplanetOrbitDatabase.query_planet,
+        'keymap': {
+            'transit_duration': 'T14',
+            'transit_depth': 'DEPTH',
+            'period': 'PER',
+            'period_ref': 'PERREF',
+            'midtransit': 'TT',
+            'midtransit_ref': 'TTREF',
+            'star_mag': 'V',
+        }
+    },
+    'exotable': {
+        'query_method': get_exotable,
+        'keymap': {
+            'transit_duration': 'pl_trandur',
+            'transit_depth': 'pl_trandep',
+            'period': 'pl_orbper',
+            'period_ref': '',
+            'midtransit': 'pl_tranmid',
+            'midtransit_ref': '',
+            'star_mag': 'st_optmag',
+        }
+    }
+}
 
 
 class Exoplanet():
 
-    def __init__(self, name, planets_file=None, verbose=False, *args, **kwargs):
+    def __init__(self, name, db='exoplanet_orbit_database', verbose=False, *args, **kwargs):
         self.verbose = verbose
-        
-        if planets_file is None:
-            planets_file = os.path.join(os.environ['PANDIR'], 'PIAA', 'resources', 'planets.csv')
-            
-        assert os.path.exists(planets_file)
+        self.name = name
 
-        self.exo_table = Table.read(planets_file, format='ascii.csv', comment='#', header_start=0, data_start=1)
-        
-        # Make planet names that match ours
-        self.exo_table['clean_name'] = [row.title().replace(' ', '').replace('-', '') for row in self.exo_table['pl_hostname']]
-        self.exo_table.add_index('clean_name')
-        
-        self.info = self.exo_table.loc[name]
-        
-        self.lookups = dict()
-        
-    @property
-    def name(self):
-        return self.info['pl_hostname']
+        self._print("Looking up info for {}".format(self.name))
 
-    @property
-    def transit_midpoint(self):
-        """ """
-        val = self.info['pl_tranmid'] or self.lookups.get('midpoint', None)
-        if not val:
-            self._print("Looking up midpoint")
-            val = self.lookup_column('mpl_tranmid')
-            self.lookups['midpoint'] = val
-            
-        return Time(val, format='jd')
-    
-    @property
-    def transit_depth(self):
-        """ """
-        val = self.info['pl_trandep'] or self.lookups.get('depth', None)
-        if not val:
-            self._print("Looking up depth")
-            val = self.lookup_column('mpl_trandep')
-            self.lookups['depth'] = val
-            
+        try:
+            db_map = EXOPLANET_DB_KEYMAP[db]
+        except KeyError:
+            raise Exception("No exoplanet DB called {}".format(db))
+
+        try:
+            self._keymap = db_map['keymap']
+            self.info = db_map['query_method'](name)
+        except KeyError:
+            raise Exception("No exoplanet {}".format(name))
+        else:
+            assert self.info is not None
+            self._db = db
+            self._loookups = dict()
+
+        # Get the transit system for calculating ephemris
+        self.transit_system = EclipsingSystem(
+            primary_eclipse_time=self.midtransit,
+            orbital_period=self.period,
+            duration=self.transit_duration
+        )
+
+    def get_prop(self, col, raw=False):
+        val = None
+
+        if raw is False:
+            try:
+                table_col = self._keymap[col]
+            except KeyError:
+                self._print("Invalid property: {}".format(col))
+                return None
+        else:
+            table_col = col
+
+        try:
+            # Try info in table
+            val = self.info[table_col]
+        except KeyError:
+            self._print("Can't find {} in table".format(table_col))
+
         return val
-    
+
     @property
     def transit_duration(self):
         """ """
-        val = self.info['pl_trandur'] or self.lookups.get('duration', None)
-        if not val:
-            self._print("Looking up duration")
-            val = self.lookup_column('mpl_trandur')
-            self.lookups['duration'] = val
-            
-        return TimeDelta(val * u.day)
-        
+        return self.get_prop('transit_duration')
+
     @property
     def period(self):
         """ """
-        val = self.info['pl_orbper'] or self.lookups.get('period')
-        if not val:
-            self._print("Looking up period")
-            val = self.lookup_column('mpl_orbper')
-            self.lookups['period'] = val
-            
-        return TimeDelta(val * u.day)
-    
+        return self.get_prop('period')
+
+    @property
+    def midtransit(self):
+        """ """
+        return Time(self.get_prop('midtransit'), format='jd')
+
     @property
     def star_mag(self):
         """ """
-        return self.info['st_optmag']
+        return self.get_prop('star_mag')
 
-    def in_transit(self, t0, with_times=False):
-        if isinstance(t0, str):
-            t0 = Time(t0)
-
-        midtime = self.transit_midpoint
-        period_delta = self.period
-
-        num_periods = int((t0 - midtime).sec // period_delta.sec)
-        in_transit = False
-
-        for n in range(num_periods, num_periods + 1):
-            midpoint = midtime + (n * period_delta)
-            ingress = midpoint - (self.transit_duration / 2)
-            egress = midpoint + (self.transit_duration / 2)
-
-            in_transit = t0 >= ingress and t0 <= egress
-
-            if in_transit:
-                break
-
-        if with_times:
-            return (in_transit, Transit(ingress, midpoint, egress))
-        else:
-            return in_transit    
-    
-    def phase_from_time(self, t1):
-        if isinstance(t1, str):
-            t1  = Time(date_parse(t1), format='datetime')
-            
-        transittime = self.transit_midpoint
-        period = self.period
-
-        num_transits = int((t1 - transittime).sec // period.sec)
-
-        time_since_midpoint = (t1 - transittime) - (num_transits * period)
-
-        phase = (time_since_midpoint / period) - 1.0
-        
-        if phase > 0.5:
-            phase -= 1.0
-            
-        if phase < -0.5:
-            phase += 1.0
-            
-        return phase
-    
-    def get_phase(self, t0, verbose=False):
-        """
-        Args:
-            t0 (astropy.time.Time): Time at which to get phase.
-        """
-        if isinstance(t0, str):
-            t0 = Time(date_parse(t0))
-            
-        midtime = self.transit_midpoint
-        period_delta = self.period
-        
-        time_delta = t0.jd - midtime.jd
-
-        phase = (time_delta % period_delta.jd) / period_delta.jd
-
-        if phase >= 0.5:
-            phase -= 1.0
-
-        if verbose:
-            print("{:.02f} \t {} \t {:.02f} \t {:.02f} \t {:.02f} \t {:.02f}".format(
-                period_delta.jd, 
-                t0.isot,
-                t0.jd, 
-                Time(midtime, format='jd').jd, 
-                time_delta,
-                phase
-            ))
-
-        return phase
-    
-    def lookup_column(self, col_name):
-        info = self.query_jpl(additional_columns=[col_name])
-        return [row for row in info if row[col_name] is not None][0][col_name]
-    
-    def query_jpl(self, out_format='json', additional_columns=None, verbose=False):
-
-        default_columns = ['mpl_hostname','mpl_def','ra','dec','mpl_trandur','mpl_trandep','mpl_tranmid']
-        
-        if additional_columns:
-            if isinstance(additional_columns, str):
-                additional_columns = list(additional_columns)
-                
-            default_columns.extend(additional_columns)
-        
-        base_url = 'https://exoplanetarchive.ipac.caltech.edu/cgi-bin/nstedAPI/nph-nstedAPI?table=multiexopars'
-        columns = 'select={}'.format(','.join(default_columns))
-
-        out_format = 'format={}'.format(out_format)
-        where_clause = "where=mpl_hostname='{}'".format(self.name)
-        
-        full_url = '&'.join([base_url, columns, out_format, where_clause])
-        
-        if verbose:
-            print(full_url)
-            
-        response = requests.get(full_url)
-            
-        if 'json' in out_format:
-            output = response.json()
-        else:
-            output = response.content
-            
-        return output
-        
     def _print(self, msg, *args, **kwargs):
         if self.verbose:
             print(msg, *args, **kwargs)
+
+    def get_model_params(self, period=None):
+        """Gets the model parameters for known transit.
+
+        Uses the looked up parameters for the exoplanet to populate a set of
+        parmaeters for modelling a transit via the `batman` module.
+
+        https://www.cfa.harvard.edu/~lkreidberg/batman/index.html
+
+        Args:
+            period (None, optional): If given, should be the period in days. If
+                None, use a phase of -0.5 to 0.5 with midpoint at 0.0.
+
+        Returns:
+            `batman.TransitParams`: The parameters for use in calcualting a
+                transit.
+        """
+        semimajor_axis = self.info['AR']
+        eccentricity = self.info['ECC']
+        planet_radius = self.info['R'].to(u.R_sun) / self.info['RSTAR']
+        orbital_inc = self.info['I']
+        periastron = self.info['OM']
+
+        transit_params = batman.TransitParams()  # object to store transit parameters
+
+        transit_params.t0 = 0.  # time of inferior conjunction
+
+        if period:
+            transit_params.per = self.period.value
+        else:
+            transit_params.per = 1
+
+        transit_params.rp = planet_radius.value  # planet radius (stellar radii)
+        transit_params.inc = orbital_inc.value  # orbital inclination (degrees)
+
+        transit_params.a = semimajor_axis  # semi-major axis (stellar radii)
+        transit_params.ecc = eccentricity
+        transit_params.w = periastron.value  # longitude of periastron (in degrees)
+
+        transit_params.limb_dark = "uniform"  # limb darkening model
+        transit_params.u = []  # limb darkening coefficients [u1, u2, u3, u4]
+
+        return transit_params
+
+    def get_model_lightcurve(self, index, period=None):
+        """Gets the model lightcurve.
+
+        Args:
+            index (list or `numpy.array`): The index to be used, can either be a
+                list of time objects or an array of phases.
+            period (float, optional): The period passed to `get_model_params`.
+
+        Returns:
+            `numpy.array`: An array of normalized flux values.
+        """
+        transit_params = self.get_model_params(period=period)
+
+        transit_model = batman.TransitModel(transit_params, index)
+
+        # Get model flux
+        model_flux = transit_model.light_curve(transit_params)
+
+        return model_flux
+
+    def get_transit_info(self, obstime=None):
+        """Return the next transit information after obstime.
+
+        Args:
+            obstime (`astropy.time.Time`, optional): Time seeking next transit for.
+
+        Returns:
+            `TransitInfo`: A namedtuple with `ingress`, `midpoint`, and `egress`
+                attributes.
+        """
+        # Calculate next transit times which occur after first image
+        if obstime is None:
+            obstime = Time.now()
+
+        next_transit = self.transit_system.next_primary_eclipse_time(obstime)
+        ing_egr = self.transit_system.next_primary_ingress_egress_time(obstime)
+
+        # Get transit properties
+        transit_info = TransitInfo(
+            Time(ing_egr.datetime[0][0]),
+            Time(next_transit[0].datetime),
+            Time(ing_egr.datetime[0][1])
+        )
+
+        return transit_info
+
+    def get_phase(self, obstime):
+        """Get the phase for given time.
+
+        Args:
+            obstime (`astropy.time.Time`): Time.
+
+        Returns:
+            float: Phase in range [-0.5,0.5] where 0.0 is the midpoint of tranist.
+        """
+        transit_info = self.get_transit_info(obstime)
+        phase = (transit_info.midpoint - obstime).value / self.period.value
+
+        if phase > 0.5:
+            phase -= 1.0
+
+        if phase < -0.5:
+            phase += 1.0
+
+        return phase

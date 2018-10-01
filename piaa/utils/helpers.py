@@ -1,83 +1,33 @@
 import os
-import shutil
-import subprocess
-from warnings import warn
-import google.datalab.storage as storage
 
 import numpy as np
-import psycopg2
-from astropy.table import Table
-
-from astropy.visualization import LogStretch, ImageNormalize, LinearStretch
-
-from matplotlib import pyplot as plt
-import matplotlib.animation as animation
-from matplotlib import rc
-
-from photutils import RectangularAnnulus, RectangularAperture
-
-from pocs.utils.images import fits_utils
+from collections import namedtuple
 
 from decimal import Decimal
-from copy import copy
+from decimal import ROUND_HALF_UP
 
-palette = copy(plt.cm.inferno)
-palette.set_over('w', 1.0)
-palette.set_under('k', 1.0)
-palette.set_bad('g', 1.0)
+from astropy.time import Time
+from astropy.table import Table
+from astropy.wcs import WCS
 
-rc('animation', html='html5')
-plt.style.use('bmh')
+from pocs.utils.db import postgres as clouddb
 
-
-def get_db_conn(instance='panoptes-meta', db='panoptes', **kwargs):
-    """ Gets a connection to the Cloud SQL db
-
-    Args:
-        instance
-    """
-    ssl_root_cert = os.path.join(os.environ['SSL_KEYS_DIR'], instance, 'server-ca.pem')
-    ssl_client_cert = os.path.join(os.environ['SSL_KEYS_DIR'], instance, 'client-cert.pem')
-    ssl_client_key = os.path.join(os.environ['SSL_KEYS_DIR'], instance, 'client-key.pem')
-    try:
-        pg_pass = os.environ['PGPASSWORD']
-    except KeyError:
-        warn("DB password has not been set")
-        return None
-
-    host_lookup = {
-        'panoptes-meta': '146.148.50.241',
-        'tess-catalog': '35.226.47.134',
-    }
-
-    conn = psycopg2.connect("sslmode=verify-full sslrootcert={} sslcert={} sslkey={} hostaddr={} host=panoptes-survey:{} port=5432 user=postgres dbname={} password={}".format(
-        ssl_root_cert, ssl_client_cert, ssl_client_key, host_lookup[instance], instance, db, pg_pass))
-    return conn
-
-
-def get_cursor(**kwargs):
-    conn = get_db_conn(**kwargs)
-    cur = conn.cursor()
-
-    return cur
-
-
-def meta_insert(table, **kwargs):
-    conn = get_db_conn()
-    cur = conn.cursor()
-    col_names = ','.join(kwargs.keys())
-    col_val_holders = ','.join(['%s' for _ in range(len(kwargs))])
-    cur.execute('INSERT INTO {} ({}) VALUES ({}) ON CONFLICT DO NOTHING RETURNING *'.format(table,
-                                                                                            col_names, col_val_holders), list(kwargs.values()))
-    conn.commit()
-    try:
-        return cur.fetchone()[0]
-    except Exception as e:
-        print(e)
-        return None
+import logging
+logger = logging.getLogger(__name__)
 
 
 def get_stars_from_footprint(wcs_footprint, **kwargs):
+    """Lookup star information from WCS footprint.
+
+    This is just a thin wrapper around `get_stars`.
+
+    Args:
+        wcs_footprint (`astropy.wcs.WCS`): The world coordinate system (WCS) for an image.
+        **kwargs: Optional keywords to pass to `get_stars`.
+
+    Returns:
+        TYPE: Description
+    """
     ra = wcs_footprint[:, 0]
     dec = wcs_footprint[:, 1]
 
@@ -90,161 +40,134 @@ def get_stars(
         dec_min,
         dec_max,
         table='full_catalog',
+        cursor=None,
         cursor_only=True,
         verbose=False,
-        *args,
         **kwargs):
-    cur = get_cursor(instance='tess-catalog', db='v6')
-    cur.execute('SELECT id, ra, dec, tmag, e_tmag, twomass FROM {} WHERE tmag < 13 AND ra >= %s AND ra <= %s AND dec >= %s AND dec <= %s;'.format(
-        table), (ra_min, ra_max, dec_min, dec_max))
+    """Look star information from the TESS catalog.
 
+    Args:
+        ra_min (float): The minimum RA in degrees.
+        ra_max (float): The maximum RA in degrees.
+        dec_min (float): The minimum Dec in degress.
+        dec_max (float): The maximum Dec in degrees.
+        table (str, optional): TESS catalog table to use, default 'full_catalog'. Can also be 'ctl'
+        cursor_only (bool, optional): Return raw cursor, default False.
+        verbose (bool, optional): Verbose, default False.
+        **kwargs: Additional keyword arrs passed to `get_cursor`.
+
+    Returns:
+        `astropy.table.Table` or `psycopg2.cursor`: Table with star information be default,
+            otherwise the raw cursor if `cursor_only=True`.
+    """
+    if not cursor:
+        cursor = clouddb.get_cursor(instance='tess-catalog', db_name='v6', db_user='postgres', **kwargs)
+        
+    cursor.execute("""SELECT id, ra, dec, tmag, vmag, e_tmag, twomass
+        FROM {}
+        WHERE tmag < 13 AND ra >= %s AND ra <= %s AND dec >= %s AND dec <= %s;""".format(table),
+                (ra_min, ra_max, dec_min, dec_max)
+                )
     if cursor_only:
-        return cur
+        return cursor
 
-    d0 = np.array(cur.fetchall())
+    d0 = np.array(cursor.fetchall())
     if verbose:
         print(d0)
     return Table(
         data=d0,
-        names=['id', 'ra', 'dec', 'tmag', 'e_tmag', 'twomass'],
-        dtype=['i4', 'f8', 'f8', 'f4', 'f4', 'U26'])
+        names=['id', 'ra', 'dec', 'tmag', 'vmag', 'e_tmag', 'twomass'],
+        dtype=['i4', 'f8', 'f8', 'f4', 'f4', 'f4', 'U26'])
 
 
-def get_star_info(twomass_id, table='full_catalog', verbose=False):
-    cur = get_cursor(instance='tess-catalog', db='v6')
-    cur.execute('SELECT * FROM {} WHERE twomass=%s'.format(table), (twomass_id,))
-    d0 = np.array(cur.fetchall())
-    if verbose:
-        print(d0)
-    return d0
+def get_star_info(picid=None, twomass_id=None, table='full_catalog', cursor=None, raw=False, verbose=False, **kwargs):
+    """Lookup catalog information about a given star.
 
+    Args:
+        picid (str, optional): The ID of the star in the TESS catalog, also
+            known as the PANOPTES Input Catalog ID (picid).
+        twomass_id (str, optional): 2Mass ID.
+        table (str, optional): TESS catalog table to use, default 'full_catalog'.
+            Can also be 'ctl'.
+        verbose (bool, optional): Verbose, default False.
+        **kwargs: Description
 
-def get_observation_blobs(prefix=None, key=None, include_pointing=False, project_id='panoptes-survey'):
-    """ Returns the list of Google Objects matching the field and sequence """
+    Returns:
+        tuple: Values from the database.
+    """
+    if not cursor:
+        cursor = clouddb.get_cursor(db_name='v6', db_user='postgres', **kwargs)
 
-    # The bucket we will use to fetch our objects
-    bucket = storage.Bucket(project_id)
-    objs = list()
+    if picid:
+        val = picid
+        col = 'id'
+    elif twomass_id:
+        val = twomass_id
+        col = 'twomass'
+
+    cursor.execute('SELECT * FROM {} WHERE {}=%s'.format(table, col), (val,))
     
-    if prefix:
-        for f in bucket.objects(prefix=prefix):
-            if 'pointing' in f.key and not include_pointing:
-                continue
-            elif f.key.endswith('.fz') is False:
-                continue
-            else:
-                objs.append(f)
-
-        return sorted(objs, key=lambda x: x.key)
+    rec = cursor.fetchone()
     
-    if key:
-        objs = bucket.object(key)
-        if objs.exists():
-            return objs
+    if rec and not raw:
+        StarInfo = namedtuple('StarInfo', sorted(rec.keys()))
+        rec = StarInfo(**rec)
         
-    return None
+    return rec
 
 
-def unpack_blob(img_blob, save_dir='/var/panoptes/fits_files/', verbose=False):
-    """ Downloads the image blob data, uncompresses, and returns HDU """
-    fits_fz_fn = img_blob.key.replace('/', '_')
-    fits_fz_fn = os.path.join(save_dir, fits_fz_fn)
-    fits_fn = fits_fz_fn.replace('.fz', '')
+def get_rgb_data(data, **kwargs):
+    rgb_masks = get_rgb_masks(data, **kwargs)
 
-    if not os.path.exists(fits_fn):
-        if verbose:
-            print('.', end='')
+    assert rgb_masks is not None
 
-        download_blob(img_blob, save_as=fits_fz_fn)
+    r_data = np.ma.array(data, mask=~rgb_masks['r'])
+    g_data = np.ma.array(data, mask=~rgb_masks['g'])
+    b_data = np.ma.array(data, mask=~rgb_masks['b'])
 
-    if os.path.exists(fits_fz_fn):
-        fits_fn = fits_utils.fpack(fits_fz_fn, unpack=True)
-
-    return fits_fn
+    return np.ma.array([r_data, g_data, b_data])
 
 
-def download_blob(img_blob, save_as=None):
-    if save_as is None:
-        save_as = img_blob.key.replace('/', '_')
+def get_rgb_masks(data, separate_green=False, mask_path=None, force_new=False, verbose=False):
+    """Get the RGGB Bayer pattern for the given data.
 
-    with open(save_as, 'wb') as f:
-        f.write(img_blob.download())
+    Args:
+        data (`numpy.array`): An array of data representing an image.
+        separate_green (bool, optional): If the two green channels should be separated,
+            default False.
+        mask_path (str, optional): Path to file to save/lookup mask.
+        force_new (bool, optional): If a new file should be generated, default False.
+        verbose (bool, optional): Verbose, default False.
 
+    Returns:
+        TYPE: Description
+    """
+    if mask_path is None:
+        mask_path = os.path.join(os.environ['PANDIR'], 'rgb_masks.npz')
 
-def upload_to_bucket(local_path, remote_path, bucket='panoptes-survey', logger=None):
-    assert os.path.exists(local_path)
-
-    gsutil = shutil.which('gsutil')
-    assert gsutil is not None, "gsutil command line utility not found"
-
-    bucket = 'gs://{}/'.format(bucket)
-    # normpath strips the trailing slash so add here so we place in directory
-    run_cmd = [gsutil, '-mq', 'cp', local_path, bucket + remote_path]
-    if logger:
-        logger.debug("Running: {}".format(run_cmd))
-
-    try:
-        completed_process = subprocess.run(run_cmd, stdout=subprocess.PIPE)
-
-        if completed_process.returncode != 0:
-            if logger:
-                logger.debug("Problem uploading")
-                logger.debug(completed_process.stdout)
-    except Exception as e:
-        if logger:
-            logger.error("Problem uploading: {}".format(e))
-
-
-def get_header_from_storage(blob):
-    """ Read the FITS header from storage """
-    i = 2  # We skip the initial header
-    headers = dict()
-    while True:
-        # Get a header card
-        b_string = blob.read_stream(start_offset=2880 * (i - 1), byte_count=(2880 * i) - 1)
-
-        # Loop over 80-char lines
-        for j in range(0, len(b_string), 80):
-            item_string = b_string[j:j + 80].decode()
-            if not item_string.startswith('END'):
-                if item_string.find('=') > 0:  # Skip COMMENTS and HISTORY
-                    k, v = item_string.split('=')
-
-                    if ' / ' in v:  # Remove FITS comment
-                        v = v.split(' / ')[0]
-
-                    v = v.strip()
-                    if v.startswith("'") and v.endswith("'"):
-                        v = v.replace("'", "").strip()
-                    elif v.find('.') > 0:
-                        v = float(v)
-                    elif v == 'T':
-                        v = True
-                    elif v == 'F':
-                        v = False
-                    else:
-                        v = int(v)
-
-                    headers[k.strip()] = v
-            else:
-                return headers
-        i += 1
-
-
-def get_rgb_masks(data, separate_green=False, force_new=False):
-
-    rgb_mask_file = 'rgb_masks.npz'
+    logger.debug('Mask path: {}'.format(mask_path))
 
     if force_new:
+        logger.info("Forcing a new mask file")
         try:
-            os.remove(rgb_mask_file)
+            os.remove(mask_path)
         except FileNotFoundError:
             pass
 
+    # Try to load existing file and if not generate new
     try:
-        return np.load(rgb_mask_file)
+        loaded_masks = np.load(mask_path)
+        logger.debug("Loaded masks")
+        mask_shape = loaded_masks[loaded_masks.files[0]].shape
+        if mask_shape != data.shape:
+            logger.debug("Removing mask with wrong size")
+            os.remove(mask_path)
+            raise FileNotFoundError
+        else:
+            logger.debug("Using saved masks")
+            _rgb_masks = {color: loaded_masks[color] for color in loaded_masks.files}
     except FileNotFoundError:
-        print("Making RGB masks")
+        logger.info("Making RGB masks")
 
         if data.ndim > 2:
             data = data[0]
@@ -260,6 +183,7 @@ def get_rgb_masks(data, separate_green=False, force_new=False):
         ).reshape(w, h))
 
         if separate_green:
+            logger.debug("Making separate green masks")
             green1_mask = np.flipud(np.array(
                 [(index[0] % 2 == 0 and index[1] % 2 == 1) for index, i in np.ndenumerate(data)]
             ).reshape(w, h))
@@ -267,115 +191,64 @@ def get_rgb_masks(data, separate_green=False, force_new=False):
                 [(index[0] % 2 == 1 and index[1] % 2 == 0) for index, i in np.ndenumerate(data)]
             ).reshape(w, h))
 
-            _rgb_masks = np.array([red_mask, green1_mask, green2_mask, blue_mask])
+            _rgb_masks = {
+                'r': red_mask,
+                'g': green1_mask,
+                'c': green2_mask,
+                'b': blue_mask,
+            }
         else:
             green_mask = np.flipud(np.array(
-                [(index[0] % 2 == 0 and index[1] % 2 == 1) or (index[0] % 2 == 1 and index[1] % 2 == 0)
-                 for index, i in np.ndenumerate(data)]
+                [((index[0] % 2 == 0 and index[1] % 2 == 1) or
+                    (index[0] % 2 == 1 and index[1] % 2 == 0))
+                    for index, i in np.ndenumerate(data)
+                 ]
             ).reshape(w, h))
 
-            _rgb_masks = np.array([red_mask, green_mask, blue_mask])
+            _rgb_masks = {
+                'r': red_mask,
+                'g': green_mask,
+                'b': blue_mask,
+            }
 
-        _rgb_masks.dump(rgb_mask_file)
+        logger.info("Saving masks files")
+        np.savez_compressed(mask_path, **_rgb_masks)
 
-        return _rgb_masks
-
-
-def show_stamps(pscs, frame_idx=0, stamp_size=11, aperture_size=4, show_residual=False, stretch=None, **kwargs):
-
-    midpoint = (stamp_size - 1) / 2
-    aperture = RectangularAperture((midpoint, midpoint), w=aperture_size, h=aperture_size, theta=0)
-    annulus = RectangularAnnulus((midpoint, midpoint), w_in=aperture_size,
-                                 w_out=stamp_size, h_out=stamp_size, theta=0)
-
-    ncols = len(pscs)
-
-    if show_residual:
-        ncols += 1
-
-    fig, ax = plt.subplots(nrows=2, ncols=ncols)
-    fig.set_figheight(6)
-    fig.set_figwidth(12)
-
-    norm = [normalize(p.reshape(p.shape[0], -1)).reshape(p.shape) for p in pscs]
-
-    s0 = pscs[0][frame_idx]
-    n0 = norm[0][frame_idx]
-
-    s1 = pscs[1][frame_idx]
-    n1 = norm[1][frame_idx]
-
-    if stretch == 'log':
-        stretch = LogStretch()
-    else:
-        stretch = LinearStretch()
-
-    # Target
-    ax1 = ax[0][0]
-    im = ax1.imshow(s0, origin='lower', cmap=palette, norm=ImageNormalize(stretch=stretch))
-    aperture.plot(color='r', lw=4, ax=ax1)
-    annulus.plot(color='c', lw=2, ls='--', ax=ax1)
-    fig.colorbar(im, ax=ax1)
-    #ax1.set_title('Stamp {:.02f}'.format(get_sum(s0, stamp_size=stamp_size)))
-
-    # Normalized target
-    ax2 = ax[1][0]
-    im = ax2.imshow(n0, origin='lower', cmap=palette, norm=ImageNormalize(stretch=stretch))
-    aperture.plot(color='r', lw=4, ax=ax2)
-    annulus.plot(color='c', lw=2, ls='--', ax=ax2)
-    fig.colorbar(im, ax=ax2)
-    ax2.set_title('Normalized Stamp')
-
-    # Comparison
-    ax1 = ax[0][1]
-    im = ax1.imshow(s1, origin='lower', cmap=palette, norm=ImageNormalize(stretch=stretch))
-    aperture.plot(color='r', lw=4, ax=ax1)
-    annulus.plot(color='c', lw=2, ls='--', ax=ax1)
-    fig.colorbar(im, ax=ax1)
-    #ax1.set_title('Stamp {:.02f}'.format(get_sum(s1, stamp_size=stamp_size)))
-
-    # Normalized comparison
-    ax2 = ax[1][1]
-    im = ax2.imshow(n1, origin='lower', cmap=palette, norm=ImageNormalize(stretch=stretch))
-    aperture.plot(color='r', lw=4, ax=ax2)
-    annulus.plot(color='c', lw=2, ls='--', ax=ax2)
-    fig.colorbar(im, ax=ax2)
-    ax2.set_title('Normalized Stamp')
-
-    if show_residual:
-
-        # Residual
-        ax1 = ax[0][2]
-        im = ax1.imshow((s0 - s1), origin='lower', cmap=palette,
-                        norm=ImageNormalize(stretch=stretch))
-        aperture.plot(color='r', lw=4, ax=ax1)
-        annulus.plot(color='c', lw=2, ls='--', ax=ax1)
-        fig.colorbar(im, ax=ax1)
-        ax1.set_title('Stamp Residual - {:.02f}'.format((s0 - s1).sum()))
-
-        # Normalized residual
-        ax2 = ax[1][2]
-        im = ax2.imshow((n0 - n1), origin='lower', cmap=palette)
-        aperture.plot(color='r', lw=4, ax=ax2)
-        annulus.plot(color='c', lw=2, ls='--', ax=ax2)
-        fig.colorbar(im, ax=ax2)
-        ax2.set_title('Normalized Stamp')
-
-    fig.tight_layout()
-
-
-def normalize(cube):
-    # Helper function to normalize a stamp
-    return (cube.T / cube.sum(1)).T
+    return _rgb_masks
 
 
 def spiral_matrix(A):
+    """Simple function to spiral a matrix.
+
+    Args:
+        A (`numpy.array`): Array to spiral.
+
+    Returns:
+        `numpy.array`: Spiralled array.
+    """
     A = np.array(A)
     out = []
     while(A.size):
         out.append(A[:, 0][::-1])  # take first row and reverse it
         A = A[:, 1:].T[::-1]       # cut off first row and rotate counterclockwise
     return np.concatenate(out)
+
+
+def get_pixel_index(x):
+    """Find corresponding index position of `x` pixel position.
+
+    Note:
+        Due to the standard rounding policy of python that will round half integers
+        to their nearest even whole integer, we instead use a `Decimal` with correct
+        round up policy.
+
+    Args:
+        x (float): x coordinate position.
+
+    Returns:
+        int: Index position for zero-based index
+    """
+    return int(Decimal(x - 1).to_integral_value(ROUND_HALF_UP))
 
 
 def pixel_color(x, y):
@@ -416,14 +289,30 @@ def pixel_color(x, y):
             return 'G1'
 
 
-def get_stamp_slice(x, y, stamp_size=(10, 10), verbose=False):
+def get_stamp_slice(x, y, stamp_size=(14, 14), verbose=False):
+    """Get the slice around a given position with fixed Bayer pattern.
 
-    for m in stamp_size:
-        m -= 2  # Subtract center superpixel
-        if int(m / 2) % 2 != 0:
-            print("Invalid size: ", m + 2)
+    Given an x,y pixel position, get the slice object for a stamp of a given size
+    but make sure the first position corresponds to a red-pixel. This means that
+    x,y will not necessarily be at the center of the resulting stamp.
+
+    Args:
+        x (float): X pixel position.
+        y (float): Y pixel position.
+        stamp_size (tuple, optional): The size of the cutout, default (14, 14).
+        verbose (bool, optional): Verbose, default False.
+
+    Returns:
+        `slice`: A slice object for the data.
+    """
+    # Make sure requested size can have superpixels on each side.
+    for side_length in stamp_size:
+        side_length -= 2  # Subtract center superpixel
+        if int(side_length / 2) % 2 != 0:
+            print("Invalid size: ", side_length + 2)
             return
 
+    # Pixels have nasty 0.5 rounding issues
     x = Decimal(float(x)).to_integral()
     y = Decimal(float(y)).to_integral()
     color = pixel_color(x, y)
@@ -439,6 +328,7 @@ def get_stamp_slice(x, y, stamp_size=(10, 10), verbose=False):
     y_min = int(y - y_half)
     y_max = int(y + y_half)
 
+    # Alter the bounds depending on identified center pixel
     if color == 'B':
         y_min -= 1
         y_max -= 1
@@ -454,25 +344,62 @@ def get_stamp_slice(x, y, stamp_size=(10, 10), verbose=False):
     if verbose:
         print(x_min, x_max, y_min, y_max)
 
-    return [slice(y_min, y_max), slice(x_min, x_max)]
+    return (slice(y_min, y_max), slice(x_min, x_max))
 
 
-def animate_stamp(d0):
+def moving_average(data_set, periods=3):
+    """Moving average.
 
-    fig, ax = plt.subplots()
+    Args:
+        data_set (`numpy.array`): An array of values over which to perform the moving average.
+        periods (int, optional): Number of periods.
 
-    line = ax.imshow(d0[0])
+    Returns:
+        `numpy.array`: An array of the computed averages.
+    """
+    weights = np.ones(periods) / periods
+    return np.convolve(data_set, weights, mode='same')
 
-    def animate(i):
-        line.set_data(d0[i])  # update the data
-        return line,
 
-    # Init only required for blitting to give a clean slate.
-    def init():
-        line.set_data(d0[0])
-        return line,
+def get_pixel_drift(coords, files, ext=0):
+    """Get the pixel drift for a given set of coordinates.
 
-    ani = animation.FuncAnimation(fig, animate, np.arange(0, len(d0)), init_func=init,
-                                  interval=500, blit=True)
+    Args:
+        coords (`astropy.coordinates.SkyCoord`): Coordinates of source.
+        files (list): A list of FITS files with valid WCS.
 
-    return ani
+    Returns:
+        `numpy.array, numpy.array`: A 2xN array of pixel deltas where
+            N=len(files)
+    """
+    # Get target positions for each frame
+    if files[0].endswith('fz'):
+        ext = 1
+
+    target_pos = np.array([
+        WCS(fn, naxis=ext).all_world2pix(coords.ra, coords.dec, 0)
+        for fn in files
+    ])
+
+    # Subtract out the mean to get just the pixel deltas
+    x_pos = target_pos[:, 0]
+    y_pos = target_pos[:, 1]
+
+    x_pos -= x_pos.mean()
+    y_pos -= y_pos.mean()
+
+    return x_pos, y_pos
+
+
+def get_planet_phase(period, midpoint, obs_time):
+    """Get planet phase from period and midpoint.
+
+    Args:
+        period (float): The length of the period in days.
+        midpoint (`datetime.datetime`): The midpoint of the transit.
+        obs_time (`datetime.datetime`): The time at which to compute the phase.
+
+    Returns:
+        float: The phase of the planet.
+    """
+    return ((Time(obs_time).mjd - Time(midpoint).mjd) % period) / period

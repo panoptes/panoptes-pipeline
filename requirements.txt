@@ -1,9 +1,11 @@
 astroplan
 astropy
+astroquery
+batman
 h5py
+ipython-autotime
 matplotlib
 numpy
 photutils
-psycopg2
+psycopg2-binary
 tqdm
-ipython-autotime

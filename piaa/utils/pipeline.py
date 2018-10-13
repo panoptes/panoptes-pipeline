@@ -269,7 +269,7 @@ def create_stamp_slices(
     unit_id = re.match(r'.*(PAN\d\d\d).*', unit_id)[1]
     sequence = '_'.join([unit_id, cam_id, seq_time])
 
-    logging.info("{} files found for {}".format(num_frames, sequence))
+    logger.info("{} files found for {}".format(num_frames, sequence))
 
     stamps_fn = os.path.join(
         save_dir,
@@ -277,15 +277,20 @@ def create_stamp_slices(
     )
     logger.info("Creating stamps file: {}".format(stamps_fn))
 
-    if force_new is False:
-        logging.info("Looking for existing stamps file")
+    if force_new is False and os.path.exists(stamps_fn):
+        logger.info("Looking for existing stamps file")
+
         try:
             assert os.path.exists(stamps_fn)
             stamps = h5py.File(stamps_fn)
-            logging.info("Returning existing stamps file")
+            logger.info("Returning existing stamps file")
             return stamps_fn
         except FileNotFoundError:
             pass
+    else:
+        # Make sure to delete existing
+        with suppress(FileNotFoundError):
+            os.remove(stamps_fn)
 
     stamps = h5py.File(stamps_fn, 'a')
 
@@ -474,7 +479,7 @@ def find_similar_stars(
 
     data = dict()
 
-    logging.info("Getting Target PSC and subtracting bias")
+    logger.info("Getting Target PSC and subtracting bias")
     psc0 = get_psc(picid, stamps, **kwargs) - camera_bias
     logger.info("Target PSC shape: {}".format(psc0.shape))
     num_frames = psc0.shape[0]
@@ -495,7 +500,7 @@ def find_similar_stars(
             else:
                 logger.warning("Sum for target frame {} is 0".format(frame_index))
         except RuntimeWarning:
-            logging.warning("Skipping frame {}".format(frame_index))
+            logger.warning("Skipping frame {}".format(frame_index))
 
     iterator = enumerate(list(stamps.keys()))
     if show_progress:
@@ -511,10 +516,10 @@ def find_similar_stars(
         try:
             snr = float(stamps[source_index].attrs['snr'])
             if snr < snr_limit:
-                logging.info("Skipping PICID {}, low snr {:.02f}".format(source_index, snr))
+                logger.info("Skipping PICID {}, low snr {:.02f}".format(source_index, snr))
                 continue
         except KeyError as e:
-            logging.debug("No source in table: {}".format(picid))
+            logger.debug("No source in table: {}".format(picid))
             pass
 
         try:
@@ -652,11 +657,11 @@ def get_aperture_sums(psc0,
 
             if subtract_back:
                 mean, median, std = sigma_clipped_stats(t3)
-                logging.info("Average sky background for {}: {:5.2f}: {:5.2f}".format(
+                logger.info("Average sky background for {}: {:5.2f}: {:5.2f}".format(
                     color, mean, t3.sum()))
 
                 t3 = t3 - mean
-                logging.info(t3.sum())
+                logger.info(t3.sum())
 
             t_sum = t3.sum()
             i_sum = i3.sum()

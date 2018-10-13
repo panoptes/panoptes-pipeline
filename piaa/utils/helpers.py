@@ -1,4 +1,5 @@
 import os
+import sys
 
 import numpy as np
 from collections import namedtuple
@@ -10,7 +11,7 @@ from astropy.time import Time
 from astropy.table import Table
 from astropy.wcs import WCS
 
-from pocs.utils.db import postgres as clouddb
+from piaa.utils import postgres as clouddb
 
 import logging
 logger = logging.getLogger(__name__)
@@ -61,7 +62,12 @@ def get_stars(
             otherwise the raw cursor if `cursor_only=True`.
     """
     if not cursor:
-        cursor = clouddb.get_cursor(instance='tess-catalog', db_name='v6', db_user='postgres', **kwargs)
+        cursor = clouddb.get_cursor(
+                instance='tess-catalog', 
+                db_name='v6', 
+                db_user='postgres',
+                port=5433,
+                **kwargs)
         
     cursor.execute("""SELECT id, ra, dec, tmag, vmag, e_tmag, twomass
         FROM {}
@@ -71,7 +77,7 @@ def get_stars(
     if cursor_only:
         return cursor
 
-    d0 = np.array(cursor.fetchall())
+    d0 = cursor.fetchall()
     if verbose:
         print(d0)
     return Table(

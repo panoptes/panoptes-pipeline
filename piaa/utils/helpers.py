@@ -10,7 +10,8 @@ from astropy.time import Time
 from astropy.table import Table
 from astropy.wcs import WCS
 
-from pocs.utils.db import postgres as clouddb
+from piaa.utils import postgres as clouddb
+from pocs.utils.images import fits as fits_utils
 
 import logging
 logger = logging.getLogger(__name__)
@@ -71,7 +72,7 @@ def get_stars(
     if cursor_only:
         return cursor
 
-    d0 = np.array(cursor.fetchall())
+    d0 = cursor.fetchall()
     if verbose:
         print(d0)
     return Table(
@@ -309,7 +310,10 @@ def get_stamp_slice(x, y, stamp_size=(14, 14), verbose=False):
     for side_length in stamp_size:
         side_length -= 2  # Subtract center superpixel
         if int(side_length / 2) % 2 != 0:
-            print("Invalid size: ", side_length + 2)
+            print("Invalid slice size: ", side_length + 2,
+                  " Slice must have even number of pixels on each side of",
+                  " the center superpixel.",
+                  "i.e. 6, 10, 14, 18...")
             return
 
     # Pixels have nasty 0.5 rounding issues
@@ -361,7 +365,7 @@ def moving_average(data_set, periods=3):
     return np.convolve(data_set, weights, mode='same')
 
 
-def get_pixel_drift(coords, files, ext=0):
+def get_pixel_drift(coords, files):
     """Get the pixel drift for a given set of coordinates.
 
     Args:
@@ -373,13 +377,14 @@ def get_pixel_drift(coords, files, ext=0):
             N=len(files)
     """
     # Get target positions for each frame
-    if files[0].endswith('fz'):
-        ext = 1
+    logger.info("Getting pixel drift for {}".format(coords))
+    target_pos = list()
+    for fn in files:
+        h0 = fits_utils.getheader(fn)
+        pos = WCS(h0).all_world2pix(coords.ra, coords.dec, 1)
+        target_pos.append(pos)
 
-    target_pos = np.array([
-        WCS(fn, naxis=ext).all_world2pix(coords.ra, coords.dec, 0)
-        for fn in files
-    ])
+    target_pos = np.array(target_pos)
 
     # Subtract out the mean to get just the pixel deltas
     x_pos = target_pos[:, 0]

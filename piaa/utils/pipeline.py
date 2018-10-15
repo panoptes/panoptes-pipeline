@@ -25,6 +25,7 @@ from dateutil.parser import parse as date_parse
 
 from photutils import DAOStarFinder
 
+from pocs.utils.images import fits as fits_utils
 from piaa.utils import helpers
 from piaa.utils import plot
 
@@ -53,7 +54,8 @@ def lookup_point_sources(fits_file,
         error.InvalidSystemCommand: Description
     """
     if catalog_match or method == 'tess_catalog':
-        wcs = WCS(fits_file)
+        fits_header = fits_utils.getheader(fits_file)
+        wcs = WCS(fits_header)
         assert wcs is not None and wcs.is_celestial, logger.warning("Need a valid WCS")
 
     lookup_function = {
@@ -128,6 +130,10 @@ def _lookup_via_sextractor(fits_file, sextractor_params=None, *args, **kwargs):
         'psc',
         'point_sources_{}.cat'.format(fits_file.replace('/', '_'))
     )
+    # sextractor can't handle compressed data
+    if fits_file.endswith('.fz'):
+        fits_file = fits_utils.funpack(fits_file)
+
     logger.info("Point source catalog: {}".format(source_file))
 
     if not os.path.exists(source_file) or kwargs.get('force_new', False):
@@ -216,7 +222,7 @@ def _lookup_via_tess_catalog(fits_file, wcs=None, *args, **kwargs):
 
 
 def _lookup_via_photutils(fits_file, wcs=None, *args, **kwargs):
-    data = fits.getdata(fits_file)
+    data = fits.getdata(fits_file) - 2048  # Camera bias
     mean, median, std = sigma_clipped_stats(data)
 
     fwhm = kwargs.get('fwhm', 3.0)
@@ -231,7 +237,8 @@ def _lookup_via_photutils(fits_file, wcs=None, *args, **kwargs):
     }, inplace=True)
 
     if wcs is None:
-        wcs = WCS(fits_file)
+        header = fits_utils.getheader(fits_file)
+        wcs = WCS(header)
 
     coords = wcs.all_pix2world(sources['x'], sources['y'], 1)
 
@@ -265,7 +272,7 @@ def create_stamp_slices(
     errors = dict()
 
     num_frames = len(fits_files)
-    unit_id, cam_id, seq_time = fits.getval(fits_files[0], 'SEQID').split('_')
+    unit_id, cam_id, seq_time = fits_utils.getval(fits_files[0], 'SEQID').split('_')
     unit_id = re.match(r'.*(PAN\d\d\d).*', unit_id)[1]
     sequence = '_'.join([unit_id, cam_id, seq_time])
 
@@ -277,7 +284,7 @@ def create_stamp_slices(
     )
     logger.info("Creating stamps file: {}".format(stamps_fn))
 
-    if force_new is False:
+    if force_new is False and os.path.exists(stamps_fn):
         logging.info("Looking for existing stamps file")
         try:
             assert os.path.exists(stamps_fn)
@@ -286,26 +293,29 @@ def create_stamp_slices(
             return stamps_fn
         except FileNotFoundError:
             pass
+    else:
+        # If force then delete
+        with suppress(FileNotFoundError):
+            os.remove(stamps_fn)
 
     stamps = h5py.File(stamps_fn, 'a')
 
     # Currently a bug with DATE-OBS so use time from filename.
-    try:
-        image_times = np.array([Time(
-            date_parse(os.path.splitext(fn.split('/')[-1])[0]) # .split('_')[4]
-        ).mjd
-        for fn in fits_files if 'pointing' not in fn])
-    except ValueError:
-        image_times = np.array([Time(
-            date_parse(os.path.splitext(fn.split('/')[-1])[0].split('_')[4])
-        ).mjd
-        for fn in fits_files if 'pointing' not in fn])
-        
+    image_times = list()
+    for fn in fits_files:
+        if 'pointing' in fn:
+            continue
+
+        try:
+            fn_imagetime = Time(date_parse(os.path.basename(fn).split('.')[0])).mjd
+            image_times.append(fn_imagetime)
+        except Exception as e:
+            logger.warning('Problem getting image time: {}'.format(e))
     
     #image_times = np.array(
     #    [Time(date_parse(fits.getval(fn, 'DATE-OBS'))).mjd for fn in fits_files])
     
-    airmass = np.array([fits.getval(fn, 'AIRMASS') for fn in fits_files])
+    airmass = np.array([fits_utils.getval(fn, 'AIRMASS') for fn in fits_files])
 
     stamps.attrs['image_times'] = image_times
     stamps.attrs['airmass'] = airmass
@@ -351,19 +361,23 @@ def create_stamp_slices(
             except KeyError:
                 pass
 
-            star_pos = wcs.all_world2pix(star_row.ra, star_row.dec, 0)
+            star_pos = wcs.all_world2pix(star_row.ra, star_row.dec, 1)
 
             # Get stamp data. If problem, mark for skipping in future.
             try:
                 # This handles the RGGB pattern
                 slice0 = helpers.get_stamp_slice(star_pos[0], star_pos[1], stamp_size=stamp_size)
+                logger.debug("Slice for {} {}: {}".format(star_pos[0], star_pos[1], slice0))
+                if not slice0:
+                    logger.warning("Invalid slice for star_id {} on frame {}".format(star_id, frame_idx))
+                    continue
                 d1 = d0[slice0].flatten()
 
                 if len(d1) == 0:
                     logger.warning('Bad slice for {}, skipping'.format(star_id))
                     continue
             except Exception as e:
-                raise e
+                logger.warning("Problem with slice: {}".format(e))
 
             # Create group for stamp and add metadata
             try:
@@ -373,17 +387,8 @@ def create_stamp_slices(
                 psc_group = stamps.create_group(star_id)
                 # Stamp metadata
                 try:
-                    psc_metadata = {
-                        'ra': star_row.ra,
-                        'dec': star_row.dec,
-                        'twomass': star_row.twomass,
-                        'vmag': star_row.vmag,
-                        'tmag': star_row.tmag,
-                        'flags': star_row.flags,
-                        'snr': star_row.snr,
-                    }
-                    for k, v in psc_metadata.items():
-                        psc_group.attrs[k] = str(v)
+                    for col in point_sources.columns:
+                        psc_group.attrs[col] = str(getattr(star_row, col))
                 except Exception as e:
                     if str(e) not in errors:
                         logger.warning(e)
@@ -568,10 +573,11 @@ def get_ideal_full_psc(stamp_collection, coeffs):
 def get_aperture_sums(psc0,
                       psc1,
                       image_times,
-                      aperture_size=4,
+                      aperture_size=None,
                       separate_green=False,
                       subtract_back=False,
                       plot_apertures=False,
+                      aperture_fn=None
                       ):
     """Perform differential aperture photometry on the given PSCs.
 
@@ -615,6 +621,7 @@ def get_aperture_sums(psc0,
             force_new=True,
             separate_green=separate_green
         )
+        logger.debug('RGB stamp_masks created')
     except ValueError:
         pass
 
@@ -629,6 +636,10 @@ def get_aperture_sums(psc0,
         # NOTE: Bad "centroiding" here
         y_pos, x_pos = np.argwhere(t0 == t0.max())[0]
         aperture_position = (x_pos, y_pos)
+        logger.debug('Aperture Position: {} Size: {} Frame: {}'.format(aperture_position, aperture_size, frame_idx))
+
+        slice0 = helpers.get_stamp_slice(x_pos, y_pos, stamp_size=aperture_size)
+        logger.debug(f'Slice for aperture: {slice0}')
 
         for color, mask in rgb_stamp_masks.items():
 
@@ -637,18 +648,29 @@ def get_aperture_sums(psc0,
             i1 = np.ma.array(i0, mask=~mask)
 
             # Make apertures
-            try:
-                t2 = Cutout2D(t1, aperture_position, aperture_size, mode='strict')
-                i2 = Cutout2D(i1, aperture_position, aperture_size, mode='strict')
-            except (PartialOverlapError, NoOverlapError) as e:
-                print(aperture_position, e)
-                continue
-            except Exception as e:
-                print(e)
-                continue
+            if slice0:
+                try:
+                    #t2 = Cutout2D(t1, aperture_position, aperture_size, mode='partial')
+                    #i2 = Cutout2D(i1, aperture_position, aperture_size, mode='partial')
 
-            t3 = t2.data
-            i3 = i2.data
+                    t2 = t1[slice0]
+                    i2 = i1[slice0]
+                except (PartialOverlapError, NoOverlapError) as e:
+                    logger.debug(aperture_position, e)
+                    continue
+                except Exception as e:
+                    logger.debug(e)
+                    continue
+
+                t3 = t2.data
+                i3 = i2.data
+
+                if plot_apertures:
+                    apertures.append((t3,))
+                logger.debug(t3)
+            else:
+                t3 = t1
+                i3 = i1
 
             if subtract_back:
                 mean, median, std = sigma_clipped_stats(t3)
@@ -672,10 +694,9 @@ def get_aperture_sums(psc0,
     lc0 = pd.DataFrame(diff).set_index(['obstime'])
 
     if plot_apertures:
-        fig = plot.make_apertures_plot(apertures)
-        return lc0, fig
-    else:
-        return lc0
+        plot.make_apertures_plot(apertures, save_name=aperture_fn)
+
+    return lc0
 
 
 def get_imag(x, t=1):

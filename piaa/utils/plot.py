@@ -385,7 +385,7 @@ def plot_pixel_drift(x_pos, y_pos, index=None, out_fn=None, title=None):
     return fig
 
 
-def make_apertures_plot(apertures, num_frames=None):
+def make_apertures_plot(apertures, num_frames=None, save_name=None):
     """Make a plot of the final stamp aperture.
 
     Args:
@@ -397,60 +397,58 @@ def make_apertures_plot(apertures, num_frames=None):
     if num_frames is None:
         num_frames = (len(apertures) // num_cols)
 
-    fig = Figure()
-    FigureCanvas(fig)
-    fig.set_size_inches(num_cols + 1, num_frames)
-
-    axes = fig.subplots(num_frames, num_cols + 1, sharex=True, sharey=True)
-
     c_lookup = {
         0: 'red',
         1: 'green',
         2: 'blue'
     }
 
-    # Each frame has its own row
     for row_num in range(num_frames):
+        fig = Figure()
+        FigureCanvas(fig)
+        #fig.set_size_inches(12, 9)
+        #fig.set_size_inches(num_cols + 1, num_frames)
+
+        axes = fig.subplots(1, num_cols + 1, sharex=True, sharey=True)
+
         all_channels = None
         
         # One column for each color channel plus the sum
         for col_num in range(num_cols):
-
-            ax = axes[row_num][col_num]
-
             idx = (row_num * (num_cols)) + col_num
-
-            try:
-                target = apertures[idx][0]
-            except IndexError:
-                break
-
+            target = apertures[idx][0]
             if all_channels is None:
                 all_channels = np.zeros_like(target.filled(0))
 
             all_channels = all_channels + target.filled(0)
 
-            ax.imshow(target)
+        for col_num in range(num_cols):
+
+            ax = axes[col_num]
+
+            idx = (row_num * (num_cols)) + col_num
+
+            target = apertures[idx][0]
+
+            im = ax.imshow(target, vmin=all_channels.min(), vmax=all_channels.max())
 
             # Show the sum
             if col_num == 2:
-                ax2 = axes[row_num][col_num + 1]
-                ax2.imshow(all_channels)
-                
-                try:
-                    annulus = apertures[idx][2]
-                    annulus.plot(ax=ax2)
-                except IndexError:
-                    pass
+                ax2 = axes[col_num + 1]
+                im = ax2.imshow(all_channels, vmin=all_channels.min(), vmax=all_channels.max())
+
+                divider = make_axes_locatable(ax2)
+                cax = divider.append_axes("right", size="5%", pad=0.05)
+                fig.colorbar(im, cax=cax)
                 
                 plt.setp(ax2.get_xticklabels(), visible=False)
                 plt.setp(ax2.get_yticklabels(), visible=False)
 
             # If first row, set column title
-            if row_num == 0:
-                ax.set_title(c_lookup[col_num])
-                if col_num == 2:
-                    ax2.set_title('All')
+            #if row_num == 0:
+            ax.set_title(c_lookup[col_num])
+            if col_num == 2:
+                ax2.set_title('All')
                     
             # If first column, show frame index to left
             if col_num == 0:
@@ -460,9 +458,9 @@ def make_apertures_plot(apertures, num_frames=None):
             plt.setp(ax.get_xticklabels(), visible=False)
             plt.setp(ax.get_yticklabels(), visible=False)
 
-    fig.tight_layout()
-
-    return fig
+            fig.tight_layout()
+            aperture_fn = '{}_{:03d}.png'.format(save_name, row_num)
+            fig.savefig(aperture_fn)
 
 
 def plot_lightcurve(x, y, model_flux=None, use_imag=False, transit_info=None, color='k', **kwargs):

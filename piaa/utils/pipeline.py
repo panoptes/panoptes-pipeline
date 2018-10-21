@@ -58,6 +58,8 @@ def lookup_point_sources(fits_file,
         wcs = WCS(fits_header)
         assert wcs is not None and wcs.is_celestial, logger.warning("Need a valid WCS")
 
+    logger.info("Looking up sources for {}".format(fits_file))
+
     lookup_function = {
         'sextractor': _lookup_via_sextractor,
         'tess_catalog': _lookup_via_tess_catalog,
@@ -67,7 +69,7 @@ def lookup_point_sources(fits_file,
     # Lookup our appropriate method and call it with the fits file and kwargs
     try:
         logger.info("Using {} method {}".format(method, lookup_function[method]))
-        point_sources = lookup_function[method](fits_file, **kwargs)
+        point_sources = lookup_function[method](fits_file, force_new=force_new, **kwargs)
     except Exception as e:
         logger.error("Problem looking up sources: {}".format(e))
         raise Exception("Problem lookup up sources: {}".format(e))
@@ -115,10 +117,10 @@ def get_catalog_match(point_sources, wcs, table='full_catalog', **kwargs):
 
     # Get some properties from the catalog
     point_sources['id'] = catalog_stars[idx]['id']
-    point_sources['twomass'] = catalog_stars[idx]['twomass']
-    point_sources['tmag'] = catalog_stars[idx]['tmag']
-    point_sources['vmag'] = catalog_stars[idx]['vmag']
-    point_sources['d2d'] = d2d
+    #point_sources['twomass'] = catalog_stars[idx]['twomass']
+    #point_sources['tmag'] = catalog_stars[idx]['tmag']
+    #point_sources['vmag'] = catalog_stars[idx]['vmag']
+    point_sources['catalog_sep_arcsec'] = d2d.to(u.arcsec).value
 
     return point_sources
 
@@ -126,9 +128,12 @@ def get_catalog_match(point_sources, wcs, table='full_catalog', **kwargs):
 def _lookup_via_sextractor(fits_file, sextractor_params=None, *args, **kwargs):
     # Write the sextractor catalog to a file
     source_file = os.path.join(
-        os.environ['PANDIR'],
-        'psc',
-        'point_sources_{}.cat'.format(fits_file.replace('/', '_'))
+        os.path.dirname(fits_file),
+        'point_sources_{}.cat'.format(
+            os.path.splitext(
+                os.path.basename(fits_file)
+            )[0]
+        )
     )
     # sextractor can't handle compressed data
     if fits_file.endswith('.fz'):
@@ -189,11 +194,15 @@ def _lookup_via_sextractor(fits_file, sextractor_params=None, *args, **kwargs):
 
     point_sources = point_sources[top & bottom & right & left].to_pandas()
     point_sources.columns = [
+        'mag_auto', 'magerr_auto',
         'x', 'y',
+        'xpeak_image', 'ypeak_image',
         'ra', 'dec',
         'background',
         'flux_auto', 'flux_max', 'fluxerr_auto',
-        'fwhm', 'flags', 'snr'
+        'fwhm_image',
+        'flags',
+        'snr'
     ]
 
     return point_sources
@@ -638,7 +647,7 @@ def get_aperture_sums(psc0,
         aperture_position = (x_pos, y_pos)
         logger.debug('Aperture Position: {} Size: {} Frame: {}'.format(aperture_position, aperture_size, frame_idx))
 
-        slice0 = helpers.get_stamp_slice(x_pos, y_pos, stamp_size=aperture_size)
+        slice0 = helpers.get_stamp_slice(x_pos, y_pos, stamp_size=(aperture_size, aperture_size), ignore_superpixel=True)
         logger.debug(f'Slice for aperture: {slice0}')
 
         for color, mask in rgb_stamp_masks.items():
@@ -650,20 +659,11 @@ def get_aperture_sums(psc0,
             # Make apertures
             if slice0:
                 try:
-                    #t2 = Cutout2D(t1, aperture_position, aperture_size, mode='partial')
-                    #i2 = Cutout2D(i1, aperture_position, aperture_size, mode='partial')
-
-                    t2 = t1[slice0]
-                    i2 = i1[slice0]
-                except (PartialOverlapError, NoOverlapError) as e:
-                    logger.debug(aperture_position, e)
-                    continue
+                    t3 = t1[slice0]
+                    i3 = i1[slice0]
                 except Exception as e:
                     logger.debug(e)
                     continue
-
-                t3 = t2.data
-                i3 = i2.data
 
                 if plot_apertures:
                     apertures.append((t3,))

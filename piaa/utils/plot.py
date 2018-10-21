@@ -49,7 +49,6 @@ def show_stamps(pscs,
                 stamp_size=11,
                 aperture_position=None,
                 aperture_size=None,
-                show_normal=False,
                 show_residual=False,
                 stretch=None,
                 save_name=None,
@@ -72,9 +71,9 @@ def show_stamps(pscs,
 
     fig = Figure()
     FigureCanvas(fig)
-    fig.set_dpi(100)
+    #fig.set_dpi(100)
     fig.set_figheight(4)
-    fig.set_figwidth(9)
+    fig.set_figwidth(8)
 
     if frame_idx is not None:
         s0 = pscs[0][frame_idx]
@@ -91,6 +90,7 @@ def show_stamps(pscs,
     ax1 = fig.add_subplot(nrows, ncols, 1)
 
     im = ax1.imshow(s0, origin='lower', cmap=get_palette(), norm=ImageNormalize(stretch=stretch))
+    add_pixel_grid(ax1, stamp_size, stamp_size, show_superpixel=False)
     if aperture_size:
         aperture.plot(color='r', lw=4, ax=ax1)
         # annulus.plot(color='c', lw=2, ls='--', ax=ax1)
@@ -106,6 +106,7 @@ def show_stamps(pscs,
     # Comparison
     ax2 = fig.add_subplot(nrows, ncols, 2)
     im = ax2.imshow(s1, origin='lower', cmap=get_palette(), norm=ImageNormalize(stretch=stretch))
+    add_pixel_grid(ax2, stamp_size, stamp_size, show_superpixel=False)
     if aperture_size:
         aperture.plot(color='r', lw=4, ax=ax1)
         # annulus.plot(color='c', lw=2, ls='--', ax=ax1)
@@ -121,21 +122,21 @@ def show_stamps(pscs,
         # Residual
         im = ax3.imshow((s0 / s1), origin='lower', cmap=get_palette(),
                         norm=ImageNormalize(stretch=stretch))
+        add_pixel_grid(ax3, stamp_size, stamp_size, show_superpixel=False)
 
         divider = make_axes_locatable(ax3)
         cax = divider.append_axes("right", size="5%", pad=0.05)
         fig.colorbar(im, cax=cax)
         # ax1.set_title('Residual')
-        residual = 1 - (s0.sum() / s1.sum())
         ax3.set_title('Residual {:.01%}'.format(residual))
+        ax3.set_yticklabels([])
+        ax3.set_xticklabels([])
 
     # Turn off tick labels
     ax1.set_yticklabels([])
     ax1.set_xticklabels([])
     ax2.set_yticklabels([])
     ax2.set_xticklabels([])
-    ax3.set_yticklabels([])
-    ax3.set_xticklabels([])
 
     if save_name:
         try:
@@ -235,7 +236,7 @@ def add_pixel_grid(ax1, grid_height, grid_width, show_axis_labels=True, show_sup
         ax1.set_xticks(x_major_ticks)
         ax1.set_yticks(y_major_ticks)
 
-        ax1.grid(which='major', color='r', linestyle='--', alpha=major_alpha)
+        ax1.grid(which='major', color='r', linestyle='--', lw=3, alpha=major_alpha)
     else:
         ax1.set_xticks([])
         ax1.set_yticks([])

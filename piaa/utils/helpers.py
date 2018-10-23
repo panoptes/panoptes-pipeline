@@ -1,4 +1,5 @@
 import os
+import sys
 
 import numpy as np
 from collections import namedtuple
@@ -10,7 +11,8 @@ from astropy.time import Time
 from astropy.table import Table
 from astropy.wcs import WCS
 
-from pocs.utils.db import postgres as clouddb
+from piaa.utils import postgres as clouddb
+from pocs.utils.images import fits as fits_utils
 
 import logging
 logger = logging.getLogger(__name__)
@@ -61,7 +63,12 @@ def get_stars(
             otherwise the raw cursor if `cursor_only=True`.
     """
     if not cursor:
-        cursor = clouddb.get_cursor(instance='tess-catalog', db_name='v6', db_user='postgres', **kwargs)
+        cursor = clouddb.get_cursor(
+                instance='tess-catalog', 
+                db_name='v6', 
+                db_user='postgres',
+                port=5433,
+                **kwargs)
         
     cursor.execute("""SELECT id, ra, dec, tmag, vmag, e_tmag, twomass
         FROM {}
@@ -71,7 +78,7 @@ def get_stars(
     if cursor_only:
         return cursor
 
-    d0 = np.array(cursor.fetchall())
+    d0 = cursor.fetchall()
     if verbose:
         print(d0)
     return Table(
@@ -289,7 +296,7 @@ def pixel_color(x, y):
             return 'G1'
 
 
-def get_stamp_slice(x, y, stamp_size=(14, 14), verbose=False):
+def get_stamp_slice(x, y, stamp_size=(14, 14), verbose=False, ignore_superpixel=False):
     """Get the slice around a given position with fixed Bayer pattern.
 
     Given an x,y pixel position, get the slice object for a stamp of a given size
@@ -306,11 +313,15 @@ def get_stamp_slice(x, y, stamp_size=(14, 14), verbose=False):
         `slice`: A slice object for the data.
     """
     # Make sure requested size can have superpixels on each side.
-    for side_length in stamp_size:
-        side_length -= 2  # Subtract center superpixel
-        if int(side_length / 2) % 2 != 0:
-            print("Invalid size: ", side_length + 2)
-            return
+    if not ignore_superpixel:
+        for side_length in stamp_size:
+            side_length -= 2  # Subtract center superpixel
+            if int(side_length / 2) % 2 != 0:
+                print("Invalid slice size: ", side_length + 2,
+                      " Slice must have even number of pixels on each side of",
+                      " the center superpixel.",
+                      "i.e. 6, 10, 14, 18...")
+                return
 
     # Pixels have nasty 0.5 rounding issues
     x = Decimal(float(x)).to_integral()
@@ -330,16 +341,25 @@ def get_stamp_slice(x, y, stamp_size=(14, 14), verbose=False):
 
     # Alter the bounds depending on identified center pixel
     if color == 'B':
+        x_min -= 1
+        x_max -= 1
         y_min -= 1
         y_max -= 1
+    elif color == 'G1':
+        x_min -= 1
+        x_max -= 1
+        y_min -= 0
+        y_max -= 0
     elif color == 'G2':
         x_min -= 1
         x_max -= 1
-        y_min -= 1
-        y_max -= 1
+        y_min -= 0
+        y_max -= 0
     elif color == 'R':
         x_min -= 1
         x_max -= 1
+        y_min -= 1
+        y_max -= 1
 
     if verbose:
         print(x_min, x_max, y_min, y_max)
@@ -361,7 +381,7 @@ def moving_average(data_set, periods=3):
     return np.convolve(data_set, weights, mode='same')
 
 
-def get_pixel_drift(coords, files, ext=0):
+def get_pixel_drift(coords, files):
     """Get the pixel drift for a given set of coordinates.
 
     Args:
@@ -373,13 +393,14 @@ def get_pixel_drift(coords, files, ext=0):
             N=len(files)
     """
     # Get target positions for each frame
-    if files[0].endswith('fz'):
-        ext = 1
+    logger.info("Getting pixel drift for {}".format(coords))
+    target_pos = list()
+    for fn in files:
+        h0 = fits_utils.getheader(fn)
+        pos = WCS(h0).all_world2pix(coords.ra, coords.dec, 1)
+        target_pos.append(pos)
 
-    target_pos = np.array([
-        WCS(fn, naxis=ext).all_world2pix(coords.ra, coords.dec, 0)
-        for fn in files
-    ])
+    target_pos = np.array(target_pos)
 
     # Subtract out the mean to get just the pixel deltas
     x_pos = target_pos[:, 0]

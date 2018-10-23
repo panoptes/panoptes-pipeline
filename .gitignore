@@ -73,7 +73,6 @@ distribute-*.tar.gz
 
 # Ignore IPython notebook (Jupyter) checkpoints.
 .ipynb_checkpoints
-notebooks/*
 
 .pytest_cache*
 

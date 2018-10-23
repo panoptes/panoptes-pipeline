@@ -10,4 +10,6 @@ The notebooks are organized into subfolders depending on their functionality or 
 
   ![Bayer array demo](assets/bayer-demo.png)
   
-* **[Observing-Run-Stats-and-FOV-Plot](assets/Observing-Run-Stats-and-FOV-Plot.ipynb):**
+* **[Observing-Run-Stats-and-FOV-Plot](assets/Observing-Run-Stats-and-FOV-Plot.ipynb):**  Aggregates the total number of images and exposure time for each sequence that has more than 30 minutes of exposure time. Also plots the FOV for all sequences. Meant to be informative but probably not exact. Also generates a latex table with same information.
+
+  ![FOV Plot](assets/panoptes_observations_overview.png)

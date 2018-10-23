@@ -13,3 +13,5 @@ The notebooks are organized into subfolders depending on their functionality or 
 * **[Observing-Run-Stats-and-FOV-Plot](assets/Observing-Run-Stats-and-FOV-Plot.ipynb):**  Aggregates the total number of images and exposure time for each sequence that has more than 30 minutes of exposure time. Also plots the FOV for all sequences. Meant to be informative but probably not exact. Also generates a latex table with same information.
 
   ![FOV Plot](assets/panoptes_observations_overview.png)
+  
+* **[RMS-Explore](assets/RMS-Explore.ipynb):**  Create histograms of the RMS achienved for each source in the observation, split along color channels. _Note: This notebook uses the stored rms values inside an HDF5 file and requires that the file exist before-hand. The HDF5 file generation is changing somewhat so this notebook will inevitably be updated to support that. As such, not much work is going into it right now and this may not work._

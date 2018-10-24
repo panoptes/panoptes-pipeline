@@ -28,6 +28,7 @@ from photutils import DAOStarFinder
 from pocs.utils.images import fits as fits_utils
 from piaa.utils import helpers
 from piaa.utils import plot
+from piaa.utils.postgres import get_cursor
 
 import logging
 logger = logging.getLogger(__name__)
@@ -36,6 +37,47 @@ logger = logging.getLogger(__name__)
 def normalize(cube):
     return (cube.T / cube.sum(1)).T
 
+def lookup_sources_for_observation(fits_files, filename, force_new=False, cursor=None):
+    if not cursor:
+        cursor = get_cursor(port=5433, db_name='v6', db_user='postgres')
+
+    logger.info(f'Looking up sources in {len(fits_files)} files')
+
+    if force_new:
+        logger.info(f'Forcing a new source file')
+        with suppress(FileNotFoundError):
+            os.remove(filename)
+
+    try:
+        logger.info(f'Using existing source file: {filename}')
+        observation_sources = pd.read_csv(filename, parse_dates=True)
+        observation_sources['obs_time'] = pd.to_datetime(observation_sources.obs_time)
+        observation_sources.set_index(['obs_time'], inplace=True)
+    except FileNotFoundError:
+        observation_sources = None
+
+        # Lookup the point sources for all frames
+        for fn in tqdm(fits_files):
+            point_sources = pipeline.lookup_point_sources(
+                fn, 
+                force_new=force_new,
+                cursor=cursor,
+            )    
+            header = fits_utils.getheader(fn)
+            point_sources['obs_time'] = pd.to_datetime(os.path.basename(fn).split('.')[0])
+            point_sources['exp_time'] = header['EXPTIME']
+            point_sources['airmass'] = header['AIRMASS']
+            point_sources.set_index(['obs_time'], inplace=True, append=True)
+
+            if observation_sources is not None:
+                observation_sources = pd.concat([observation_sources, point_sources])
+            else:
+                observation_sources = point_sources
+
+
+        observation_sources.to_csv(filename)
+        
+    return observation_sources
 
 def lookup_point_sources(fits_file,
                          catalog_match=True,

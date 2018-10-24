@@ -26,5 +26,4 @@ The notebooks are organized into subfolders depending on their functionality or 
   
 ### Observing
 
-* **[Exoplanet-Info](camera/Exoplanet-Info.ipynb):** Generate a plot showing any observation sequences that overlap with actual known transits.
-
+* **[Exoplanet-Info](observing/Exoplanet-Info.ipynb):** Generate a plot showing any observation sequences that overlap with actual known transits.

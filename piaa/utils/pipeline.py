@@ -37,11 +37,10 @@ logger = logging.getLogger(__name__)
 def normalize(cube):
     return (cube.T / cube.sum(1)).T
 
-def lookup_sources_for_observation(fits_files, filename, force_new=False, cursor=None):
+def lookup_sources_for_observation(fits_files=None, filename=None, force_new=False, cursor=None):
     if not cursor:
         cursor = get_cursor(port=5433, db_name='v6', db_user='postgres')
 
-    logger.info(f'Looking up sources in {len(fits_files)} files')
 
     if force_new:
         logger.info(f'Forcing a new source file')
@@ -54,11 +53,12 @@ def lookup_sources_for_observation(fits_files, filename, force_new=False, cursor
         observation_sources['obs_time'] = pd.to_datetime(observation_sources.obs_time)
         observation_sources.set_index(['obs_time'], inplace=True)
     except FileNotFoundError:
+        logger.info(f'Looking up sources in {len(fits_files)} files')
         observation_sources = None
 
         # Lookup the point sources for all frames
         for fn in tqdm(fits_files):
-            point_sources = pipeline.lookup_point_sources(
+            point_sources = lookup_point_sources(
                 fn, 
                 force_new=force_new,
                 cursor=cursor,
@@ -67,7 +67,8 @@ def lookup_sources_for_observation(fits_files, filename, force_new=False, cursor
             point_sources['obs_time'] = pd.to_datetime(os.path.basename(fn).split('.')[0])
             point_sources['exp_time'] = header['EXPTIME']
             point_sources['airmass'] = header['AIRMASS']
-            point_sources.set_index(['obs_time'], inplace=True, append=True)
+            point_sources['picid'] = point_sources.index
+            point_sources.set_index(['obs_time'], inplace=True)
 
             if observation_sources is not None:
                 observation_sources = pd.concat([observation_sources, point_sources])
@@ -78,6 +79,7 @@ def lookup_sources_for_observation(fits_files, filename, force_new=False, cursor
         observation_sources.to_csv(filename)
         
     return observation_sources
+
 
 def lookup_point_sources(fits_file,
                          catalog_match=True,
@@ -160,8 +162,8 @@ def get_catalog_match(point_sources, wcs, table='full_catalog', **kwargs):
     # Get some properties from the catalog
     point_sources['id'] = catalog_stars[idx]['id']
     #point_sources['twomass'] = catalog_stars[idx]['twomass']
-    #point_sources['tmag'] = catalog_stars[idx]['tmag']
-    #point_sources['vmag'] = catalog_stars[idx]['vmag']
+    point_sources['tmag'] = catalog_stars[idx]['tmag']
+    point_sources['vmag'] = catalog_stars[idx]['vmag']
     point_sources['catalog_sep_arcsec'] = d2d.to(u.arcsec).value
 
     return point_sources

@@ -3,6 +3,7 @@ import numpy as np
 import pandas as pd
 from copy import copy
 from warnings import warn
+from collections import defaultdict
 
 from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
 from matplotlib.figure import Figure
@@ -12,7 +13,7 @@ import matplotlib.animation as animation
 from matplotlib import rc
 from matplotlib import pyplot as plt
 from matplotlib import gridspec
-
+from cycler import cycler as cy
 
 from astropy.coordinates import Angle
 from astropy.modeling import models, fitting
@@ -537,4 +538,16 @@ def plot_lightcurve(x, y, model_flux=None, use_imag=False, transit_info=None, co
 
     return fig
 
+def get_labelled_style_cycler(cmap='viridis'):
 
+    try:
+        cmap_colors = cm.get_cmap(cmap).colors
+    except ValueError:
+        raise Exception(f'Invalid colormap {cmap}')
+
+    cyl = cy('c', cmap_colors)
+
+    finite_cy_iter = iter(cyl)
+    styles = defaultdict(lambda : next(finite_cy_iter))
+
+    return styles

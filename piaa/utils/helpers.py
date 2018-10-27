@@ -424,3 +424,44 @@ def get_planet_phase(period, midpoint, obs_time):
         float: The phase of the planet.
     """
     return ((Time(obs_time).mjd - Time(midpoint).mjd) % period) / period
+
+def scintillation_index(exptime, airmass, elevation, diameter=0.061, scale_height=8000, correction_coeff=1.5):
+    """Calculate the scintillation index.
+    
+    A modification to Young's approximation for estimating the scintillation index, this
+    uses a default correction coefficient of 1.5 (see reference).
+    
+    Note:
+        The scintillation index defines the amount of scintillation and is expressed as a variance. 
+        Scintillation noise is the square root of the index value.
+    
+    Empirical Coefficients:
+        Observatory Cmedian C Q1  CQ3
+        Armazones      1.61 1.30 2.00
+        La Palma       1.30 1.02 1.62
+        Mauna Kea      1.63 1.34 2.02
+        Paranal        1.56 1.27 1.90
+        San Pedro      1.67 1.32 2.14
+        Tololo         1.42 1.17 1.74    
+
+    For PANOPTES, the default lens is an 85 mm f/1.4 lens. This gives an effective
+    diameter of:
+        # 85 mm at f/1.4
+        diameter = 85 / 1.4 
+        diameter = 0.060714286 m
+        
+    Reference:
+        Osborn, J., Föhring, D., Dhillon, V. S., & Wilson, R. W. (2015). 
+        Atmospheric scintillation in astronomical photometry. 
+        Monthly Notices of the Royal Astronomical Society, 452(2), 1707–1716. 
+        https://doi.org/10.1093/mnras/stv1400        
+        
+    """
+    zenith_distance = np.rad2deg((np.arccos(1 / airmass)))
+    
+    return 10e-6 * (correction_coeff**2) * \
+            (diameter**(-4/3)) * \
+            (1/exptime) * \
+            (np.cos(zenith_distance)**-3) * \
+            np.exp(-2*elevation / scale_height)
+

@@ -52,7 +52,6 @@ def lookup_sources_for_observation(fits_files=None, filename=None, force_new=Fal
         observation_sources = pd.read_csv(filename, parse_dates=True)
         observation_sources['obs_time'] = pd.to_datetime(observation_sources.obs_time)
         observation_sources.rename(columns={'id': 'picid'}, inplace=True)
-        observation_sources.set_index(['obs_time'], inplace=True)
 
     except FileNotFoundError:
         logger.info(f'Looking up sources in {len(fits_files)} files')
@@ -70,7 +69,7 @@ def lookup_sources_for_observation(fits_files=None, filename=None, force_new=Fal
             point_sources['exp_time'] = header['EXPTIME']
             point_sources['airmass'] = header['AIRMASS']
             point_sources['file'] = os.path.basename(fn)
-            #point_sources['picid'] = point_sources.index
+            point_sources['picid'] = point_sources.index
 
             if observation_sources is not None:
                 if use_intersection:
@@ -84,9 +83,9 @@ def lookup_sources_for_observation(fits_files=None, filename=None, force_new=Fal
             else:
                 observation_sources = point_sources
 
-
         observation_sources.to_csv(filename)
         
+    observation_sources.set_index(['obs_time'], inplace=True)
     return observation_sources
 
 
@@ -229,11 +228,8 @@ def _lookup_via_sextractor(fits_file, sextractor_params=None, *args, **kwargs):
     #    point_sources.remove_columns(['FLAGS'])
 
     # Rename columns
-    point_sources.rename_column('X_IMAGE', 'x')
-    point_sources.rename_column('Y_IMAGE', 'y')
-
-    # Add the SNR
-    point_sources['SNR'] = point_sources['FLUX_AUTO'] / point_sources['FLUXERR_AUTO']
+    point_sources.rename_column('XPEAK_IMAGE', 'x')
+    point_sources.rename_column('YPEAK_IMAGE', 'y')
 
     # Filter point sources near edge
     # w, h = data[0].shape
@@ -248,18 +244,17 @@ def _lookup_via_sextractor(fits_file, sextractor_params=None, *args, **kwargs):
 
     point_sources = point_sources[top & bottom & right & left].to_pandas()
     point_sources.columns = [
-        'mag_auto', 'magerr_auto',
+        'ra', 'dec',
         'x', 'y',
         'xpeak_image', 'ypeak_image',
-        'ra', 'dec',
         'background',
-        'flux_auto', 'fluxerr_auto',
         'flux_best', 'fluxerr_best',
+        'mag_best', 'magerr_best',
         'flux_aper', 'fluxerr_aper',
+        'mag_aper', 'magerr_aper',
         'flux_max',
         'fwhm_image',
         'flags',
-        'snr'
     ]
 
     return point_sources

@@ -44,6 +44,20 @@ def get_palette(cmap='inferno'):
     palette.set_bad('g', 1.0)
     return palette
 
+def get_labelled_style_cycler(cmap='viridis'):
+
+    try:
+        cmap_colors = cm.get_cmap(cmap).colors
+    except ValueError:
+        raise Exception(f'Invalid colormap {cmap}')
+
+    cyl = cy('c', cmap_colors)
+
+    finite_cy_iter = iter(cyl)
+    styles = defaultdict(lambda : next(finite_cy_iter))
+
+    return styles
+
 
 def show_stamps(pscs,
                 frame_idx=None,
@@ -538,16 +552,3 @@ def plot_lightcurve(x, y, model_flux=None, use_imag=False, transit_info=None, co
 
     return fig
 
-def get_labelled_style_cycler(cmap='viridis'):
-
-    try:
-        cmap_colors = cm.get_cmap(cmap).colors
-    except ValueError:
-        raise Exception(f'Invalid colormap {cmap}')
-
-    cyl = cy('c', cmap_colors)
-
-    finite_cy_iter = iter(cyl)
-    styles = defaultdict(lambda : next(finite_cy_iter))
-
-    return styles

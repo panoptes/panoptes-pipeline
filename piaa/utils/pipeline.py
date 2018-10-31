@@ -246,7 +246,7 @@ def _lookup_via_sextractor(fits_file, sextractor_params=None, *args, **kwargs):
     point_sources.columns = [
         'ra', 'dec',
         'x', 'y',
-        'xpeak_image', 'ypeak_image',
+        'x_image', 'y_image',
         'background',
         'flux_best', 'fluxerr_best',
         'mag_best', 'magerr_best',

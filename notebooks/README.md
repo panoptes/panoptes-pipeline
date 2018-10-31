@@ -23,3 +23,9 @@ The notebooks are organized into subfolders depending on their functionality or 
 * **[Flat-Frame-And-Gain](camera/Flat-Frame-And-Gain.ipynb):** Generate a master flat frame and examine some of its properties. Also compute a simple system gain.
 
   ![Flat Histogram](camera/flat-hist-colors.png)
+  
+### Observing
+
+* **[Exoplanet-Info](observing/Exoplanet-Info.ipynb):** Generate a plot showing any observation sequences that overlap with actual known transits.
+
+* **[TESS-Observability](observing/TESS-Observability.ipynb):** Generates observability tables for the TESS targets for each PANOPTES unit.

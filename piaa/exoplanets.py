@@ -6,6 +6,7 @@ from astropy.time import Time
 from collections import namedtuple
 
 import batman
+from pocs.utils import listify
 
 # Query Exoplanet Orbit Database (exoplanets.org) for planet properties
 # Columns: http://exoplanets.org/help/common/data
@@ -223,6 +224,23 @@ class Exoplanet():
         )
 
         return transit_info
+
+    def in_transit(self, obstime=None, with_times=False):
+        if obstime is None:
+            obstime = Time.now()
+        obstime = listify(obstime)
+
+        ing_egr = self.transit_system.next_primary_ingress_egress_time(Time(obstime))
+        
+        time_checks = list()
+        for t in obstime:
+            time_in = Time(t) > ing_egr[0][0] and Time(t) < ing_egr[0][1]
+            time_checks.append(time_in)
+
+        if with_times:
+            return any(time_checks), ing_egr
+
+        return any(time_checks)
 
     def get_phase(self, obstime):
         """Get the phase for given time.

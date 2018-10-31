@@ -457,7 +457,7 @@ def scintillation_index(exptime, airmass, elevation, diameter=0.061, scale_heigh
         https://doi.org/10.1093/mnras/stv1400        
         
     """
-    zenith_distance = np.rad2deg((np.arccos(1 / airmass)))
+    zenith_distance = (np.arccos(1 / airmass))
     
     return 10e-6 * (correction_coeff**2) * \
             (diameter**(-4/3)) * \

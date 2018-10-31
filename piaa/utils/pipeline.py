@@ -28,6 +28,7 @@ from photutils import DAOStarFinder
 from pocs.utils.images import fits as fits_utils
 from piaa.utils import helpers
 from piaa.utils import plot
+from piaa.utils.postgres import get_cursor
 
 import logging
 logger = logging.getLogger(__name__)
@@ -35,6 +36,57 @@ logger = logging.getLogger(__name__)
 
 def normalize(cube):
     return (cube.T / cube.sum(1)).T
+
+def lookup_sources_for_observation(fits_files=None, filename=None, force_new=False, cursor=None, use_intersection=False):
+    if not cursor:
+        cursor = get_cursor(port=5433, db_name='v6', db_user='postgres')
+
+
+    if force_new:
+        logger.info(f'Forcing a new source file')
+        with suppress(FileNotFoundError):
+            os.remove(filename)
+
+    try:
+        logger.info(f'Using existing source file: {filename}')
+        observation_sources = pd.read_csv(filename, parse_dates=True)
+        observation_sources['obs_time'] = pd.to_datetime(observation_sources.obs_time)
+        observation_sources.rename(columns={'id': 'picid'}, inplace=True)
+
+    except FileNotFoundError:
+        logger.info(f'Looking up sources in {len(fits_files)} files')
+        observation_sources = None
+
+        # Lookup the point sources for all frames
+        for fn in tqdm(fits_files):
+            point_sources = lookup_point_sources(
+                fn, 
+                force_new=force_new,
+                cursor=cursor,
+            )    
+            header = fits_utils.getheader(fn)
+            point_sources['obs_time'] = pd.to_datetime(os.path.basename(fn).split('.')[0])
+            point_sources['exp_time'] = header['EXPTIME']
+            point_sources['airmass'] = header['AIRMASS']
+            point_sources['file'] = os.path.basename(fn)
+            point_sources['picid'] = point_sources.index
+
+            if observation_sources is not None:
+                if use_intersection:
+
+                    idx_intersection = observation_sources.index.intersection(point_sources.index)
+                    logger.info(f'Num sources in intersection: {len(idx_intersection)}')
+                    observation_sources = pd.concat([observation_sources.loc[idx_intersection],
+                                                    point_sources.loc[idx_intersection]], join='inner')
+                else:
+                    observation_sources = pd.concat([observation_sources, point_sources])
+            else:
+                observation_sources = point_sources
+
+        observation_sources.to_csv(filename)
+        
+    observation_sources.set_index(['obs_time'], inplace=True)
+    return observation_sources
 
 
 def lookup_point_sources(fits_file,
@@ -79,9 +131,10 @@ def lookup_point_sources(fits_file,
 
     # Change the index to the picid
     point_sources.set_index('id', inplace=True)
+    point_sources.index.rename('picid', inplace=True)
 
     # Remove those with more than one entry
-    counts = point_sources.x.groupby('id').count()
+    counts = point_sources.x.groupby('picid').count()
     single_entry = counts == 1
     single_index = single_entry.loc[single_entry].index
     unique_sources = point_sources.loc[single_index]
@@ -118,8 +171,8 @@ def get_catalog_match(point_sources, wcs, table='full_catalog', **kwargs):
     # Get some properties from the catalog
     point_sources['id'] = catalog_stars[idx]['id']
     #point_sources['twomass'] = catalog_stars[idx]['twomass']
-    #point_sources['tmag'] = catalog_stars[idx]['tmag']
-    #point_sources['vmag'] = catalog_stars[idx]['vmag']
+    point_sources['tmag'] = catalog_stars[idx]['tmag']
+    point_sources['vmag'] = catalog_stars[idx]['vmag']
     point_sources['catalog_sep_arcsec'] = d2d.to(u.arcsec).value
 
     return point_sources
@@ -175,11 +228,8 @@ def _lookup_via_sextractor(fits_file, sextractor_params=None, *args, **kwargs):
     #    point_sources.remove_columns(['FLAGS'])
 
     # Rename columns
-    point_sources.rename_column('X_IMAGE', 'x')
-    point_sources.rename_column('Y_IMAGE', 'y')
-
-    # Add the SNR
-    point_sources['SNR'] = point_sources['FLUX_AUTO'] / point_sources['FLUXERR_AUTO']
+    point_sources.rename_column('XPEAK_IMAGE', 'x')
+    point_sources.rename_column('YPEAK_IMAGE', 'y')
 
     # Filter point sources near edge
     # w, h = data[0].shape
@@ -194,15 +244,17 @@ def _lookup_via_sextractor(fits_file, sextractor_params=None, *args, **kwargs):
 
     point_sources = point_sources[top & bottom & right & left].to_pandas()
     point_sources.columns = [
-        'mag_auto', 'magerr_auto',
-        'x', 'y',
-        'xpeak_image', 'ypeak_image',
         'ra', 'dec',
+        'x', 'y',
+        'x_image', 'y_image',
         'background',
-        'flux_auto', 'flux_max', 'fluxerr_auto',
+        'flux_best', 'fluxerr_best',
+        'mag_best', 'magerr_best',
+        'flux_aper', 'fluxerr_aper',
+        'mag_aper', 'magerr_aper',
+        'flux_max',
         'fwhm_image',
         'flags',
-        'snr'
     ]
 
     return point_sources

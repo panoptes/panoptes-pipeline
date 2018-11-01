@@ -28,4 +28,3 @@ The notebooks are organized into subfolders depending on their functionality or 
 
 * **[Exoplanet-Info](observing/Exoplanet-Info.ipynb):** Generate a plot showing any observation sequences that overlap with actual known transits.
 
-* **[TESS-Observability](observing/TESS-Observability.ipynb):** Generates observability tables for the TESS targets for each PANOPTES unit.

@@ -448,7 +448,7 @@ def scintillation_index(exptime, airmass, elevation, diameter=0.061, scale_heigh
     diameter of:
         # 85 mm at f/1.4
         diameter = 85 / 1.4 
-        diameter = 0.060714286 m
+        diameter = 0.061 m
         
     Reference:
         Osborn, J., Föhring, D., Dhillon, V. S., & Wilson, R. W. (2015). 
@@ -459,9 +459,88 @@ def scintillation_index(exptime, airmass, elevation, diameter=0.061, scale_heigh
     """
     zenith_distance = (np.arccos(1 / airmass))
     
+    #TODO(wtgee) make this less ugly
     return 10e-6 * (correction_coeff**2) * \
             (diameter**(-4/3)) * \
             (1/exptime) * \
             (np.cos(zenith_distance)**-3) * \
             np.exp(-2*elevation / scale_height)
+
+def get_photon_flux_params(filter_name='v'):
+    photon_flux_values = {
+        "U": {
+            "lambda_c": 0.36,
+            "dlambda_ratio": 0.15,
+            "flux0": 1810,
+            "ref": "Bessel (1979)"
+        },
+        "B": {
+            "lambda_c": 0.44,
+            "dlambda_ratio": 0.22,
+            "flux0": 4260,
+            "ref": "Bessel (1979)"
+        },
+        "V": {
+            "lambda_c": 0.55,
+            "dlambda_ratio": 0.16,
+            "flux0": 3640,
+            "ref": "Bessel (1979)"
+        },
+        "R": {
+            "lambda_c": 0.64,
+            "dlambda_ratio": 0.23,
+            "flux0": 3080,
+            "ref": "Bessel (1979)"
+        },
+        "I": {
+            "lambda_c": 0.79,
+            "dlambda_ratio": 0.19,
+            "flux0": 2550,
+            "ref": "Bessel (1979)"
+        },
+        "J": {
+            "lambda_c": 1.26,
+            "dlambda_ratio": 0.16,
+            "flux0": 1600,
+            "ref": "Campins, Reike, & Lebovsky (1985)"
+        },
+        "H": {
+            "lambda_c": 1.60,
+            "dlambda_ratio": 0.23,
+            "flux0": 1080,
+            "ref": "Campins, Reike, & Lebovsky (1985)"
+        },
+        "K": {
+            "lambda_c": 2.22,
+            "dlambda_ratio": 0.23,
+            "flux0": 670,
+            "ref": "Campins, Reike, & Lebovsky (1985)"
+        },
+        "g": {
+            "lambda_c": 0.52,
+            "dlambda_ratio": 0.14,
+            "flux0": 3730,
+            "ref": "Schneider, Gunn, & Hoessel (1983)"
+        },
+        "r": {
+            "lambda_c": 0.67,
+            "dlambda_ratio": 0.14,
+            "flux0": 4490,
+            "ref": "Schneider, Gunn, & Hoessel (1983)"
+        },
+        "i": {
+            "lambda_c": 0.79,
+            "dlambda_ratio": 0.16,
+            "flux0": 4760,
+            "ref": "Schneider, Gunn, & Hoessel (1983)"
+        },
+        "z": {
+            "lambda_c": 0.91,
+            "dlambda_ratio": 0.13,
+            "flux0": 4810,
+            "ref": "Schneider, Gunn, & Hoessel (1983) "
+        }
+    }
+
+    return photon_flux_values.get(filter_name)
 

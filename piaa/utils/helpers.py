@@ -181,20 +181,20 @@ def get_rgb_masks(data, separate_green=False, mask_path=None, force_new=False, v
 
         w, h = data.shape
 
-        red_mask = np.flipud(np.array(
+        red_mask = (np.array(
             [index[0] % 2 == 0 and index[1] % 2 == 0 for index, i in np.ndenumerate(data)]
         ).reshape(w, h))
 
-        blue_mask = np.flipud(np.array(
+        blue_mask = (np.array(
             [index[0] % 2 == 1 and index[1] % 2 == 1 for index, i in np.ndenumerate(data)]
         ).reshape(w, h))
 
         if separate_green:
             logger.debug("Making separate green masks")
-            green1_mask = np.flipud(np.array(
+            green1_mask = (np.array(
                 [(index[0] % 2 == 0 and index[1] % 2 == 1) for index, i in np.ndenumerate(data)]
             ).reshape(w, h))
-            green2_mask = np.flipud(np.array(
+            green2_mask = (np.array(
                 [(index[0] % 2 == 1 and index[1] % 2 == 0) for index, i in np.ndenumerate(data)]
             ).reshape(w, h))
 
@@ -205,7 +205,7 @@ def get_rgb_masks(data, separate_green=False, mask_path=None, force_new=False, v
                 'b': blue_mask,
             }
         else:
-            green_mask = np.flipud(np.array(
+            green_mask = (np.array(
                 [((index[0] % 2 == 0 and index[1] % 2 == 1) or
                     (index[0] % 2 == 1 and index[1] % 2 == 0))
                     for index, i in np.ndenumerate(data)
@@ -466,80 +466,41 @@ def scintillation_index(exptime, airmass, elevation, diameter=0.061, scale_heigh
             (np.cos(zenith_distance)**-3) * \
             np.exp(-2*elevation / scale_height)
 
-def get_photon_flux_params(filter_name='v'):
+def get_photon_flux_params(filter_name='V'):
+    """
+
+    Note:
+        Atmospheric extinction comes from:
+        http://slittlefair.staff.shef.ac.uk/teaching/phy217/lectures/principles/L04/index.html
+    """
     photon_flux_values = {
-        "U": {
-            "lambda_c": 0.36,
-            "dlambda_ratio": 0.15,
-            "flux0": 1810,
-            "ref": "Bessel (1979)"
-        },
         "B": {
-            "lambda_c": 0.44,
+            "lambda_c": 0.44,   # Micron
             "dlambda_ratio": 0.22,
-            "flux0": 4260,
-            "ref": "Bessel (1979)"
+            "flux0": 4260,      # Jansky
+            "photon0": 1496,    # photons / s^-1 / cm^-2 / AA^-1
+            "ref": "Bessel (1979)",
+            "extinction": 0.25,  # mag/airmass
+            "filter_width": 72,  # nm
         },
         "V": {
             "lambda_c": 0.55,
             "dlambda_ratio": 0.16,
             "flux0": 3640,
-            "ref": "Bessel (1979)"
+            "photon0": 1000,
+            "ref": "Bessel (1979)",
+            "extinction": 0.15,
+            "filter_width": 86,  # nm
         },
         "R": {
             "lambda_c": 0.64,
             "dlambda_ratio": 0.23,
             "flux0": 3080,
-            "ref": "Bessel (1979)"
+            "photon0": 717,
+            "ref": "Bessel (1979)",
+            "extinction": 0.09,
+            "filter_width": 133,  # nm
         },
-        "I": {
-            "lambda_c": 0.79,
-            "dlambda_ratio": 0.19,
-            "flux0": 2550,
-            "ref": "Bessel (1979)"
-        },
-        "J": {
-            "lambda_c": 1.26,
-            "dlambda_ratio": 0.16,
-            "flux0": 1600,
-            "ref": "Campins, Reike, & Lebovsky (1985)"
-        },
-        "H": {
-            "lambda_c": 1.60,
-            "dlambda_ratio": 0.23,
-            "flux0": 1080,
-            "ref": "Campins, Reike, & Lebovsky (1985)"
-        },
-        "K": {
-            "lambda_c": 2.22,
-            "dlambda_ratio": 0.23,
-            "flux0": 670,
-            "ref": "Campins, Reike, & Lebovsky (1985)"
-        },
-        "g": {
-            "lambda_c": 0.52,
-            "dlambda_ratio": 0.14,
-            "flux0": 3730,
-            "ref": "Schneider, Gunn, & Hoessel (1983)"
-        },
-        "r": {
-            "lambda_c": 0.67,
-            "dlambda_ratio": 0.14,
-            "flux0": 4490,
-            "ref": "Schneider, Gunn, & Hoessel (1983)"
-        },
-        "i": {
-            "lambda_c": 0.79,
-            "dlambda_ratio": 0.16,
-            "flux0": 4760,
-            "ref": "Schneider, Gunn, & Hoessel (1983)"
-        },
-        "z": {
-            "lambda_c": 0.91,
-            "dlambda_ratio": 0.13,
-            "flux0": 4810,
-            "ref": "Schneider, Gunn, & Hoessel (1983) "
-        }
     }
 
     return photon_flux_values.get(filter_name)

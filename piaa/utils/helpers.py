@@ -128,11 +128,24 @@ def get_rgb_data(data, **kwargs):
 
     assert rgb_masks is not None
 
-    r_data = np.ma.array(data, mask=~rgb_masks['r'])
-    g_data = np.ma.array(data, mask=~rgb_masks['g'])
-    b_data = np.ma.array(data, mask=~rgb_masks['b'])
+    color_data = list()
 
-    return np.ma.array([r_data, g_data, b_data])
+    r_data = np.ma.array(data, mask=~rgb_masks['r'])
+    color_data.append(r_data)
+
+    g_data = np.ma.array(data, mask=~rgb_masks['g'])
+    color_data.append(g_data)
+
+    try:
+        c_data = np.ma.array(data, mask=~rgb_masks['c'])
+        color_data.append(c_data)
+    except KeyError:
+        pass
+
+    b_data = np.ma.array(data, mask=~rgb_masks['b'])
+    color_data.append(b_data)
+
+    return np.ma.array(color_data)
 
 
 def get_rgb_masks(data, separate_green=False, mask_path=None, force_new=False, verbose=False):

@@ -28,3 +28,12 @@ The notebooks are organized into subfolders depending on their functionality or 
 
 * **[Exoplanet-Info](observing/Exoplanet-Info.ipynb):** Generate a plot showing any observation sequences that overlap with actual known transits.
 
+### Processing
+
+* **[Algorithm](Algorithm.ipynb):** Description of the algorithm, both in text and math. No code.
+
+* **[Source-Detection-And-Filtering](processing/PIAA-Source-Detection-And-Filtering.ipynb):** Performs a basic source detection and catalog match. Detection is done via `sextractor` and the TESS Input Catalog (v6) is used for matcing. Default filtering is done via `sextractor` (with a custom params file) but additional sorting options are included in the notebook. Additional filtering done by default include a filter on the `sextractor` flags, a check that the source appears in 90% of all frames, and others. See notebook for details. The output from this notebook is a compressed CSV file saved in the observation directory with the name `point-sources-filtered.csv.bz2`. This source file is used for many of the notebook below.
+
+* **[PSC-Creation](PIAA-PSC-Creation.ipynb):** Generates a Postage Stamp Cube (PSC) for each detected source. PSCs are saved as CSV files in a subdirectory named `stamps` within the observation directory. Each csv file is named after the PICID, e.g. `stamps/256364928.csv`.
+
+* **[Source-Noise](PIAA-Source-Noise.ipynb):** Computes noise for each stamp within all PSCs for the observation. Noise is calculated for the stamp as a whole as well as each of the RGB channels. Output is saved as a CSV file in the observation directory with the name `point-sources-noise.csv`.

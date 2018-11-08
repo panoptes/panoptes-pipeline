@@ -19,7 +19,10 @@ def get_stamp_noise(
     ):
     """Gets the noise for a stamp computed from given values. """
 
-    num_pixels = int(stamp.shape[0] * stamp.shape[1])
+    if hasattr(stamp, 'mask'):
+        num_pixels = np.count_nonzero(~stamp.mask)
+    else:
+        num_pixels = int(stamp.shape[0] * stamp.shape[1])
 
     # Remove built-in bias
     stamp_counts = stamp - camera_bias
@@ -33,14 +36,17 @@ def get_stamp_noise(
     # Get background subtracted electrons
     electron_sum = (stamp_electrons - back_mean).sum()
 
+    if electron_sum <= 0:
+        raise ValueError("Negative electrons found")
+
     # Photon noise
     photon_noise = np.sqrt(electron_sum)
     
     # Readout noise
-    readout = ((readout_noise) * num_pixels)
+    readout = readout_noise * num_pixels
     
     # Dark noise (for Canon DSLR, see Zhang et al 2016)
-    dark_noise = (0.1 * exptime * num_pixels)
+    dark_noise = int(0.1 * exptime) * num_pixels
 
     noise_sum = np.sqrt(
         photon_noise**2 +

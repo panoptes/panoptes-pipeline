@@ -37,3 +37,12 @@ The notebooks are organized into subfolders depending on their functionality or 
 * **[PSC-Creation](PIAA-PSC-Creation.ipynb):** Generates a Postage Stamp Cube (PSC) for each detected source. PSCs are saved as CSV files in a subdirectory named `stamps` within the observation directory. Each csv file is named after the PICID, e.g. `stamps/256364928.csv`.
 
 * **[Source-Noise](PIAA-Source-Noise.ipynb):** Computes noise for each stamp within all PSCs for the observation. Noise is calculated for the stamp as a whole as well as each of the RGB channels. Output is saved as a CSV file in the observation directory with the name `point-sources-noise.csv`.
+
+##### Processing Target
+
+These notebooks are related to the processing algorithm but use a specific target to examine some of the details. The full algorithm would be run on all sources.
+
+* **[Examine-Target-Noise](PIAA-Examine-Target-Noise.ipynb):** This is a small notebook that takes the noise results from the [Source-Noise](PIAA-Source-Noise.ipynb) and examines them for a specific target. This also produces a basic plot of the aperture photometry (with no additoinal processing or calibration):
+
+    ![Aperture Photometry for target](processing/aperture-photometry.png)
+    

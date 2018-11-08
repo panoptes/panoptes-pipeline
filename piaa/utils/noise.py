@@ -1,10 +1,79 @@
 import logging
 import numpy as np
+
+from astropy.stats import sigma_clipped_stats
 from astropy import units as u
 
 from piaa.utils import helpers
 
 logger = logging.getLogger(__name__)
+
+
+def get_stamp_noise(
+        stamp,
+        exptime,           # seconds
+        camera_bias=2048,  # ADU
+        gain=1.5,          # e- / ADU
+        readout_noise=10.5, # e-
+        return_detail=False
+    ):
+    """Gets the noise for a stamp computed from given values. """
+
+    num_pixels = int(stamp.shape[0] * stamp.shape[1])
+
+    # Remove built-in bias
+    stamp_counts = stamp - camera_bias
+
+    # Convert to electrons with gain
+    stamp_electrons = stamp_counts * gain
+    
+    # Get the sigma-clipped stats for the electrons, i.e. the background
+    back_mean, back_median, back_std = sigma_clipped_stats(stamp_electrons)
+    
+    # Get background subtracted electrons
+    electron_sum = (stamp_electrons - back_mean).sum()
+
+    # Photon noise
+    photon_noise = np.sqrt(electron_sum)
+    
+    # Readout noise
+    readout = ((readout_noise) * num_pixels)
+    
+    # Dark noise (for Canon DSLR, see Zhang et al 2016)
+    dark_noise = (0.1 * exptime * num_pixels)
+
+    noise_sum = np.sqrt(
+        photon_noise**2 +
+        back_std**2 +
+        readout_noise**2 +
+        dark_noise**2
+    )
+
+    # Convert electrons back to counts
+    count_sum = electron_sum / gain
+    photon_noise /= gain
+    back_mean /= gain
+    back_noise = back_std / gain
+    readout /= gain
+    dark_noise /= gain
+    noise_sum /= gain
+    
+    noises = {
+        'counts': count_sum,
+        'noise': noise_sum,
+    }
+
+    if return_detail:
+        noises.update({
+            'photon_noise': photon_noise,
+            'back': back_mean,
+            'back_noise': back_noise,
+            'readout_noise': readout,
+            'dark_noise': dark_noise,
+        })
+
+    return noises
+
 
 def estimated_photon_count(
         magnitude=0,

@@ -7,6 +7,7 @@ from astropy import units as u
 from piaa.utils import helpers
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
 
 
 def get_stamp_noise(
@@ -109,8 +110,9 @@ def estimated_photon_count(
     # Adjust for magnitude (scales magnitude)
     flux0 = 10**(-0.4 * magnitude)  * flux0
     logger.info(f'Magnitude scaled ({filter_name}={magnitude}) flux: {flux0:.02f} J')
-    flux0 *= 1.51e7 * dlambda_ratio * aperture_area.to(u.m**2)
-    flux0 = flux0.value
+    flux0 *= 1.51e7 * dlambda_ratio
+    
+    flux0 = flux0
     logger.info(f'Magnitude scaled flux: {flux0:.02f} photons')
 
     # Get initial instrumental magnitude
@@ -125,9 +127,12 @@ def estimated_photon_count(
     photon1 = 10**(imag0 / -2.5) #/ (u.cm * u.cm) / (u.angstrom)
     logger.info(f'Corrected photons: {photon1:.02f}')
 
+    # Gather the photons for the entire sensor area
+    #photon1 *= aperture_area.to(u.m**2)
+
     # Quantum efficiency of detector (limit what is detected)
-    photon1 *= qe
-    logger.info(f'QE ({qe:.0%}) photons: {photon1:.02f}')
+    #photon1 *= qe
+    #logger.info(f'QE ({qe:.0%}) photons: {photon1:.02f}')
          
     return photon1
 

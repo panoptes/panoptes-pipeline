@@ -280,17 +280,17 @@ def pixel_color(x, y):
     Note:
               0  1  2  3
              ------------
-          0 | G2 B  G2 B
-          1 | R  G1 R  G1
-          2 | G2 B  G2 B
-          3 | R  G1 R  G1
-          4 | G2 B  G2 B
-          5 | R  G1 R  G1
+          5 | G2 B  G2 B
+          4 | R  G1 R  G1
+          3 | G2 B  G2 B
+          2 | R  G1 R  G1
+          1 | G2 B  G2 B
+          0 | R  G1 R  G1
 
-          R : even x, odd y
-          G1: odd x, odd y
-          G2: even x, even y
-          B : odd x, even y
+          R : even x, even y
+          G1: odd x, even y
+          G2: even x, odd y
+          B : odd x, odd y
 
     Returns:
         str: one of 'R', 'G1', 'G2', 'B'
@@ -299,14 +299,14 @@ def pixel_color(x, y):
     y = int(y)
     if x % 2 == 0:
         if y % 2 == 0:
-            return 'G2'
-        else:
             return 'R'
+        else:
+            return 'G2'
     else:
         if y % 2 == 0:
-            return 'B'
-        else:
             return 'G1'
+        else:
+            return 'B'
 
 
 def get_stamp_slice(x, y, stamp_size=(14, 14), verbose=False, ignore_superpixel=False):

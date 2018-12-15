@@ -697,7 +697,9 @@ def get_aperture_sums(psc0,
         # NOTE: Bad "centroiding" here
         y_pos, x_pos = np.argwhere(t0 == t0.max())[0]
         aperture_position = (x_pos, y_pos)
-        logger.debug('Aperture Position: {} Size: {} Frame: {}'.format(aperture_position, aperture_size, frame_idx))
+        center_color = helpers.pixel_color(x_pos, y_pos)
+
+        logger.debug('Aperture Position: {} Size: {} Frame: {} Color: {}'.format(aperture_position, aperture_size, frame_idx, center_color))
 
         slice0 = helpers.get_stamp_slice(x_pos, y_pos, stamp_size=(aperture_size, aperture_size), ignore_superpixel=True)
         logger.debug(f'Slice for aperture: {slice0}')
@@ -718,7 +720,7 @@ def get_aperture_sums(psc0,
                     continue
 
                 if plot_apertures:
-                    apertures.append((t3,))
+                    apertures.append((t3, image_time, center_color))
                 logger.debug(t3)
             else:
                 t3 = t1

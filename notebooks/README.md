@@ -28,7 +28,7 @@ The notebooks are organized into subfolders depending on their functionality or 
 
 * **[Exoplanet-Info](observing/Exoplanet-Info.ipynb):** Generate a plot showing any observation sequences that overlap with actual known transits.
 
-### Processing
+### Processing and Algorithm
 
 * **[Algorithm](processing/Algorithm.ipynb):** Description of the algorithm, both in text and math. No code.
 

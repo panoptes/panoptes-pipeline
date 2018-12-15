@@ -354,25 +354,30 @@ def get_stamp_slice(x, y, stamp_size=(14, 14), verbose=False, ignore_superpixel=
 
     # Alter the bounds depending on identified center pixel
     if color == 'B':
-        x_min -= 1
-        x_max -= 1
-        y_min -= 1
-        y_max -= 1
+        x_min -= 0
+        x_max -= 0
+        y_min -= 0
+        y_max -= 0
     elif color == 'G1':
-        x_min -= 1
-        x_max -= 1
+        x_min -= 0
+        x_max -= 0
         y_min -= 0
         y_max -= 0
     elif color == 'G2':
-        x_min -= 1
-        x_max -= 1
+        x_min -= 0
+        x_max -= 0
         y_min -= 0
         y_max -= 0
     elif color == 'R':
-        x_min -= 1
-        x_max -= 1
-        y_min -= 1
-        y_max -= 1
+        x_min -= 0
+        x_max -= 0
+        y_min -= 0
+        y_max -= 0
+        
+    # if stamp_size is odd add extra
+    if (stamp_size[0] % 2 == 1):
+        x_max += 1
+        y_max += 1
 
     if verbose:
         print(x_min, x_max, y_min, y_max)

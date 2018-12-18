@@ -67,6 +67,7 @@ def show_stamps(pscs,
                 show_residual=False,
                 stretch=None,
                 save_name=None,
+                show_max=False,
                 **kwargs):
 
     if aperture_position is None:
@@ -453,12 +454,13 @@ def make_apertures_plot(apertures, title=None, num_frames=None, save_name=None):
             except IndexError:
                 pass
 
-            im = ax.imshow(target, vmin=all_channels.min(), vmax=all_channels.max())
+            im = ax.imshow(target, vmin=target.min(), vmax=target.max(), origin='lower')
+                
 
             # Show the sum
             if col_num == 2:
                 ax2 = axes[col_num + 1]
-                im = ax2.imshow(all_channels, vmin=all_channels.min(), vmax=all_channels.max())
+                im = ax2.imshow(all_channels, vmin=all_channels.min(), vmax=all_channels.max(), origin='lower')
 
                 divider = make_axes_locatable(ax2)
                 cax = divider.append_axes("right", size="5%", pad=0.05)
@@ -557,7 +559,7 @@ def plot_lightcurve(x, y, model_flux=None, use_imag=False, transit_info=None, co
                  label='Model {:.04f}'.format(residual.std()))
 
         ax2.axhline(0, ls='--', alpha=0.5)
-        ax2.set_title('Model residual {:.02%}'.format(residual.std()))
+        ax2.set_title('Model residual (σ={:.02%})'.format(residual.std()))
 
         if transit_info is not None:
             midpoint, ingress, egress = transit_info

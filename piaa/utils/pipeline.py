@@ -683,8 +683,8 @@ def get_aperture_sums(psc0,
             separate_green=separate_green
         )
         logger.debug('RGB stamp_masks created')
-    except ValueError:
-        pass
+    except ValueError as e:
+        logger.warning(f"Can't make stamp masks {e!r}")
 
     apertures = list()
     diff = list()
@@ -748,6 +748,7 @@ def get_aperture_sums(psc0,
     lc0 = pd.DataFrame(diff).set_index(['obstime'])
 
     if plot_apertures:
+        os.makedirs(os.path.dirname(aperture_fn), exist_ok=True)
         plot.make_apertures_plot(apertures, save_name=aperture_fn)
 
     return lc0

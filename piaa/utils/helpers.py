@@ -163,7 +163,7 @@ def get_rgb_masks(data, separate_green=False, mask_path=None, force_new=False, v
         TYPE: Description
     """
     if mask_path is None:
-        mask_path = os.path.join(os.environ['PANDIR'], 'rgb_masks.npz')
+        mask_path = os.path.join(os.environ['PANDIR'], f'rgb_masks_{data.shape[0]}_{data.shape[1]}.npz')
 
     logger.debug('Mask path: {}'.format(mask_path))
 
@@ -194,21 +194,52 @@ def get_rgb_masks(data, separate_green=False, mask_path=None, force_new=False, v
 
         w, h = data.shape
 
+        # See the docstring for `pixel_color` for full description of indexing values.
+        
+        #        |   row   |  col     
+        #    --------------| ------
+        #     R  |  odd i, | even j
+        #     G1 |  odd i, |  odd j
+        #     G2 | even i, | even j
+        #     B  | even i, |  odd j
+        
+        is_red = lambda pos: pos[0] % 2 == 1 and pos[1] % 2 == 0
+        is_blue = lambda pos: pos[0] % 2 == 0 and pos[1] % 2 == 1
+        is_g1 = lambda pos: pos[0] % 2 == 1 and pos[1] % 2 == 1
+        is_g2 = lambda pos: pos[0] % 2 == 0 and pos[1] % 2 == 0
+        
         red_mask = (np.array(
-            [index[0] % 2 == 0 and index[1] % 2 == 0 for index, i in np.ndenumerate(data)]
+            [
+                 is_red(index)
+                 for index, _ 
+                 in np.ndenumerate(data)
+            ]
         ).reshape(w, h))
 
         blue_mask = (np.array(
-            [index[0] % 2 == 1 and index[1] % 2 == 1 for index, i in np.ndenumerate(data)]
+            [
+                is_blue(index)
+                for index, _ 
+                in np.ndenumerate(data)
+            ]
         ).reshape(w, h))
 
         if separate_green:
             logger.debug("Making separate green masks")
             green1_mask = (np.array(
-                [(index[0] % 2 == 0 and index[1] % 2 == 1) for index, i in np.ndenumerate(data)]
+                [
+                    is_g1(index)
+                    for index, _
+                    in np.ndenumerate(data)
+                ]
             ).reshape(w, h))
+            
             green2_mask = (np.array(
-                [(index[0] % 2 == 1 and index[1] % 2 == 0) for index, i in np.ndenumerate(data)]
+                [
+                    is_g2(index)
+                    for index, _
+                    in np.ndenumerate(data)
+                ]
             ).reshape(w, h))
 
             _rgb_masks = {
@@ -219,9 +250,10 @@ def get_rgb_masks(data, separate_green=False, mask_path=None, force_new=False, v
             }
         else:
             green_mask = (np.array(
-                [((index[0] % 2 == 0 and index[1] % 2 == 1) or
-                    (index[0] % 2 == 1 and index[1] % 2 == 0))
-                    for index, i in np.ndenumerate(data)
+                [
+                    is_g1(index) or is_g2(index)
+                    for index, _ in
+                    np.ndenumerate(data)
                  ]
             ).reshape(w, h))
 
@@ -298,12 +330,12 @@ def pixel_color(x, y):
         Image dimensions:
         
          ----------------------------
-         x | width  | columns |  5208
-         y | height | rows    |  3476
+         x | width  | i | columns |  5208
+         y | height | j | rows    |  3476
 
         Bayer Pattern:
 
-                                      x / columns
+                                      x / j
 
                       0     1    2     3 ... 5204 5205 5206 5207
                     --------------------------------------------
@@ -312,18 +344,22 @@ def pixel_color(x, y):
                3473 |  R   G1    R    G1        R   G1    R   G1
                3472 | G2    B   G2     B       G2    B   G2    B
                   . |                                           
-      y / rows    . |                                           
+         y / i    . |                                           
                   . |                                           
                   3 |  R   G1    R    G1        R   G1    R   G1
                   2 | G2    B   G2     B       G2    B   G2    B
                   1 |  R   G1    R    G1        R   G1    R   G1
                   0 | G2    B   G2     B       G2    B   G2    B
                   
+                  
+        This can be described by:
 
-              R : even x,  odd y
-              G1:  odd x,  odd y
-              G2: even x, even y
-              B :  odd x, even y
+                 | row (y) |  col (x)
+             --------------| ------
+              R  |  odd i, |  even j
+              G1 |  odd i, |   odd j
+              G2 | even i, |  even j
+              B  | even i, |   odd j
 
     Returns:
         str: one of 'R', 'G1', 'G2', 'B'
@@ -387,15 +423,15 @@ def get_stamp_slice(x, y, stamp_size=(14, 14), verbose=False, ignore_superpixel=
 
     # Alter the bounds depending on identified center pixel
     if color == 'B':
-        x_min -= 0
-        x_max -= 0
+        x_min -= 1
+        x_max -= 1
         y_min -= 0
         y_max -= 0
     elif color == 'G1':
-        x_min -= 0
-        x_max -= 0
-        y_min -= 0
-        y_max -= 0
+        x_min -= 1
+        x_max -= 1
+        y_min -= 1
+        y_max -= 1
     elif color == 'G2':
         x_min -= 0
         x_max -= 0
@@ -404,8 +440,8 @@ def get_stamp_slice(x, y, stamp_size=(14, 14), verbose=False, ignore_superpixel=
     elif color == 'R':
         x_min -= 0
         x_max -= 0
-        y_min -= 0
-        y_max -= 0
+        y_min -= 1
+        y_max -= 1
         
     # if stamp_size is odd add extra
     if (stamp_size[0] % 2 == 1):
@@ -414,6 +450,7 @@ def get_stamp_slice(x, y, stamp_size=(14, 14), verbose=False, ignore_superpixel=
 
     if verbose:
         print(x_min, x_max, y_min, y_max)
+        print()
 
     return (slice(y_min, y_max), slice(x_min, x_max))
 

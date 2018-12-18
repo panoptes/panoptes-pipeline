@@ -272,25 +272,58 @@ def get_pixel_index(x):
 
 
 def pixel_color(x, y):
-    """ Given an x,y position, return the corresponding color
-
-    This is a Bayer array with a RGGB pattern in the lower left corner
-    as it is loaded into numpy.
+    """ Given an x,y position, return the corresponding color.
+    
+    The Bayer array defines a superpixel as a collection of 4 pixels
+    set in a square grid:
+    
+                     R G
+                     G B
+                     
+    `ds9` and other image viewers define the coordinate axis from the
+    lower left corner of the image, which is how a traditional x-y plane
+    is defined and how most images would expect to look when viewed. This
+    means that the `(0, 0)` coordinate position will be in the lower left
+    corner of the image.
+    
+    When the data is loaded into a `numpy` array the data is flipped on the
+    vertical axis in order to maintain the same indexing/slicing features.
+    This means the the `(0, 0)` coordinate position is in the upper-left
+    corner of the array when output. When plotting this array one can use
+    the `origin='lower'` option to view the array as would be expected in
+    a normal image although this does not change the actual index.
 
     Note:
-              0  1  2  3
-             ------------
-          5 | G2 B  G2 B
-          4 | R  G1 R  G1
-          3 | G2 B  G2 B
-          2 | R  G1 R  G1
-          1 | G2 B  G2 B
-          0 | R  G1 R  G1
+    
+        Image dimensions:
+        
+         ----------------------------
+         x | width  | columns |  5208
+         y | height | rows    |  3476
 
-          R : even x, even y
-          G1: odd x, even y
-          G2: even x, odd y
-          B : odd x, odd y
+        Bayer Pattern:
+
+                                      x / columns
+
+                      0     1    2     3 ... 5204 5205 5206 5207
+                    --------------------------------------------
+               3475 |  R   G1    R    G1        R   G1    R   G1
+               3474 | G2    B   G2     B       G2    B   G2    B
+               3473 |  R   G1    R    G1        R   G1    R   G1
+               3472 | G2    B   G2     B       G2    B   G2    B
+                  . |                                           
+      y / rows    . |                                           
+                  . |                                           
+                  3 |  R   G1    R    G1        R   G1    R   G1
+                  2 | G2    B   G2     B       G2    B   G2    B
+                  1 |  R   G1    R    G1        R   G1    R   G1
+                  0 | G2    B   G2     B       G2    B   G2    B
+                  
+
+              R : even x,  odd y
+              G1:  odd x,  odd y
+              G2: even x, even y
+              B :  odd x, even y
 
     Returns:
         str: one of 'R', 'G1', 'G2', 'B'
@@ -299,14 +332,14 @@ def pixel_color(x, y):
     y = int(y)
     if x % 2 == 0:
         if y % 2 == 0:
-            return 'R'
-        else:
             return 'G2'
+        else:
+            return 'R'
     else:
         if y % 2 == 0:
-            return 'G1'
-        else:
             return 'B'
+        else:
+            return 'G1'
 
 
 def get_stamp_slice(x, y, stamp_size=(14, 14), verbose=False, ignore_superpixel=False):

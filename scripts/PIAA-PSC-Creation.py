@@ -11,6 +11,8 @@
 import os
 import logging
 from contextlib import suppress
+import concurrent.futures
+from glob import glob
 
 import numpy as np
 import pandas as pd
@@ -25,31 +27,24 @@ from piaa.utils import helpers
 from pocs.utils import current_time
 
 
-def main(base_dir=None, stamp_size=10):
+def make_psc(target_group):
+    """ Actually do the work of making the PSC. """
+    picid = target_group[0]
+    target_table = target_group[1]
     
-    fields_dir = os.path.join(os.environ['PANDIR'], 'images', 'fields')
-
-    source_filename = os.path.join(base_dir, f'point-sources-filtered.csv.bz2')
+    # Get the observation directory
+    base_dir = os.path.dirname(target_table.iloc[0].file)
+        
+    psc_fn = os.path.join(base_dir, 'stamps', f'{picid}.csv')
     
-    assert os.path.isfile(source_filename)
-
-    # Actually get the sources
-    sources = pipeline.lookup_sources_for_observation(filename=source_filename).set_index(['picid'], append=True)
-
-    # Make directory for PSC
-    os.makedirs(os.path.join(base_dir, 'stamps'), exist_ok=True)
-
-    # Used for progress display
-    num_sources = len(list(sources.index.levels[1].unique()))
-    print(f'Building PSC for {num_sources} sources')
-
-    for pid, target_table in tqdm(sources.groupby('picid'), total=num_sources, desc="Making PSCs"):
+    if not os.path.exists(psc_fn):
         stamps = list()
         for idx, row in target_table.iterrows():
             date_obs= idx[0]
 
             # Get the data for the entire frame
-            data = fits.getdata(os.path.join(base_dir, row.file)) 
+            data = fits.getdata(row.file) 
+            stamp_size = row.stamp_size
 
             # Get the stamp for the target
             target_slice = helpers.get_stamp_slice(row.x, row.y, stamp_size=(stamp_size, stamp_size), ignore_superpixel=False)
@@ -57,7 +52,65 @@ def main(base_dir=None, stamp_size=10):
             # Get data
             stamps.append(data[target_slice].flatten())
 
-        pd.DataFrame(stamps, index=target_table.index).to_csv(os.path.join(base_dir, 'stamps', f'{pid}.csv'))
+        pd.DataFrame(stamps, index=target_table.index).to_csv(os.path.join(base_dir, 'stamps', f'{picid}.csv'))
+        
+    return picid
+
+
+def main(base_dir=None,
+         stamp_size=10,
+         picid=None,
+         force=False,
+         num_workers=8,
+         chunk_size=12
+    ):
+    
+    fields_dir = os.path.join(os.environ['PANDIR'], 'images', 'fields')
+    source_filename = os.path.join(base_dir, f'point-sources-filtered.csv.bz2')
+    assert os.path.isfile(source_filename)
+
+    # Get the sources
+    sources = pipeline.lookup_sources_for_observation(filename=source_filename).set_index(['picid'], append=True)
+
+    # Make directory for PSC
+    stamp_dir = os.path.join(base_dir, 'stamps')
+    os.makedirs(stamp_dir, exist_ok=True)
+    
+    if force:
+        print(f'Forcing creation, deleting all stamps in {stamp_dir}')
+        for fn in glob(f'{stamp_dir}/*.csv'):
+            with suppress(FileNotFoundError):
+                os.remove(fn)
+
+    # Used for progress display
+    num_sources = len(list(sources.index.levels[1].unique()))
+    
+    # Add the stamp size and base dir to table (silly way to pass args)
+    sources['file'] = [os.path.join(base_dir, row.file) for _, row in sources.iterrows()]
+    sources['stamp_size'] = stamp_size
+    
+    if picid:
+        print(f"Creating stamp for {picid}")
+        sources = sources.query(f'picid == {picid}')
+        
+        if not len(sources):
+            print(f"{picid} does not exist, exiting")
+            return
+    else:
+        print(f'Building PSC for {num_sources} sources')
+    
+    start_time = current_time()
+    
+    print(f'Starting at {start_time}')
+
+    with concurrent.futures.ProcessPoolExecutor(max_workers=8) as executor:
+        for i, picid in enumerate(executor.map(make_psc, sources.groupby('picid'), chunksize=12)):
+            print(f'Finished with {picid}: {i}/{num_sources}')
+            
+    end_time = current_time()
+    print(f'Ending at {end_time}')
+    total_time = (end_time - start_time).sec
+    print(f'Total: {total_time:.02f} seconds')
 
 
 if __name__ == '__main__':
@@ -67,44 +120,26 @@ if __name__ == '__main__':
     group.add_argument('--directory', default=None, type=str,
                        help="Directory containing observation images.")
     parser.add_argument('--stamp-size', default=10, help="Square stamp size")
+    parser.add_argument('--picid', default=None, type=str, help="Create PSC only for given PICID")
+    parser.add_argument('--num-workers', default=8, help="Number of workers to use")
+    parser.add_argument('--chunk-size', default=10, help="Chunks per worker")
+    parser.add_argument('--force', action='store_true', default=False, 
+                        help="Force creation (deletes existing files)")
     parser.add_argument('--log_level', default='debug', help="Log level")
     parser.add_argument(
         '--log_file', help="Log files, default $PANLOG/create_stamps_<datestamp>.log")
 
     args = parser.parse_args()
 
-    ################ Setup logging ##############
-    log_file = os.path.join(
-        os.environ['PANDIR'],
-        'logs',
-        'per-run',
-        'create_stamps_{}.log'.format(current_time(flatten=True))
-    )
-    common_log_path = os.path.join(
-        os.environ['PANDIR'],
-        'logs',
-        'create_stamps.log'
-    )
-
-    if args.log_file:
-        log_file = args.log_file
-
-    try:
-        log_level = getattr(logging, args.log_level.upper())
-    except AttributeError:
-        log_level = logging.DEBUG
-    finally:
-        logging.basicConfig(filename=log_file, level=log_level)
-
-        with suppress(FileNotFoundError):
-            os.remove(common_log_path)
-
-        os.symlink(log_file, common_log_path)
-
-    logging.info('*' * 80)
-    ################ End Setup logging ##############
-    
     assert os.path.isdir(args.directory)
 
-    main(base_dir=args.directory, stamp_size=args.stamp_size)
+    print(f'Using {args.num_workers} workers with {args.chunk_size} chunks')
+    main(
+        base_dir=args.directory,
+        stamp_size=args.stamp_size,
+        picid=args.picid,
+        force=args.force,
+        num_workers=args.num_workers,
+        chunk_size=args.chunk_size
+    )
     print('Finished creating stamps')

@@ -103,9 +103,10 @@ def main(base_dir=None,
     
     print(f'Starting at {start_time}')
 
-    with concurrent.futures.ProcessPoolExecutor(max_workers=8) as executor:
-        for i, picid in enumerate(executor.map(make_psc, sources.groupby('picid'), chunksize=12)):
-            print(f'Finished with {picid}: {i}/{num_sources}')
+    with concurrent.futures.ProcessPoolExecutor(max_workers=int(num_workers)) as executor:
+        grouped_sources = sources.groupby('picid')
+        picids = list(tqdm(executor.map(make_psc, grouped_sources, chunksize=int(chunk_size)), total=len(grouped_sources)))
+        print(f'Created {len(picids)} PSCs')
             
     end_time = current_time()
     print(f'Ending at {end_time}')
@@ -125,9 +126,6 @@ if __name__ == '__main__':
     parser.add_argument('--chunk-size', default=10, help="Chunks per worker")
     parser.add_argument('--force', action='store_true', default=False, 
                         help="Force creation (deletes existing files)")
-    parser.add_argument('--log_level', default='debug', help="Log level")
-    parser.add_argument(
-        '--log_file', help="Log files, default $PANLOG/create_stamps_<datestamp>.log")
 
     args = parser.parse_args()
 

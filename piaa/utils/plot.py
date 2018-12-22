@@ -18,7 +18,7 @@ from cycler import cycler as cy
 from astropy.coordinates import Angle
 from astropy.modeling import models, fitting
 from astropy import units as u
-from astropy.visualization import LogStretch, ImageNormalize, LinearStretch, MinMaxInterval
+from astropy.visualization import LogStretch, ImageNormalize, LinearStretch, PercentileInterval, MinMaxInterval
 from astropy.stats import sigma_clip
 from photutils import RectangularAperture
 
@@ -139,7 +139,7 @@ def show_stamps(pscs,
 
         # Residual
         residual = s0 / s1
-        im = ax3.imshow(residual, origin='lower', cmap=get_palette(), norm=ImageNormalize(residual, interval=MinMaxInterval(), stretch=stretch))
+        im = ax3.imshow(residual, origin='lower', cmap=get_palette(), norm=ImageNormalize(residual, interval=MinMaxInterval(), stretch=LinearStretch()))
         #add_pixel_grid(ax3, stamp_size, stamp_size, show_superpixel=False)
 
         divider = make_axes_locatable(ax3)
@@ -383,16 +383,16 @@ def plot_pixel_drift(x_pos, y_pos, index=None, out_fn=None, title=None):
     fig.set_figheight(9)
 
     ax = fig.add_subplot(111)
-    ax.plot(pos_df.index, pos_df.dx, label='dx')
-    ax.plot(pos_df.index, pos_df.dy, label='dy')
+    ax.plot(pos_df.index, pos_df.dx, lw=4, label='dx [Dec axis]')
+    ax.plot(pos_df.index, pos_df.dy, lw=4, alpha=0.5, label='dy [RA axis]')
 
-    ax.set_ylabel('Δ pixel', fontsize=16)
+    ax.set_ylabel('Δ pixel', fontsize=18)
     ax.set_xlabel('Time [UTC]', fontsize=16)
 
     if title is None:
         title = 'Pixel drift'
 
-    ax.set_title(title, fontsize=18)
+    ax.set_title(title, fontsize=16)
     ax.set_ylim([-5, 5])
 
     fig.legend(fontsize=16)
@@ -404,7 +404,7 @@ def plot_pixel_drift(x_pos, y_pos, index=None, out_fn=None, title=None):
     return fig
 
 
-def make_apertures_plot(apertures, title=None, num_frames=None, save_name=None):
+def make_apertures_plot(apertures, title=None, num_frames=None, output_dir=None):
     """Make a plot of the final stamp aperture.
 
     Args:
@@ -494,7 +494,7 @@ def make_apertures_plot(apertures, title=None, num_frames=None, save_name=None):
                 fig.suptitle(title)
             fig.tight_layout()
             fig.subplots_adjust(hspace=0.1)
-            aperture_fn = '{}_{:03d}.png'.format(save_name, row_num)
+            aperture_fn = os.path.join(output_dir, f'{row_num:03d}.png')
             fig.savefig(aperture_fn)
 
 

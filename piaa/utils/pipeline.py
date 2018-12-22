@@ -50,7 +50,7 @@ def lookup_sources_for_observation(fits_files=None, filename=None, force_new=Fal
     try:
         logger.info(f'Using existing source file: {filename}')
         observation_sources = pd.read_csv(filename, parse_dates=True)
-        observation_sources['obs_time'] = pd.to_datetime(observation_sources.obs_time)
+        observation_sources['obstime'] = pd.to_datetime(observation_sources.obstime)
         observation_sources.rename(columns={'id': 'picid'}, inplace=True)
 
     except FileNotFoundError:
@@ -65,8 +65,13 @@ def lookup_sources_for_observation(fits_files=None, filename=None, force_new=Fal
                 cursor=cursor,
             )    
             header = fits_utils.getheader(fn)
-            point_sources['obs_time'] = pd.to_datetime(os.path.basename(fn).split('.')[0])
-            point_sources['exp_time'] = header['EXPTIME']
+            obstime = Time(pd.to_datetime(os.path.basename(fn).split('.')[0]))
+            exptime = header['EXPTIME'] * u.second
+            
+            obstime += (exptime / 2)
+            
+            point_sources['obstime'] = obstime.datetime
+            point_sources['exptime'] = exptime
             point_sources['airmass'] = header['AIRMASS']
             point_sources['file'] = os.path.basename(fn)
             point_sources['picid'] = point_sources.index
@@ -85,7 +90,7 @@ def lookup_sources_for_observation(fits_files=None, filename=None, force_new=Fal
 
         observation_sources.to_csv(filename)
         
-    observation_sources.set_index(['obs_time'], inplace=True)
+    observation_sources.set_index(['obstime'], inplace=True)
     return observation_sources
 
 
@@ -638,7 +643,7 @@ def get_aperture_sums(psc0,
                       separate_green=False,
                       subtract_back=False,
                       plot_apertures=False,
-                      aperture_fn=None
+                      aperture_plot_path=None
                       ):
     """Perform differential aperture photometry on the given PSCs.
 
@@ -748,8 +753,8 @@ def get_aperture_sums(psc0,
     lc0 = pd.DataFrame(diff).set_index(['obstime'])
 
     if plot_apertures:
-        os.makedirs(os.path.dirname(aperture_fn), exist_ok=True)
-        plot.make_apertures_plot(apertures, save_name=aperture_fn)
+        os.makedirs(aperture_plot_path, exist_ok=True)
+        plot.make_apertures_plot(apertures, output_dir=aperture_plot_path)
 
     return lc0
 

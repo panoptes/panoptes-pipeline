@@ -40,7 +40,7 @@ SAVE_NUM=500
 
 def get_normalized_psc(stamp_fn, camera_bias=2048):
     """ Reads a postage stamp cube file and returns the normalized version """
-    source_table = pd.read_csv(stamp_fn).set_index(['obs_time', 'picid'])
+    source_table = pd.read_csv(stamp_fn).set_index(['obstime', 'picid'])
     source_psc = np.array(source_table) - camera_bias
 
     # Normalize

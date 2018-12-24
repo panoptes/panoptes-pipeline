@@ -21,6 +21,7 @@
 import os
 import logging
 from contextlib import suppress
+from itertools import zip_longest
 import concurrent.futures
 
 import pandas as pd
@@ -48,30 +49,37 @@ def get_normalized_psc(stamp_fn, camera_bias=2048):
     
     return normalized_psc
 
-def find_similar(stamp_fn, camera_bias=2048):
+def find_similar(find_params):
     """ The worker thread to find the stars """
     
-    # Get the picid from the filename
-    picid = os.path.splitext(os.path.basename(stamp_fn))[0]
-    stamps_dir = os.path.dirname(stamp_fn)
+    psc_fn = find_params[0]
+    params = find_params[1]
     
-    similar_dir = os.path.join(stamps_dir, 'similar')
+    base_dir = params['base_dir']
+    processed_dir = params['processed_dir']
+    force = params['force']
+    psc_dir = os.path.dirname(psc_fn)
     
-    similar_fn = os.path.normpath(os.path.join(similar_dir, f'{picid}.csv'))
+    # Get the relative path starting from processed_dir; picid is then first folder.
+    picid = os.path.relpath(psc_fn, start=processed_dir).split('/')[0]
     
-    if not os.path.exists(similar_fn):
-        # Normalize target PSC
-        normalized_target_psc = get_normalized_psc(stamp_fn)
+    similar_fn = os.path.normpath(os.path.join(psc_dir, 'similar_sources.csv'))
+    
+    if force or not os.path.exists(similar_fn): 
+        # Normalize target PSC.
+        normalized_target_psc = get_normalized_psc(psc_fn)
 
-        # Get all the stamp files
-        stamp_files = glob(os.path.join(stamps_dir, '*.csv'))
+        # Get all the psc files.
+        processed_dir_glob = os.path.join(processed_dir, '*', base_dir) 
+        psc_files = glob(os.path.join(processed_dir_glob, 'psc.csv'), recursive=True)
 
-        # Loop through all other stamp files
+        # Loop through all other stamp files.
         vary = dict()
-        for comp_stamp_fn in stamp_files:
-            ref_picid = os.path.splitext(os.path.basename(comp_stamp_fn))[0]
+        for comp_psc_fn in psc_files:
+            # See note on picid above.
+            ref_picid = os.path.relpath(comp_psc_fn, start=processed_dir).split('/')[0]
 
-            normalized_ref_psc = get_normalized_psc(comp_stamp_fn)
+            normalized_ref_psc = get_normalized_psc(comp_psc_fn)
 
             try:
                 score = ((normalized_target_psc - normalized_ref_psc)**2).sum()
@@ -86,35 +94,38 @@ def find_similar(stamp_fn, camera_bias=2048):
     return picid
 
 def main(base_dir,
+         processed_dir=None,
          picid=None,
          force=False,
          num_workers=8,
          chunk_size=12,
     ):
     print(f'Finding similar stars for observation in {base_dir}')
-
+    
     if picid:
         print(f'Searching for picid={picid}')
-        stamp_files = glob(os.path.join(base_dir, 'stamps', f'{picid}.csv'))
+        processed_dir_glob = os.path.join(processed_dir, str(picid), base_dir) 
     else:
-        stamp_files = glob(os.path.join(base_dir, 'stamps', '*.csv'))
+        processed_dir_glob = os.path.join(processed_dir, '*', base_dir) 
         
-    print(f'Found {len(stamp_files)} PSC files')
+    psc_files = glob(os.path.join(processed_dir_glob, 'psc.csv'), recursive=True)
+        
+    print(f'Found {len(psc_files)} PSC files')
     
-    similar_dir = os.path.join(base_dir, 'stamps', 'similar')
-    os.makedirs(similar_dir, exist_ok=True)
+    call_params = {
+        'base_dir': base_dir,
+        'processed_dir': processed_dir,
+        'force': force
+    }
+                                  
+    # Build up the parameter list (NB: "clever" zip_longest usage)
+    params = zip_longest(psc_files, [], fillvalue=call_params)
     
-    if force:
-        print(f'Forcing creation, deleting all similar rankings in {similar_dir}')
-        for fn in glob(f'{similar_dir}/*.csv'):
-            with suppress(FileNotFoundError):
-                os.remove(fn)
-
     start_time = current_time()
     print(f'Starting at {start_time}')
 
-    with concurrent.futures.ProcessPoolExecutor(max_workers=int(num_workers)) as executor:
-        picids = list(tqdm(executor.map(find_similar, stamp_files, chunksize=int(chunk_size)), total=len(stamp_files)))
+    with concurrent.futures.ProcessPoolExecutor(max_workers=num_workers) as executor:
+        picids = list(tqdm(executor.map(find_similar, params, chunksize=chunk_size), total=len(psc_files)))
         print(f'Found similar stars for {len(picids)} sources')
             
     end_time = current_time()
@@ -127,28 +138,23 @@ if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser(description="Find similar stars for each star.")
     group = parser.add_mutually_exclusive_group()
-    group.add_argument('--directory', default=None, type=str,
+    group.add_argument('--directory', dest="base_dir", default=None, type=str,
                        help="Directory containing observation images.")
+    parser.add_argument('--processed-dir', default='/var/panoptes/processed', type=str,
+                       help=("All artifacts are processed and placed in this directory. "
+                             "A subdirectory will be created for each PICID if it does not "
+                             "exist and a directory corresponding to the sequence id is made for "
+                             "this observation inside the PICID dir. Defaults to $PANDIR/processed/."
+                            ))
     parser.add_argument('--picid', default=None, type=str, help="Create PSC only for given PICID")
-    parser.add_argument('--num-workers', default=8, help="Number of workers to use")
-    parser.add_argument('--chunk-size', default=10, help="Chunks per worker")
+    parser.add_argument('--num-workers', default=None, type=int, help="Number of workers to use")
+    parser.add_argument('--chunk-size', default=1, type=int, help="Chunks per worker")
     parser.add_argument('--force', action='store_true', default=False, 
                         help="Force creation (deletes existing files)")
 
     args = parser.parse_args()
 
-    fields_dir = os.path.join(os.environ['PANDIR'], 'images', 'fields')
-    base_dir = os.path.join(fields_dir, args.directory)
-    
-    assert os.path.isdir(base_dir)
-
     print(f'Using {args.num_workers} workers with {args.chunk_size} chunks')
-    main(
-        base_dir=args.directory,
-        picid=args.picid,
-        force=args.force,
-        num_workers=args.num_workers,
-        chunk_size=args.chunk_size
-    )
+    main(**vars(args))
     print('Finished creating stamps')
     

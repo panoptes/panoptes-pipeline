@@ -13,6 +13,7 @@ import logging
 from contextlib import suppress
 import concurrent.futures
 from glob import glob
+from itertools import zip_longest
 
 import numpy as np
 import pandas as pd
@@ -25,17 +26,33 @@ from piaa.utils import pipeline
 from piaa.utils import helpers
 
 from pocs.utils import current_time
+from pocs.utils.logger import get_root_logger
+
+import logging
+logger = get_root_logger()
+logger.setLevel(logging.INFO)
 
 
-def make_psc(target_group):
+def make_psc(make_params):
     """ Actually do the work of making the PSC. """
+    target_group = make_params[0]
+    params = make_params[1]
+    
     picid = target_group[0]
     target_table = target_group[1]
     
-    # Get the observation directory
-    base_dir = os.path.dirname(target_table.iloc[0].file)
-        
-    psc_fn = os.path.join(base_dir, 'stamps', f'{picid}.csv')
+    observation_dir = params['observation_dir']
+    output_dir = os.path.join(params['output_dir'], str(picid), observation_dir)
+    stamp_size = params['stamp_size']
+    force = params['force']
+    
+    os.makedirs(output_dir, exist_ok=True)
+    
+    psc_fn = os.path.join(output_dir, 'psc.csv')
+    
+    if force:
+        with suppress(FileNotFoundError):
+            os.remove(psc_fn)
     
     if not os.path.exists(psc_fn):
         stamps = list()
@@ -44,20 +61,25 @@ def make_psc(target_group):
 
             # Get the data for the entire frame
             data = fits.getdata(row.file) 
-            stamp_size = row.stamp_size
 
             # Get the stamp for the target
-            target_slice = helpers.get_stamp_slice(row.x, row.y, stamp_size=(stamp_size, stamp_size), ignore_superpixel=False)
+            try:
+                target_slice = helpers.get_stamp_slice(row.x, row.y, stamp_size=(stamp_size, stamp_size), ignore_superpixel=False)
+            except Exception as e:
+                logger.warning(e)
 
             # Get data
             stamps.append(data[target_slice].flatten())
 
-        pd.DataFrame(stamps, index=target_table.index).to_csv(os.path.join(base_dir, 'stamps', f'{picid}.csv'))
+        df0 = pd.DataFrame(stamps, index=target_table.index)
+        logger.debug(f'{picid} PSC shape {df0.shape}')
+        df0.to_csv(psc_fn)
         
     return picid
 
 
 def main(base_dir=None,
+         output_dir=None,
          stamp_size=10,
          picid=None,
          force=False,
@@ -66,28 +88,17 @@ def main(base_dir=None,
     ):
     
     fields_dir = os.path.join(os.environ['PANDIR'], 'images', 'fields')
-    source_filename = os.path.join(base_dir, f'point-sources-filtered.csv.bz2')
+    source_filename = os.path.join(fields_dir, base_dir, f'point-sources-filtered.csv.bz2')
     assert os.path.isfile(source_filename)
 
     # Get the sources
     sources = pipeline.lookup_sources_for_observation(filename=source_filename).set_index(['picid'], append=True)
 
-    # Make directory for PSC
-    stamp_dir = os.path.join(base_dir, 'stamps')
-    os.makedirs(stamp_dir, exist_ok=True)
-    
-    if force:
-        print(f'Forcing creation, deleting all stamps in {stamp_dir}')
-        for fn in glob(f'{stamp_dir}/*.csv'):
-            with suppress(FileNotFoundError):
-                os.remove(fn)
-
     # Used for progress display
     num_sources = len(list(sources.index.levels[1].unique()))
     
-    # Add the stamp size and base dir to table (silly way to pass args)
-    sources['file'] = [os.path.join(base_dir, row.file) for _, row in sources.iterrows()]
-    sources['stamp_size'] = stamp_size
+    # Add full path to filename in table
+    sources['file'] = [os.path.join(fields_dir, base_dir, row.file) for _, row in sources.iterrows()]
     
     if picid:
         print(f"Creating stamp for {picid}")
@@ -101,11 +112,21 @@ def main(base_dir=None,
     
     start_time = current_time()
     
+    call_params = {
+        'observation_dir': base_dir,
+        'output_dir': output_dir,
+        'force': force,
+        'stamp_size': stamp_size,
+    }    
+    
     print(f'Starting at {start_time}')
 
-    with concurrent.futures.ProcessPoolExecutor(max_workers=int(num_workers)) as executor:
+    with concurrent.futures.ProcessPoolExecutor(max_workers=num_workers) as executor:
         grouped_sources = sources.groupby('picid')
-        picids = list(tqdm(executor.map(make_psc, grouped_sources, chunksize=int(chunk_size)), total=len(grouped_sources)))
+        
+        params = zip_longest(grouped_sources, [], fillvalue=call_params)
+        
+        picids = list(tqdm(executor.map(make_psc, params, chunksize=chunk_size), total=len(grouped_sources)))
         print(f'Created {len(picids)} PSCs')
             
     end_time = current_time()
@@ -117,27 +138,23 @@ def main(base_dir=None,
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser(description="Create a PSC for each detected source.")
-    group = parser.add_mutually_exclusive_group()
-    group.add_argument('--directory', default=None, type=str,
+    parser.add_argument('--directory', dest='base_dir', default=None, type=str,
                        help="Directory containing observation images.")
+    parser.add_argument('--output-dir', default='/var/panoptes/processed', type=str,
+                       help=("All artifacts are processed and placed in this directory. "
+                             "A subdirectory will be created for each PICID if it does not "
+                             "exist and a directory corresponding to the sequence id is made for "
+                             "this observation inside the PICID dir. Defaults to $PANDIR/processed/."
+                            ))
     parser.add_argument('--stamp-size', default=10, help="Square stamp size")
     parser.add_argument('--picid', default=None, type=str, help="Create PSC only for given PICID")
-    parser.add_argument('--num-workers', default=8, help="Number of workers to use")
-    parser.add_argument('--chunk-size', default=10, help="Chunks per worker")
+    parser.add_argument('--num-workers', default=None, type=int, help="Number of workers to use")
+    parser.add_argument('--chunk-size', default=1, type=int, help="Chunks per worker")
     parser.add_argument('--force', action='store_true', default=False, 
                         help="Force creation (deletes existing files)")
 
     args = parser.parse_args()
 
-    assert os.path.isdir(args.directory)
-
     print(f'Using {args.num_workers} workers with {args.chunk_size} chunks')
-    main(
-        base_dir=args.directory,
-        stamp_size=args.stamp_size,
-        picid=args.picid,
-        force=args.force,
-        num_workers=args.num_workers,
-        chunk_size=args.chunk_size
-    )
-    print('Finished creating stamps')
+    main(**vars(args))
+    print('Finished creating PSC files')

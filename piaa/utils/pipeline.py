@@ -32,6 +32,7 @@ from piaa.utils.postgres import get_cursor
 
 import logging
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 
 def normalize(cube):
@@ -185,14 +186,14 @@ def get_catalog_match(point_sources, wcs, table='full_catalog', **kwargs):
 
 def _lookup_via_sextractor(fits_file, sextractor_params=None, *args, **kwargs):
     # Write the sextractor catalog to a file
-    source_file = os.path.join(
-        os.path.dirname(fits_file),
-        'point_sources_{}.cat'.format(
-            os.path.splitext(
-                os.path.basename(fits_file)
-            )[0]
-        )
-    )
+    base_dir = os.path.dirname(fits_file)
+    source_dir = os.path.join(base_dir, 'sextractor')
+    os.makedirs(source_dir, exist_ok=True)
+    
+    img_id = os.path.splitext(os.path.basename(fits_file))[0] 
+    
+    source_file = os.path.join(source_dir, f'point_sources_{img_id}.cat')
+    
     # sextractor can't handle compressed data
     if fits_file.endswith('.fz'):
         fits_file = fits_utils.funpack(fits_file)

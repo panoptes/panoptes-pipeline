@@ -519,7 +519,7 @@ def plot_lightcurve(x, y, model_flux=None, use_imag=False, transit_info=None, co
     fig = Figure()
     FigureCanvas(fig)
 
-    fig.set_size_inches(12, 9)
+    fig.set_size_inches(12, 5)
     gs = gridspec.GridSpec(2, 1, height_ratios=[4, 1])
 
     # Lightcurve Plot #

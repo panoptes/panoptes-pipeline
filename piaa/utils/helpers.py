@@ -16,6 +16,7 @@ from pocs.utils.images import fits as fits_utils
 
 import logging
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 
 def get_stars_from_footprint(wcs_footprint, **kwargs):
@@ -263,7 +264,7 @@ def get_rgb_masks(data, separate_green=False, mask_path=None, force_new=False, v
                 'b': blue_mask,
             }
 
-        logger.info("Saving masks files")
+        logger.debug("Saving masks files")
         np.savez_compressed(mask_path, **_rgb_masks)
 
     return _rgb_masks
@@ -360,6 +361,11 @@ def pixel_color(x, y):
               G1 |  odd i, |   odd j
               G2 | even i, |  even j
               B  | even i, |   odd j
+              
+            bayer[1::2, 0::2, 0] = 1 # Red
+            bayer[1::2, 1::2, 1] = 1 # Green
+            bayer[0::2, 0::2, 1] = 1 # Green
+            bayer[0::2, 1::2, 2] = 1 # Blue
 
     Returns:
         str: one of 'R', 'G1', 'G2', 'B'

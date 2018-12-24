@@ -18,12 +18,17 @@ from tqdm import tqdm
 from astropy.time import Time
 from astropy.stats import sigma_clip
 
-from piaa.exoplanets import TransitInfo, get_exoplanet_transit
+from piaa.utils.exoplanets import TransitInfo, get_exoplanet_transit
 from piaa.utils import helpers
 from piaa.utils import plot
 from piaa.utils import pipeline
 
 from pocs.utils import current_time
+from pocs.utils.logger import get_root_logger
+
+import logging
+logger = get_root_logger()
+logger.setLevel(logging.DEBUG)
 
 plt.style.use('bmh')
 
@@ -35,6 +40,10 @@ def build_ref(build_params):
     params = build_params[1]
     
     # Load params
+    base_dir = params['base_dir']
+    processed_dir = params['processed_dir']
+    output_dir = params['output_dir']
+    force = params['force']
     aperture_size = params['aperture_size']
     camera_bias = params['camera_bias']
     num_refs = params['num_refs']
@@ -44,62 +53,66 @@ def build_ref(build_params):
     
     # Get working directories.
     psc_dir = os.path.dirname(psc_fn)
-    base_dir = os.path.dirname(psc_dir)
     similar_dir = os.path.join(psc_dir, 'similar')
+    logger.debug(f'PSC dir: {psc_dir}')
+    logger.debug(f'Similar dir: {similar_dir}')
     
-    # Get current picid from filename.
-    picid = os.path.splitext(os.path.basename(psc_fn))[0]
+    # Get the relative path starting from processed_dir; picid is then first folder.
+    picid = os.path.relpath(psc_fn, start=processed_dir).split('/')[0]
+    logger.debug(f'PICID {picid}')
     
     # Subdirectory to place processed files.
-    output_dir = os.path.normpath(os.path.join(base_dir, 'processed', str(picid)))
-    os.makedirs(output_dir, exist_ok=True)
     if make_plots:
-        os.makedirs(os.path.join(output_dir, 'plots'), exist_ok=True)
+        os.makedirs(os.path.join(psc_dir, 'plots'), exist_ok=True)
     
     # Get the list of similar stars. The picid at index 0 is the target star.
-    similar_stars = pd.read_csv(
-        os.path.join(similar_dir, f'{picid}.csv'),
-        names=['picid', 'score']
-    )
+    similar_fn = os.path.normpath(os.path.join(psc_dir, 'similar_sources.csv'))
+    similar_stars = pd.read_csv(similar_fn, names=['picid', 'score'])
                                   
     if make_plots:
         try:
-            plot_similarity(picid, similar_stars, output_dir)
+            plot_similarity(picid, similar_stars, psc_dir)
         except Exception as e:
             logger.error(f"Can't make similarity plot for {picid}")
             logger.error(e)
 
     # Get the list of picids.
     ref_picid_list = list(similar_stars.picid[:num_refs].values)
+    logger.debug(f'Number references: {len(ref_picid_list)}')
 
     # Build stamp collection from references
     psc_collection = list()
+    image_times = None
     for i, ref_picid in enumerate(ref_picid_list):
-        ref_psc_fn = os.path.join(psc_dir, f'{ref_picid}.csv')
-
+        ref_psc_fn = os.path.join(processed_dir, str(ref_picid), base_dir, 'psc.csv')
+        logger.debug(f'Ref PSC path: {ref_psc_fn}')
+        
         try:
             full_ref_table = pd.read_csv(ref_psc_fn).set_index(['obstime', 'picid'])
         except KeyError:
             full_ref_table = pd.read_csv(ref_psc_fn).set_index(['obs_time', 'picid'])
-        except FileNotFoundError:
-            continue
+        except FileNotFoundError as e:
+            logger.warning(e)
 
         # If a filter string was provided. Note(wtgee): Improve this.
         if table_filter:
             ref_table = full_ref_table.query(table_filter)
         else:
             ref_table = full_ref_table
+            
+        # Get image times
+        if i == 0:  # Target
+            image_times = pd.to_datetime(ref_table.index.levels[0].values)
 
         # Load the data and remove the bias.
         ref_psc = np.array(ref_table) - camera_bias
+        logger.debug(f'{i} Reference PSC {ref_psc.shape}')
         psc_collection.append(ref_psc)
 
     # Big collection of PSCs.
     psc_collection = np.array(psc_collection)[:num_refs]
+    logger.debug(f'PICID {picid} PSC collection size: {psc_collection.shape}')
                                   
-    # Get image times
-    image_times = pd.to_datetime(ref_table.index.levels[0].values)
-
     # Slice frames from stamp collection - NOTE: could be combined with table_filter logic
     if frame_slice:
         psc_collection = psc_collection[:, frame_slice, :]
@@ -120,7 +133,7 @@ def build_ref(build_params):
     # Plot coefficients
     if make_plots:
         try:
-            plot_coefficients(picid, coeffs[0], output_dir)
+            plot_coefficients(picid, coeffs[0], psc_dir)
         except Exception as e:
             logger.error(f"Can't make coefficients plot for {picid}")
             logger.error(e)
@@ -135,7 +148,7 @@ def build_ref(build_params):
 
     if make_plots:
         try:
-            plot_comparisons(picid, target_psc, ideal_psc, output_dir)
+            plot_comparisons(picid, target_psc, ideal_psc, psc_dir)
         except Exception as e:
             logger.error(f"Can't make stamp comparison plots for {picid}")
             logger.error(e)
@@ -147,22 +160,22 @@ def build_ref(build_params):
         image_times,
         aperture_size=aperture_size, 
         plot_apertures=make_plots,
-        aperture_plot_path=os.path.join(output_dir, 'plots', 'apertures')
+        aperture_plot_path=os.path.join(psc_dir, 'plots', 'apertures')
     )
 
     # Save the lightcurve dataframe to a csv file
     # NOTE: We do this before normalizing
-    lc0.to_csv(os.path.join(output_dir, f'raw-flux-{picid}.csv'))
+    lc0.to_csv(os.path.join(psc_dir, f'raw-flux.csv'))
 
     if make_plots:
         try:
-            plot_raw_lightcurve(picid, lc0, output_dir)
+            plot_raw_lightcurve(picid, lc0, psc_dir)
         except Exception as e:
             logger.error(f"Can't make raw lightcurve for {picid}")
             logger.error(e)
                                   
 
-def plot_similarity(picid, similar_list, output_dir, num_stars=200):
+def plot_similarity(picid, similar_list, psc_dir, num_stars=200):
     """ Plot of how the stars rank according to similarity. """
     fig = Figure()
     FigureCanvas(fig)
@@ -170,11 +183,11 @@ def plot_similarity(picid, similar_list, output_dir, num_stars=200):
     ax = fig.add_subplot(111)
     ax.plot(similar_list.iloc[:num_stars].score)
                                   
-    similar_fn = os.path.join(output_dir, 'plots', f'similar-source-ranks-{picid}.png')
+    similar_fn = os.path.join(psc_dir, 'plots', f'similar-source-ranks-{picid}.png')
     fig.savefig(similar_fn, transparent=False)
 
     
-def plot_coefficients(picid, coeffs, output_dir):
+def plot_coefficients(picid, coeffs, psc_dir):
     fig = Figure()
     FigureCanvas(fig)
     
@@ -187,10 +200,10 @@ def plot_coefficients(picid, coeffs, output_dir):
     
     fig.suptitle(f'Reference coeffecients - {picid}')
     
-    coeff_fn = os.path.join(output_dir, 'plots', f'coefficients-{picid}.png')
+    coeff_fn = os.path.join(psc_dir, 'plots', f'coefficients-{picid}.png')
     fig.savefig(coeff_fn, transparent=False)
     
-def plot_comparisons(picid, target_psc, ideal_psc, output_dir):
+def plot_comparisons(picid, target_psc, ideal_psc, psc_dir):
     num_frames = target_psc.shape[0]
     stamp_side = int(np.sqrt(target_psc.shape[1]))
     
@@ -212,11 +225,11 @@ def plot_comparisons(picid, target_psc, ideal_psc, output_dir):
         stamp_fig.axes[0].scatter(x_pos, y_pos, marker='x', color='r')
 
         stamp_fig.tight_layout()
-        target_ref_comp_fn = os.path.join(output_dir, 'plots', 'comparisons', f'ref-comparison-{picid}-{frame_idx:03d}.png')
+        target_ref_comp_fn = os.path.join(psc_dir, 'plots', 'comparisons', f'ref-comparison-{picid}-{frame_idx:03d}.png')
         os.makedirs(os.path.dirname(target_ref_comp_fn), exist_ok=True)
         stamp_fig.savefig(target_ref_comp_fn, transparent=False)
                                   
-def plot_raw_lightcurve(picid, lc0, output_dir):
+def plot_raw_lightcurve(picid, lc0, psc_dir):
     fig = Figure()
     FigureCanvas(fig)
     
@@ -231,10 +244,10 @@ def plot_raw_lightcurve(picid, lc0, output_dir):
     fig.tight_layout()
     fig.legend()
 
-    plot_fn = os.path.join(output_dir, 'plots', f'raw-flux-{picid}.png')
+    plot_fn = os.path.join(psc_dir, 'plots', f'raw-flux-{picid}.png')
     fig.savefig(plot_fn, transparent=False)
                                   
-def plot_normalized_lightcurve(picid, lc0, output_dir):
+def plot_normalized_lightcurve(picid, lc0, psc_dir):
     plt.figure(figsize=(12, 6))
     i = 0
     for color in 'rgb':
@@ -269,6 +282,7 @@ def plot_normalized_lightcurve(picid, lc0, output_dir):
     plt.savefig(plot_fn)
 
 def main(base_dir,
+         processed_dir=None,
          camera_bias=2048,
          frame_slice=None,
          table_filter=None,
@@ -281,20 +295,23 @@ def main(base_dir,
          chunk_size=12
     ):
                                   
-    print(f'Building references for stars for observation in {base_dir}')
+    logger.info(f'Building references for stars for observation in {base_dir}')
 
     if picid:
-        print(f'Searching for picid={picid}')
-        psc_files = glob(os.path.join(base_dir, 'stamps', f'{picid}.csv'))
+        logger.info(f'Searching for picid={picid}')
+        output_dir = os.path.join(processed_dir, str(picid), base_dir) 
     else:
-        psc_files = glob(os.path.join(base_dir, 'stamps', '*.csv'))
+        output_dir = os.path.join(processed_dir, '*', base_dir) 
         
-    print(f'Found {len(psc_files)} PSC files')
+    psc_files = glob(os.path.join(output_dir, 'psc.csv'), recursive=True)
+        
+    logger.info(f'Found {len(psc_files)} PSC files')
     
-    start_time = current_time()
-    print(f'Starting at {start_time}')
-                                  
     call_params = {
+        'base_dir': base_dir,
+        'output_dir': output_dir,
+        'processed_dir': processed_dir,
+        'force': force,
         'frame_slice': frame_slice,
         'table_filter': table_filter,
         'num_refs': num_refs,
@@ -302,17 +319,21 @@ def main(base_dir,
         'make_plots': make_plots,
         'aperture_size': aperture_size
     }
+    logger.debug(f'Call params: {call_params}')
                                   
     # Build up the parameter list (NB: "clever" zip_longest usage)
     params = zip_longest(psc_files, [], fillvalue=call_params)
+    
+    start_time = current_time()
+    print(f'Starting at {start_time}')
 
-    with concurrent.futures.ProcessPoolExecutor(max_workers=int(num_workers)) as executor:
+    with concurrent.futures.ProcessPoolExecutor(max_workers=num_workers) as executor:
         picids = list(tqdm(
-                executor.map(build_ref, params, chunksize=int(chunk_size)
+                executor.map(build_ref, params, chunksize=chunk_size
             ), 
             total=len(psc_files))
         )
-        print(f'Created {len(picids)} PSC references')
+        logger.info(f'Created {len(picids)} PSC references')
             
     end_time = current_time()
     print(f'Ending at {end_time}')
@@ -324,32 +345,26 @@ if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser(description="Find similar stars for each star.")
     group = parser.add_mutually_exclusive_group()
-    group.add_argument('--directory', default=None, type=str,
+    group.add_argument('--directory', dest='base_dir', default=None, type=str,
                        help="Directory containing observation images.")
+    parser.add_argument('--processed-dir', default='/var/panoptes/processed', type=str,
+                       help=("All artifacts are processed and placed in this directory. "
+                             "A subdirectory will be created for each PICID if it does not "
+                             "exist and a directory corresponding to the sequence id is made for "
+                             "this observation inside the PICID dir. Defaults to $PANDIR/processed/."
+                            ))
     parser.add_argument('--aperture-size', default=5, help="Aperture size for photometry")
     parser.add_argument('--picid', default=None, type=str, help="Create PSC only for given PICID")
     parser.add_argument('--make-plots', action='store_true', default=False, 
                         help="Create plots (increases time)")
-    parser.add_argument('--num-workers', default=8, help="Number of workers to use")
-    parser.add_argument('--chunk-size', default=10, help="Chunks per worker")
+    parser.add_argument('--num-workers', default=None, type=int, help="Number of workers to use")
+    parser.add_argument('--chunk-size', default=1, type=int, help="Chunks per worker")
     parser.add_argument('--force', action='store_true', default=False, 
                         help="Force creation (deletes existing files)")
 
     args = parser.parse_args()
 
-    fields_dir = os.path.join(os.environ['PANDIR'], 'images', 'fields')
-    base_dir = os.path.join(fields_dir, args.directory)
-    assert os.path.isdir(base_dir)
-    
-    print(f'Using {args.num_workers} workers with {args.chunk_size} chunks')
-    main(
-        base_dir=args.directory,
-        aperture_size=args.aperture_size,
-        picid=args.picid,
-        force=args.force,
-        make_plots=args.make_plots,
-        num_workers=args.num_workers,
-        chunk_size=args.chunk_size
-    )
-    print('Finished building reference PSC')
+    logger.info(f'Using {args.num_workers} workers with {args.chunk_size} chunks')
+    main(**vars(args))
+    logger.info('Finished building reference PSC')
     

@@ -165,7 +165,7 @@ def build_ref(build_params):
 
     # Save the lightcurve dataframe to a csv file
     # NOTE: We do this before normalizing
-    lc0.to_csv(os.path.join(psc_dir, f'raw-flux.csv'))
+    lc0.to_csv(os.path.join(psc_dir, f'raw-flux-aperture-{aperture_size:02d}.csv'))
 
     if make_plots:
         try:

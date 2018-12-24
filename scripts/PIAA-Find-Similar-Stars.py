@@ -34,20 +34,16 @@ from glob import glob
 from tqdm import tqdm
 
 from pocs.utils import current_time
+from pocs.utils.logger import get_root_logger
+
+import logging
+logger = get_root_logger()
+logger.setLevel(logging.DEBUG)
+
 
 # How many matches to save
 SAVE_NUM=500
 
-
-def get_normalized_psc(stamp_fn, camera_bias=2048):
-    """ Reads a postage stamp cube file and returns the normalized version """
-    source_table = pd.read_csv(stamp_fn).set_index(['obstime', 'picid'])
-    source_psc = np.array(source_table) - camera_bias
-
-    # Normalize
-    normalized_psc = (source_psc.T / source_psc.sum(1)).T
-    
-    return normalized_psc
 
 def find_similar(find_params):
     """ The worker thread to find the stars """
@@ -58,6 +54,7 @@ def find_similar(find_params):
     base_dir = params['base_dir']
     processed_dir = params['processed_dir']
     force = params['force']
+    camera_bias = params['camera_bias']
     psc_dir = os.path.dirname(psc_fn)
     
     # Get the relative path starting from processed_dir; picid is then first folder.
@@ -67,7 +64,11 @@ def find_similar(find_params):
     
     if force or not os.path.exists(similar_fn): 
         # Normalize target PSC.
-        normalized_target_psc = get_normalized_psc(psc_fn)
+        target_table = pd.read_csv(psc_fn).set_index(['obstime', 'picid'])
+        target_psc = np.array(target_table) - camera_bias
+
+        # Normalize
+        normalized_target_psc = (target_psc.T / target_psc.sum(1)).T
 
         # Get all the psc files.
         processed_dir_glob = os.path.join(processed_dir, '*', base_dir) 
@@ -79,14 +80,18 @@ def find_similar(find_params):
             # See note on picid above.
             ref_picid = os.path.relpath(comp_psc_fn, start=processed_dir).split('/')[0]
 
-            normalized_ref_psc = get_normalized_psc(comp_psc_fn)
+            # Normalize reference PSC.
+            ref_table = pd.read_csv(comp_psc_fn).set_index(['obstime', 'picid'])
+            ref_psc = np.array(ref_table) - camera_bias
+
+            # Normalize
+            normalized_ref_psc = (ref_psc.T / ref_psc.sum(1)).T
 
             try:
                 score = ((normalized_target_psc - normalized_ref_psc)**2).sum()
-            except ValueError:
-                continue
-
-            vary[ref_picid] = score
+                vary[ref_picid] = score
+            except ValueError as e:
+                logger.warning(f'{picid} Error in finding similar star: {e}')
 
         vary_series = pd.Series(vary).sort_values()
         vary_series[:SAVE_NUM].to_csv(similar_fn)
@@ -97,6 +102,7 @@ def main(base_dir,
          processed_dir=None,
          picid=None,
          force=False,
+         camera_bias=2048,
          num_workers=8,
          chunk_size=12,
     ):
@@ -115,7 +121,8 @@ def main(base_dir,
     call_params = {
         'base_dir': base_dir,
         'processed_dir': processed_dir,
-        'force': force
+        'force': force,
+        'camera_bias': camera_bias
     }
                                   
     # Build up the parameter list (NB: "clever" zip_longest usage)
@@ -126,7 +133,7 @@ def main(base_dir,
 
     with concurrent.futures.ProcessPoolExecutor(max_workers=num_workers) as executor:
         picids = list(tqdm(executor.map(find_similar, params, chunksize=chunk_size), total=len(psc_files)))
-        print(f'Found similar stars for {len(picids)} sources')
+        logging.debug(f'Found similar stars for {len(picids)} sources')
             
     end_time = current_time()
     print(f'Ending at {end_time}')

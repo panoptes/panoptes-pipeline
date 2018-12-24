@@ -165,7 +165,7 @@ def build_ref(build_params):
 
     # Save the lightcurve dataframe to a csv file
     # NOTE: We do this before normalizing
-    lc0.to_csv(os.path.join(psc_dir, f'raw-flux-aperture-{aperture_size:02d}.csv'))
+    lc0.to_csv(os.path.join(psc_dir, f'raw-flux-{aperture_size:02d}-{num_refs:03d}.csv'))
 
     if make_plots:
         try:
@@ -354,6 +354,7 @@ if __name__ == '__main__':
                              "this observation inside the PICID dir. Defaults to $PANDIR/processed/."
                             ))
     parser.add_argument('--aperture-size', default=5, help="Aperture size for photometry")
+    parser.add_argument('--num-refs', default=75, type=int, help="Number of references to use to build comparison")
     parser.add_argument('--picid', default=None, type=str, help="Create PSC only for given PICID")
     parser.add_argument('--make-plots', action='store_true', default=False, 
                         help="Create plots (increases time)")

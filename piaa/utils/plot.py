@@ -18,7 +18,7 @@ from cycler import cycler as cy
 from astropy.coordinates import Angle
 from astropy.modeling import models, fitting
 from astropy import units as u
-from astropy.visualization import LogStretch, ImageNormalize, LinearStretch
+from astropy.visualization import LogStretch, ImageNormalize, LinearStretch, PercentileInterval, MinMaxInterval
 from astropy.stats import sigma_clip
 from photutils import RectangularAperture
 
@@ -67,6 +67,7 @@ def show_stamps(pscs,
                 show_residual=False,
                 stretch=None,
                 save_name=None,
+                show_max=False,
                 **kwargs):
 
     if aperture_position is None:
@@ -102,10 +103,12 @@ def show_stamps(pscs,
     else:
         stretch = LinearStretch()
 
+    norm = ImageNormalize(s0, interval=MinMaxInterval(), stretch=stretch)
+
     ax1 = fig.add_subplot(nrows, ncols, 1)
 
-    im = ax1.imshow(s0, origin='lower', cmap=get_palette(), norm=ImageNormalize(stretch=stretch))
-    add_pixel_grid(ax1, stamp_size, stamp_size, show_superpixel=False)
+    im = ax1.imshow(s0, origin='lower', cmap=get_palette(), norm=norm)
+    #add_pixel_grid(ax1, stamp_size, stamp_size, show_superpixel=False)
     if aperture_size:
         aperture.plot(color='r', lw=4, ax=ax1)
         # annulus.plot(color='c', lw=2, ls='--', ax=ax1)
@@ -120,8 +123,8 @@ def show_stamps(pscs,
 
     # Comparison
     ax2 = fig.add_subplot(nrows, ncols, 2)
-    im = ax2.imshow(s1, origin='lower', cmap=get_palette(), norm=ImageNormalize(stretch=stretch))
-    add_pixel_grid(ax2, stamp_size, stamp_size, show_superpixel=False)
+    im = ax2.imshow(s1, origin='lower', cmap=get_palette(), norm=norm)
+    #add_pixel_grid(ax2, stamp_size, stamp_size, show_superpixel=False)
     if aperture_size:
         aperture.plot(color='r', lw=4, ax=ax1)
         # annulus.plot(color='c', lw=2, ls='--', ax=ax1)
@@ -135,15 +138,15 @@ def show_stamps(pscs,
         ax3 = fig.add_subplot(nrows, ncols, 3)
 
         # Residual
-        im = ax3.imshow((s0 / s1), origin='lower', cmap=get_palette(),
-                        norm=ImageNormalize(stretch=stretch))
-        add_pixel_grid(ax3, stamp_size, stamp_size, show_superpixel=False)
+        residual = s0 / s1
+        im = ax3.imshow(residual, origin='lower', cmap=get_palette(), norm=ImageNormalize(residual, interval=MinMaxInterval(), stretch=LinearStretch()))
+        #add_pixel_grid(ax3, stamp_size, stamp_size, show_superpixel=False)
 
         divider = make_axes_locatable(ax3)
         cax = divider.append_axes("right", size="5%", pad=0.05)
         fig.colorbar(im, cax=cax)
-        # ax1.set_title('Residual')
-        ax3.set_title('Residual {:.01%}'.format(residual))
+        ax3.set_title('Residual')
+        #ax3.set_title('Residual RMS: {:.01%}'.format(residual))
         ax3.set_yticklabels([])
         ax3.set_xticklabels([])
 
@@ -380,16 +383,16 @@ def plot_pixel_drift(x_pos, y_pos, index=None, out_fn=None, title=None):
     fig.set_figheight(9)
 
     ax = fig.add_subplot(111)
-    ax.plot(pos_df.index, pos_df.dx, label='dx')
-    ax.plot(pos_df.index, pos_df.dy, label='dy')
+    ax.plot(pos_df.index, pos_df.dx, lw=4, label='dx [Dec axis]')
+    ax.plot(pos_df.index, pos_df.dy, lw=4, alpha=0.5, label='dy [RA axis]')
 
-    ax.set_ylabel('Δ pixel', fontsize=16)
+    ax.set_ylabel('Δ pixel', fontsize=18)
     ax.set_xlabel('Time [UTC]', fontsize=16)
 
     if title is None:
         title = 'Pixel drift'
 
-    ax.set_title(title, fontsize=18)
+    ax.set_title(title, fontsize=16)
     ax.set_ylim([-5, 5])
 
     fig.legend(fontsize=16)
@@ -401,7 +404,7 @@ def plot_pixel_drift(x_pos, y_pos, index=None, out_fn=None, title=None):
     return fig
 
 
-def make_apertures_plot(apertures, num_frames=None, save_name=None):
+def make_apertures_plot(apertures, title=None, num_frames=None, output_dir=None):
     """Make a plot of the final stamp aperture.
 
     Args:
@@ -422,7 +425,7 @@ def make_apertures_plot(apertures, num_frames=None, save_name=None):
     for row_num in range(num_frames):
         fig = Figure()
         FigureCanvas(fig)
-        #fig.set_size_inches(12, 9)
+        fig.set_size_inches(9, 3)
         #fig.set_size_inches(num_cols + 1, num_frames)
 
         axes = fig.subplots(1, num_cols + 1, sharex=True, sharey=True)
@@ -445,13 +448,19 @@ def make_apertures_plot(apertures, num_frames=None, save_name=None):
             idx = (row_num * (num_cols)) + col_num
 
             target = apertures[idx][0]
+            
+            try:
+                title = apertures[idx][1]
+            except IndexError:
+                pass
 
-            im = ax.imshow(target, vmin=all_channels.min(), vmax=all_channels.max())
+            im = ax.imshow(target, vmin=target.min(), vmax=target.max(), origin='lower')
+                
 
             # Show the sum
             if col_num == 2:
                 ax2 = axes[col_num + 1]
-                im = ax2.imshow(all_channels, vmin=all_channels.min(), vmax=all_channels.max())
+                im = ax2.imshow(all_channels, vmin=all_channels.min(), vmax=all_channels.max(), origin='lower')
 
                 divider = make_axes_locatable(ax2)
                 cax = divider.append_axes("right", size="5%", pad=0.05)
@@ -467,15 +476,25 @@ def make_apertures_plot(apertures, num_frames=None, save_name=None):
                 ax2.set_title('All')
                     
             # If first column, show frame index to left
-            if col_num == 0:
-                y_lab = ax.set_ylabel("{:5s}".format(str(idx // 3)))
-                y_lab.set_rotation(0)
+            #if col_num == 0:
+#                 y_lab = ax.set_ylabel()
+#                 y_lab.set_rotation(0)
 
             plt.setp(ax.get_xticklabels(), visible=False)
             plt.setp(ax.get_yticklabels(), visible=False)
 
+            if title:
+                frame_num = "{:03d}".format(int(idx // 3))
+                title = f'{frame_num} - {title}'
+                try:
+                    center_color = apertures[idx][2]
+                    title = f'{title} - Center: {center_color}'
+                except IndexError:
+                    pass
+                fig.suptitle(title)
             fig.tight_layout()
-            aperture_fn = '{}_{:03d}.png'.format(save_name, row_num)
+            fig.subplots_adjust(hspace=0.1)
+            aperture_fn = os.path.join(output_dir, f'{row_num:03d}.png')
             fig.savefig(aperture_fn)
 
 
@@ -500,7 +519,7 @@ def plot_lightcurve(x, y, model_flux=None, use_imag=False, transit_info=None, co
     fig = Figure()
     FigureCanvas(fig)
 
-    fig.set_size_inches(12, 9)
+    fig.set_size_inches(12, 5)
     gs = gridspec.GridSpec(2, 1, height_ratios=[4, 1])
 
     # Lightcurve Plot #
@@ -540,7 +559,7 @@ def plot_lightcurve(x, y, model_flux=None, use_imag=False, transit_info=None, co
                  label='Model {:.04f}'.format(residual.std()))
 
         ax2.axhline(0, ls='--', alpha=0.5)
-        ax2.set_title('Model residual {:.02%}'.format(residual.std()))
+        ax2.set_title('Model residual (σ={:.02%})'.format(residual.std()))
 
         if transit_info is not None:
             midpoint, ingress, egress = transit_info

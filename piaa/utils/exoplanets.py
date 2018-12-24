@@ -1,7 +1,11 @@
 import os
 
+from warnings import warn
+import numpy as np
+
 from astropy import units as u
 from astropy.time import Time
+from astropy.table import Column
 
 from collections import namedtuple
 
@@ -11,6 +15,8 @@ from pocs.utils import listify
 # Query Exoplanet Orbit Database (exoplanets.org) for planet properties
 # Columns: http://exoplanets.org/help/common/data
 from astroquery.exoplanet_orbit_database import ExoplanetOrbitDatabase
+from astroquery.nasa_exoplanet_archive import NasaExoplanetArchive
+
 from astroplan import EclipsingSystem
 
 
@@ -58,17 +64,33 @@ EXOPLANET_DB_KEYMAP = {
             'midtransit_ref': '',
             'star_mag': 'st_optmag',
         }
+    },
+    'nasa': {
+        'query_method': NasaExoplanetArchive.query_planet,
+        'keymap': {
+            'transit_duration': 'pl_trandur',  # Days
+            'transit_depth': 'pl_trandep',  # Percentage
+            'period': 'pl_orbper',  # Days
+            'period_ref': '',
+            'midtransit': 'pl_tranmid', # Julian Days
+            'midtransit_ref': '',
+            'star_mag': 'st_optmag',  # V Mag
+        }
     }
 }
 
 
 class Exoplanet():
 
-    def __init__(self, name, db='exoplanet_orbit_database', verbose=False, *args, **kwargs):
+    def __init__(self, name, db='nasa', verbose=False, transit_system=None, *args, **kwargs):
         self.verbose = verbose
         self.name = name
 
         self._print("Looking up info for {}".format(self.name))
+        
+        # Bug with all_columns means we need to download table first
+        if db == 'nasa':
+            NasaExoplanetArchive.get_confirmed_planets_table(all_columns=True)
 
         try:
             db_map = EXOPLANET_DB_KEYMAP[db]
@@ -84,13 +106,20 @@ class Exoplanet():
             assert self.info is not None
             self._db = db
             self._loookups = dict()
-
-        # Get the transit system for calculating ephemris
-        self.transit_system = EclipsingSystem(
-            primary_eclipse_time=self.midtransit,
-            orbital_period=self.period,
-            duration=self.transit_duration
-        )
+            
+        self.transit_system = transit_system
+        
+        if not self.transit_system:
+            # Get the transit system for calculating ephemris
+            try:
+                self.transit_system = EclipsingSystem(
+                    primary_eclipse_time=self.midtransit,
+                    orbital_period=self.period,
+                    duration=self.transit_duration
+                )
+            except Exception:
+                pass
+                #warn(f"Can't create EclipsingSystem, please define manually")
 
     def get_prop(self, col, raw=False):
         val = None
@@ -125,7 +154,10 @@ class Exoplanet():
     @property
     def midtransit(self):
         """ """
-        return Time(self.get_prop('midtransit'), format='jd')
+        try:
+            return Time(self.get_prop('midtransit'), format='jd')
+        except ValueError:
+            return None
 
     @property
     def star_mag(self):
@@ -179,7 +211,7 @@ class Exoplanet():
 
         return transit_params
 
-    def get_model_lightcurve(self, index, period=None):
+    def get_model_lightcurve(self, index, period=None, transit_params=None):
         """Gets the model lightcurve.
 
         Args:
@@ -190,7 +222,8 @@ class Exoplanet():
         Returns:
             `numpy.array`: An array of normalized flux values.
         """
-        transit_params = self.get_model_params(period=period)
+        if not transit_params:
+            transit_params = self.get_model_params(period=period)
 
         transit_model = batman.TransitModel(transit_params, index)
 
@@ -242,7 +275,7 @@ class Exoplanet():
 
         return any(time_checks)
 
-    def get_phase(self, obstime):
+    def get_phase(self, obstime, transit_times=None):
         """Get the phase for given time.
 
         Args:
@@ -251,8 +284,10 @@ class Exoplanet():
         Returns:
             float: Phase in range [-0.5,0.5] where 0.0 is the midpoint of tranist.
         """
-        transit_info = self.get_transit_info(obstime)
-        phase = (transit_info.midpoint - obstime).value / self.period.value
+        if not transit_times:
+            transit_times = self.get_transit_info(obstime)
+            
+        phase = (transit_times.midpoint - obstime).value / self.period.value
 
         if phase > 0.5:
             phase -= 1.0
@@ -261,3 +296,51 @@ class Exoplanet():
             phase += 1.0
 
         return phase
+
+def get_exoplanet_transit(index, transit_times=None, model_params=None):
+    exoplanet = Exoplanet('HD 189733 b')
+
+    if not transit_times:
+        transit_times = TransitInfo(
+            Time('2018-08-22 04:53:00'),
+            Time('2018-08-22 05:47:00'),
+            Time('2018-08-22 06:41:00')
+        )
+
+    if not model_params:
+        model_params = {
+            'a': 8.83602,
+            'ecc': 0.0,
+            'fp': None,
+            'inc': 85.71,
+            'limb_dark': 'uniform',
+            'per': 2.21857567,
+            'rp': 0.15468774550850156,
+            't0': 0.0,
+            't_secondary': None,
+            'u': list(),
+            'w': 90.0,
+        }
+
+    transit_params = batman.TransitParams()
+
+    transit_params.t0 = 0.  # time of inferior conjunction
+    transit_params.per = model_params['per']
+
+    transit_params.rp = model_params['rp']  # planet radius (stellar radii)
+    transit_params.inc = model_params['inc']  # orbital inclination (degrees)
+
+    transit_params.a = model_params['a']  # semi-major axis (stellar radii)
+    transit_params.ecc = model_params['ecc']
+    transit_params.w = model_params['w']  # longitude of periastron (in degrees)
+
+    transit_params.limb_dark = "uniform"  # limb darkening model
+    transit_params.u = []  # limb darkening coefficients [u1, u2, u3, u4]
+
+    # Get the orbital phase of the exoplanet
+    dt = np.array([(transit_times.midpoint - Time(t0)).value for t0 in index])
+    transit_model = batman.TransitModel(transit_params, dt)
+    
+    base_model_flux = transit_model.light_curve(transit_params)
+    
+    return base_model_flux

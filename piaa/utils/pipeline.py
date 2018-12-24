@@ -32,6 +32,7 @@ from piaa.utils.postgres import get_cursor
 
 import logging
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 
 def normalize(cube):
@@ -50,7 +51,7 @@ def lookup_sources_for_observation(fits_files=None, filename=None, force_new=Fal
     try:
         logger.info(f'Using existing source file: {filename}')
         observation_sources = pd.read_csv(filename, parse_dates=True)
-        observation_sources['obs_time'] = pd.to_datetime(observation_sources.obs_time)
+        observation_sources['obstime'] = pd.to_datetime(observation_sources.obstime)
         observation_sources.rename(columns={'id': 'picid'}, inplace=True)
 
     except FileNotFoundError:
@@ -65,8 +66,13 @@ def lookup_sources_for_observation(fits_files=None, filename=None, force_new=Fal
                 cursor=cursor,
             )    
             header = fits_utils.getheader(fn)
-            point_sources['obs_time'] = pd.to_datetime(os.path.basename(fn).split('.')[0])
-            point_sources['exp_time'] = header['EXPTIME']
+            obstime = Time(pd.to_datetime(os.path.basename(fn).split('.')[0]))
+            exptime = header['EXPTIME'] * u.second
+            
+            obstime += (exptime / 2)
+            
+            point_sources['obstime'] = obstime.datetime
+            point_sources['exptime'] = exptime
             point_sources['airmass'] = header['AIRMASS']
             point_sources['file'] = os.path.basename(fn)
             point_sources['picid'] = point_sources.index
@@ -85,7 +91,7 @@ def lookup_sources_for_observation(fits_files=None, filename=None, force_new=Fal
 
         observation_sources.to_csv(filename)
         
-    observation_sources.set_index(['obs_time'], inplace=True)
+    observation_sources.set_index(['obstime'], inplace=True)
     return observation_sources
 
 
@@ -180,14 +186,14 @@ def get_catalog_match(point_sources, wcs, table='full_catalog', **kwargs):
 
 def _lookup_via_sextractor(fits_file, sextractor_params=None, *args, **kwargs):
     # Write the sextractor catalog to a file
-    source_file = os.path.join(
-        os.path.dirname(fits_file),
-        'point_sources_{}.cat'.format(
-            os.path.splitext(
-                os.path.basename(fits_file)
-            )[0]
-        )
-    )
+    base_dir = os.path.dirname(fits_file)
+    source_dir = os.path.join(base_dir, 'sextractor')
+    os.makedirs(source_dir, exist_ok=True)
+    
+    img_id = os.path.splitext(os.path.basename(fits_file))[0] 
+    
+    source_file = os.path.join(source_dir, f'point_sources_{img_id}.cat')
+    
     # sextractor can't handle compressed data
     if fits_file.endswith('.fz'):
         fits_file = fits_utils.funpack(fits_file)
@@ -638,7 +644,7 @@ def get_aperture_sums(psc0,
                       separate_green=False,
                       subtract_back=False,
                       plot_apertures=False,
-                      aperture_fn=None
+                      aperture_plot_path=None
                       ):
     """Perform differential aperture photometry on the given PSCs.
 
@@ -683,8 +689,8 @@ def get_aperture_sums(psc0,
             separate_green=separate_green
         )
         logger.debug('RGB stamp_masks created')
-    except ValueError:
-        pass
+    except ValueError as e:
+        logger.warning(f"Can't make stamp masks {e!r}")
 
     apertures = list()
     diff = list()
@@ -697,7 +703,9 @@ def get_aperture_sums(psc0,
         # NOTE: Bad "centroiding" here
         y_pos, x_pos = np.argwhere(t0 == t0.max())[0]
         aperture_position = (x_pos, y_pos)
-        logger.debug('Aperture Position: {} Size: {} Frame: {}'.format(aperture_position, aperture_size, frame_idx))
+        center_color = helpers.pixel_color(x_pos, y_pos)
+
+        logger.debug('Aperture Position: {} Size: {} Frame: {} Color: {}'.format(aperture_position, aperture_size, frame_idx, center_color))
 
         slice0 = helpers.get_stamp_slice(x_pos, y_pos, stamp_size=(aperture_size, aperture_size), ignore_superpixel=True)
         logger.debug(f'Slice for aperture: {slice0}')
@@ -718,7 +726,7 @@ def get_aperture_sums(psc0,
                     continue
 
                 if plot_apertures:
-                    apertures.append((t3,))
+                    apertures.append((t3, image_time, center_color))
                 logger.debug(t3)
             else:
                 t3 = t1
@@ -746,7 +754,8 @@ def get_aperture_sums(psc0,
     lc0 = pd.DataFrame(diff).set_index(['obstime'])
 
     if plot_apertures:
-        plot.make_apertures_plot(apertures, save_name=aperture_fn)
+        os.makedirs(aperture_plot_path, exist_ok=True)
+        plot.make_apertures_plot(apertures, output_dir=aperture_plot_path)
 
     return lc0
 

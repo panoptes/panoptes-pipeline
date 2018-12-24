@@ -16,6 +16,7 @@ from pocs.utils.images import fits as fits_utils
 
 import logging
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 
 def get_stars_from_footprint(wcs_footprint, **kwargs):
@@ -163,7 +164,7 @@ def get_rgb_masks(data, separate_green=False, mask_path=None, force_new=False, v
         TYPE: Description
     """
     if mask_path is None:
-        mask_path = os.path.join(os.environ['PANDIR'], 'rgb_masks.npz')
+        mask_path = os.path.join(os.environ['PANDIR'], f'rgb_masks_{data.shape[0]}_{data.shape[1]}.npz')
 
     logger.debug('Mask path: {}'.format(mask_path))
 
@@ -194,21 +195,52 @@ def get_rgb_masks(data, separate_green=False, mask_path=None, force_new=False, v
 
         w, h = data.shape
 
+        # See the docstring for `pixel_color` for full description of indexing values.
+        
+        #        |   row   |  col     
+        #    --------------| ------
+        #     R  |  odd i, | even j
+        #     G1 |  odd i, |  odd j
+        #     G2 | even i, | even j
+        #     B  | even i, |  odd j
+        
+        is_red = lambda pos: pos[0] % 2 == 1 and pos[1] % 2 == 0
+        is_blue = lambda pos: pos[0] % 2 == 0 and pos[1] % 2 == 1
+        is_g1 = lambda pos: pos[0] % 2 == 1 and pos[1] % 2 == 1
+        is_g2 = lambda pos: pos[0] % 2 == 0 and pos[1] % 2 == 0
+        
         red_mask = (np.array(
-            [index[0] % 2 == 0 and index[1] % 2 == 0 for index, i in np.ndenumerate(data)]
+            [
+                 is_red(index)
+                 for index, _ 
+                 in np.ndenumerate(data)
+            ]
         ).reshape(w, h))
 
         blue_mask = (np.array(
-            [index[0] % 2 == 1 and index[1] % 2 == 1 for index, i in np.ndenumerate(data)]
+            [
+                is_blue(index)
+                for index, _ 
+                in np.ndenumerate(data)
+            ]
         ).reshape(w, h))
 
         if separate_green:
             logger.debug("Making separate green masks")
             green1_mask = (np.array(
-                [(index[0] % 2 == 0 and index[1] % 2 == 1) for index, i in np.ndenumerate(data)]
+                [
+                    is_g1(index)
+                    for index, _
+                    in np.ndenumerate(data)
+                ]
             ).reshape(w, h))
+            
             green2_mask = (np.array(
-                [(index[0] % 2 == 1 and index[1] % 2 == 0) for index, i in np.ndenumerate(data)]
+                [
+                    is_g2(index)
+                    for index, _
+                    in np.ndenumerate(data)
+                ]
             ).reshape(w, h))
 
             _rgb_masks = {
@@ -219,9 +251,10 @@ def get_rgb_masks(data, separate_green=False, mask_path=None, force_new=False, v
             }
         else:
             green_mask = (np.array(
-                [((index[0] % 2 == 0 and index[1] % 2 == 1) or
-                    (index[0] % 2 == 1 and index[1] % 2 == 0))
-                    for index, i in np.ndenumerate(data)
+                [
+                    is_g1(index) or is_g2(index)
+                    for index, _ in
+                    np.ndenumerate(data)
                  ]
             ).reshape(w, h))
 
@@ -231,7 +264,7 @@ def get_rgb_masks(data, separate_green=False, mask_path=None, force_new=False, v
                 'b': blue_mask,
             }
 
-        logger.info("Saving masks files")
+        logger.debug("Saving masks files")
         np.savez_compressed(mask_path, **_rgb_masks)
 
     return _rgb_masks
@@ -272,25 +305,67 @@ def get_pixel_index(x):
 
 
 def pixel_color(x, y):
-    """ Given an x,y position, return the corresponding color
-
-    This is a Bayer array with a RGGB pattern in the lower left corner
-    as it is loaded into numpy.
+    """ Given an x,y position, return the corresponding color.
+    
+    The Bayer array defines a superpixel as a collection of 4 pixels
+    set in a square grid:
+    
+                     R G
+                     G B
+                     
+    `ds9` and other image viewers define the coordinate axis from the
+    lower left corner of the image, which is how a traditional x-y plane
+    is defined and how most images would expect to look when viewed. This
+    means that the `(0, 0)` coordinate position will be in the lower left
+    corner of the image.
+    
+    When the data is loaded into a `numpy` array the data is flipped on the
+    vertical axis in order to maintain the same indexing/slicing features.
+    This means the the `(0, 0)` coordinate position is in the upper-left
+    corner of the array when output. When plotting this array one can use
+    the `origin='lower'` option to view the array as would be expected in
+    a normal image although this does not change the actual index.
 
     Note:
-              0  1  2  3
-             ------------
-          0 | G2 B  G2 B
-          1 | R  G1 R  G1
-          2 | G2 B  G2 B
-          3 | R  G1 R  G1
-          4 | G2 B  G2 B
-          5 | R  G1 R  G1
+    
+        Image dimensions:
+        
+         ----------------------------
+         x | width  | i | columns |  5208
+         y | height | j | rows    |  3476
 
-          R : even x, odd y
-          G1: odd x, odd y
-          G2: even x, even y
-          B : odd x, even y
+        Bayer Pattern:
+
+                                      x / j
+
+                      0     1    2     3 ... 5204 5205 5206 5207
+                    --------------------------------------------
+               3475 |  R   G1    R    G1        R   G1    R   G1
+               3474 | G2    B   G2     B       G2    B   G2    B
+               3473 |  R   G1    R    G1        R   G1    R   G1
+               3472 | G2    B   G2     B       G2    B   G2    B
+                  . |                                           
+         y / i    . |                                           
+                  . |                                           
+                  3 |  R   G1    R    G1        R   G1    R   G1
+                  2 | G2    B   G2     B       G2    B   G2    B
+                  1 |  R   G1    R    G1        R   G1    R   G1
+                  0 | G2    B   G2     B       G2    B   G2    B
+                  
+                  
+        This can be described by:
+
+                 | row (y) |  col (x)
+             --------------| ------
+              R  |  odd i, |  even j
+              G1 |  odd i, |   odd j
+              G2 | even i, |  even j
+              B  | even i, |   odd j
+              
+            bayer[1::2, 0::2, 0] = 1 # Red
+            bayer[1::2, 1::2, 1] = 1 # Green
+            bayer[0::2, 0::2, 1] = 1 # Green
+            bayer[0::2, 1::2, 2] = 1 # Blue
 
     Returns:
         str: one of 'R', 'G1', 'G2', 'B'
@@ -356,26 +431,32 @@ def get_stamp_slice(x, y, stamp_size=(14, 14), verbose=False, ignore_superpixel=
     if color == 'B':
         x_min -= 1
         x_max -= 1
-        y_min -= 1
-        y_max -= 1
+        y_min -= 0
+        y_max -= 0
     elif color == 'G1':
         x_min -= 1
         x_max -= 1
-        y_min -= 0
-        y_max -= 0
+        y_min -= 1
+        y_max -= 1
     elif color == 'G2':
-        x_min -= 1
-        x_max -= 1
+        x_min -= 0
+        x_max -= 0
         y_min -= 0
         y_max -= 0
     elif color == 'R':
-        x_min -= 1
-        x_max -= 1
+        x_min -= 0
+        x_max -= 0
         y_min -= 1
         y_max -= 1
+        
+    # if stamp_size is odd add extra
+    if (stamp_size[0] % 2 == 1):
+        x_max += 1
+        y_max += 1
 
     if verbose:
         print(x_min, x_max, y_min, y_max)
+        print()
 
     return (slice(y_min, y_max), slice(x_min, x_max))
 

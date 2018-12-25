@@ -606,30 +606,42 @@ def get_photon_flux_params(filter_name='V'):
     return photon_flux_values.get(filter_name)
 
 
-def get_adaptive_aperture_pixels(target_psc, frame_idx, num_stds=1, make_plots=False, target_dir=None, picid=None):
+def get_adaptive_aperture_pixels(target_stamp=None,
+                                 target_psc=None,
+                                 frame_idx=None,
+                                 num_stds=1,
+                                 make_plots=False,
+                                 target_dir=None,
+                                 picid=None,
+                                 plot_title=None,
+                                ):
+    
+    if target_stamp is None:
+        if target_psc is not None and frame_idx is not None:
+            stamp_size = int(np.sqrt(target_psc.shape[1]))
+            # Get the stamp
+            target_stamp = np.array(target_psc.iloc[frame_idx]).reshape(stamp_size, stamp_size)
+        else:
+            raise UserWarning(f'Must pass either target_stamp or target_psc and a frame_idx.')
+            
+    rgb_masks = get_rgb_masks(target_stamp, force_new=True)
+    
     if make_plots:
         if not target_dir or not os.path.isdir(target_dir):
             raise UserWarning(f'Target dir not valid: {target_dir}')
             
-        if not picid:
-            raise UserWarning(f'Please include picide for plot title')
+        if not frame_idx:
+            raise UserWarning(f'frame_idx needed for saving filename')
             
         fig = Figure()
         FigureCanvas(fig)
         plt.style.use('bmh')
         ax = fig.add_subplot(111)
-        #fig, ax = plt.subplots(constrained_layout=True)
         fig.set_size_inches(9, 6)
-        
-    stamp_size = int(np.sqrt(target_psc.shape[0]))
-
-    # Get the stamp
-    s0 = np.array(target_psc.iloc[frame_idx]).reshape(stamp_size, stamp_size)
-    rgb_masks = get_rgb_masks(s0)
 
     pixels_to_use = dict()
     for color in 'rgb':
-        color_data = np.ma.array(s0.copy(), mask=~rgb_masks[color]).compressed()
+        color_data = np.ma.array(target_stamp.copy(), mask=~rgb_masks[color]).compressed()
         num_pixels = len(color_data)
 
         # Reverse order by brightest pixels
@@ -650,7 +662,6 @@ def get_adaptive_aperture_pixels(target_psc, frame_idx, num_stds=1, make_plots=F
 
         # Get two std of fit
         within_std = (g(smooth_x).std() + 1) * num_stds
-        print(color, within_std)
         
         # Note that this can have issues if two pixels have the exact same value,
         # in which case it will include both of them.
@@ -658,7 +669,7 @@ def get_adaptive_aperture_pixels(target_psc, frame_idx, num_stds=1, make_plots=F
 
         # Find the pixel locations within the number of stds
         top_pixels = c1[:num_nonzero]
-        top_pixel_locations = np.argwhere(np.isin(s0, top_pixels))
+        top_pixel_locations = np.argwhere(np.isin(target_stamp, top_pixels))
         pixels_to_use[color] = top_pixel_locations
 
         if make_plots:
@@ -675,13 +686,20 @@ def get_adaptive_aperture_pixels(target_psc, frame_idx, num_stds=1, make_plots=F
 
             ax.set_xlim([-0.5, 10])
             ax.set_ylim([-0.2, 1.5])
-            ax.set_title(f'PICID {picid} Frame {frame_idx:03d} Adaptive Pixel Aperture within {num_stds}σ')
+            
+            if not plot_title:
+                plot_title = f'Adaptive Pixel Aperture within {num_stds}σ'
+            try:
+                ax.set_title(f'PICID {picid} Frame {frame_idx:03d} {plot_title}')
+            except TypeError:
+                ax.set_title(plot_title)
+                
             ax.legend()
 
     if make_plots:
         # Stamp inset
         ax2 = fig.add_axes([.4, .55, .3, .3])
-        cax = ax2.imshow(s0, origin='lower', norm=LogNorm())
+        cax = ax2.imshow(target_stamp, origin='lower', norm=LogNorm())
         cbar = fig.colorbar(cax)
         cbar.ax.set_ylabel('Flux Counts')
 

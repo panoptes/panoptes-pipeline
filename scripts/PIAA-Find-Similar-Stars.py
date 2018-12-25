@@ -36,6 +36,8 @@ from tqdm import tqdm
 from pocs.utils import current_time
 from pocs.utils.logger import get_root_logger
 
+from piaa.utils import pipeline
+
 import logging
 logger = get_root_logger()
 logger.setLevel(logging.DEBUG)
@@ -48,18 +50,20 @@ SAVE_NUM=500
 def find_similar(find_params):
     """ The worker thread to find the stars """
     
-    psc_fn = find_params[0]
+    picid = find_params[0]
     params = find_params[1]
     
+    picid_list = params['picid_list']
     base_dir = params['base_dir']
     processed_dir = params['processed_dir']
     force = params['force']
     camera_bias = params['camera_bias']
-    psc_dir = os.path.dirname(psc_fn)
     
-    # Get the relative path starting from processed_dir; picid is then first folder.
-    picid = os.path.relpath(psc_fn, start=processed_dir).split('/')[0]
+    fields_dir = os.path.join(os.environ['PANDIR'], 'images', 'fields')
+    image_dir = os.path.join(fields_dir, base_dir)
     
+    psc_dir = os.path.join(processed_dir, str(picid), base_dir)
+    psc_fn = os.path.normpath(os.path.join(psc_dir, 'psc.csv'))
     similar_fn = os.path.normpath(os.path.join(psc_dir, 'similar_sources.csv'))
     
     if force or not os.path.exists(similar_fn): 
@@ -76,17 +80,17 @@ def find_similar(find_params):
 
         # Loop through all other stamp files.
         vary = dict()
-        for comp_psc_fn in psc_files:
-            # See note on picid above.
-            ref_picid = os.path.relpath(comp_psc_fn, start=processed_dir).split('/')[0]
+        for ref_picid in picid_list:
+            ref_psc_fn = os.path.normpath(os.path.join(processed_dir, str(ref_picid), base_dir, 'psc.csv'))
 
             # Normalize reference PSC.
-            ref_table = pd.read_csv(comp_psc_fn).set_index(['obstime', 'picid'])
+            ref_table = pd.read_csv(ref_psc_fn).set_index(['obstime', 'picid'])
             ref_psc = np.array(ref_table) - camera_bias
 
             # Normalize
             normalized_ref_psc = (ref_psc.T / ref_psc.sum(1)).T
 
+            # NOTE TODO: Make sure the index aligns!!!!
             try:
                 score = ((normalized_target_psc - normalized_ref_psc)**2).sum()
                 vary[ref_picid] = score
@@ -108,17 +112,31 @@ def main(base_dir,
     ):
     print(f'Finding similar stars for observation in {base_dir}')
     
+    fields_dir = os.path.join(os.environ['PANDIR'], 'images', 'fields')
+    source_filename = os.path.join(fields_dir, base_dir, f'point-sources-filtered.csv.bz2')
+    assert os.path.isfile(source_filename)
+    print(f'Using sources in {source_filename}')
+
+    # Get the sources
+    sources = pipeline.lookup_sources_for_observation(filename=source_filename).set_index(['picid'], append=True)
+    
     if picid:
-        print(f'Searching for picid={picid}')
-        processed_dir_glob = os.path.join(processed_dir, str(picid), base_dir) 
-    else:
-        processed_dir_glob = os.path.join(processed_dir, '*', base_dir) 
+        print(f"Creating stamp for {picid}")
+        sources = sources.query(f'picid == {picid}')
         
-    psc_files = glob(os.path.join(processed_dir_glob, 'psc.csv'), recursive=True)
+        if not len(sources):
+            print(f"{picid} does not exist, exiting")
+            return
         
-    print(f'Found {len(psc_files)} PSC files')
+    picid_list = list(sources.index.levels[1].unique())
+    
+    # Used for progress display
+    num_sources = len(picid_list)
+    
+    print(f'Finding similar stars for {num_sources} sources')   
     
     call_params = {
+        'picid_list': picid_list,  # Pass the full list
         'base_dir': base_dir,
         'processed_dir': processed_dir,
         'force': force,
@@ -126,13 +144,13 @@ def main(base_dir,
     }
                                   
     # Build up the parameter list (NB: "clever" zip_longest usage)
-    params = zip_longest(psc_files, [], fillvalue=call_params)
+    params = zip_longest(picid_list, [], fillvalue=call_params)
     
     start_time = current_time()
     print(f'Starting at {start_time}')
 
     with concurrent.futures.ProcessPoolExecutor(max_workers=num_workers) as executor:
-        picids = list(tqdm(executor.map(find_similar, params, chunksize=chunk_size), total=len(psc_files)))
+        picids = list(tqdm(executor.map(find_similar, params, chunksize=chunk_size), total=len(picid_list)))
         logging.debug(f'Found similar stars for {len(picids)} sources')
             
     end_time = current_time()

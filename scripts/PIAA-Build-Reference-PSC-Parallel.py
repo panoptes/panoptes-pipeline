@@ -46,6 +46,7 @@ def build_ref(build_params):
     force = params['force']
     aperture_size = params['aperture_size']
     camera_bias = params['camera_bias']
+    gain = params['gain']
     num_refs = params['num_refs']
     frame_slice = params['frame_slice']
     table_filter = params['table_filter']
@@ -105,8 +106,8 @@ def build_ref(build_params):
         if i == 0:  # Target
             image_times = pd.to_datetime(ref_table.index.levels[0].values)
 
-        # Load the data and remove the bias.
-        ref_psc = np.array(ref_table) - camera_bias
+        # Load the data, remove the bias, apply the gain
+        ref_psc = (np.array(ref_table) - camera_bias) * gain
         logger.debug(f'{i} Reference PSC {ref_psc.shape}')
         psc_collection.append(ref_psc)
         good_i += 1
@@ -127,7 +128,7 @@ def build_ref(build_params):
         target_psc = psc_collection[0]
         num_frames = psc_collection.shape[1]
     except IndexError as e:
-        logger.warning(f'Problem in {picid} PSC collection {psc_collection.shape}: e')
+        logger.warning(f'Problem in {picid} PSC collection {psc_collection.shape}: {e}')
         return
 
     # Get a normalized version of the entire stamp collection
@@ -292,6 +293,7 @@ def plot_normalized_lightcurve(picid, lc0, psc_dir):
 def main(base_dir,
          processed_dir=None,
          camera_bias=2048,
+         gain=1.5,
          frame_slice=None,
          table_filter=None,
          num_refs=50,
@@ -324,6 +326,7 @@ def main(base_dir,
         'table_filter': table_filter,
         'num_refs': num_refs,
         'camera_bias': camera_bias,
+        'gain': gain,
         'make_plots': make_plots,
         'aperture_size': aperture_size
     }
@@ -362,6 +365,7 @@ if __name__ == '__main__':
                              "this observation inside the PICID dir. Defaults to $PANDIR/processed/."
                             ))
     parser.add_argument('--aperture-size', default=5, type=int, help="Aperture size for photometry")
+    parser.add_argument('--gain', default=1.5, type=float, help="Gain (e-/pixel)")
     parser.add_argument('--num-refs', default=75, type=int, help="Number of references to use to build comparison")
     parser.add_argument('--picid', default=None, type=str, help="Create PSC only for given PICID")
     parser.add_argument('--make-plots', action='store_true', default=False, 

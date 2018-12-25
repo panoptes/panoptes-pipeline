@@ -53,6 +53,13 @@ def build_ref(build_params):
     table_filter = params['table_filter']
     make_plots = params['make_plots']
     
+    # Note: the default is no aperture_size=None, so to use adaptive,
+    # the logic is a little silly here.
+    if not aperture_size:
+        adaptive_aperture=True
+    else:
+        adaptive_aperture=False
+    
     # Get working directories.
     psc_dir = os.path.dirname(psc_fn)
     similar_dir = os.path.join(psc_dir, 'similar')
@@ -171,12 +178,19 @@ def build_ref(build_params):
         plot_apertures=make_plots,
         aperture_plot_path=os.path.join(psc_dir, 'plots', 'apertures'),
         picid=picid,
-        num_stds=num_stds
+        num_stds=num_stds,
+        aperture_size=aperture_size,
+        adaptive_aperture=adaptive_aperture
     )
 
     # Save the lightcurve dataframe to a csv file
     # NOTE: We do this before normalizing
-    lc0.to_csv(os.path.join(psc_dir, f'raw-flux-{aperture_size:02d}-{num_refs:03d}.csv'))
+    if adaptive_aperture:
+        lc_fn = f'raw-flux-std{num_stds}-refs{num_refs:03d}.csv'
+    else:
+        lc_fn = f'raw-flux-aper{num_stds}-refs{num_refs:03d}.csv'
+        
+    lc0.to_csv(os.path.join(psc_dir, lc_fn))
 
     if make_plots:
         try:
@@ -369,7 +383,7 @@ if __name__ == '__main__':
                              "this observation inside the PICID dir. Defaults to $PANDIR/processed/."
                             ))
     parser.add_argument('--num-stds', default=1, type=int, help="Number of stds for adaptive aperture")
-    parser.add_argument('--aperture-size', default=5, type=int, help="Aperture size for photometry")
+    parser.add_argument('--aperture-size', default=None, type=int, help="Aperture size for photometry, typically 5. If none, an adaptive aperture with num-stds will be used")
     parser.add_argument('--gain', default=1.5, type=float, help="Gain (e-/pixel)")
     parser.add_argument('--num-refs', default=75, type=int, help="Number of references to use to build comparison")
     parser.add_argument('--picid', default=None, type=str, help="Create PSC only for given PICID")

@@ -193,7 +193,7 @@ def get_rgb_masks(data, separate_green=False, mask_path=None, force_new=False, v
         else:
             logger.debug("Using saved masks")
             _rgb_masks = {color: loaded_masks[color] for color in loaded_masks.files}
-    except FileNotFoundError:
+    except Exception:
         logger.info("Making RGB masks")
 
         if data.ndim > 2:
@@ -624,13 +624,13 @@ def get_adaptive_aperture_pixels(target_stamp=None,
         else:
             raise UserWarning(f'Must pass either target_stamp or target_psc and a frame_idx.')
             
-    rgb_masks = get_rgb_masks(target_stamp, force_new=True)
+    rgb_masks = get_rgb_masks(target_stamp)
     
     if make_plots:
         if not target_dir or not os.path.isdir(target_dir):
             raise UserWarning(f'Target dir not valid: {target_dir}')
             
-        if not frame_idx:
+        if frame_idx is None:
             raise UserWarning(f'frame_idx needed for saving filename')
             
         fig = Figure()

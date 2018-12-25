@@ -640,11 +640,14 @@ def get_ideal_full_psc(stamp_collection, coeffs):
 def get_aperture_sums(psc0,
                       psc1,
                       image_times,
+                      adaptive_aperture=True,
+                      num_stds=1,
                       aperture_size=None,
                       separate_green=False,
                       subtract_back=False,
                       plot_apertures=False,
-                      aperture_plot_path=None
+                      aperture_plot_path=None,
+                      picid=None,
                       ):
     """Perform differential aperture photometry on the given PSCs.
 
@@ -656,14 +659,22 @@ def get_aperture_sums(psc0,
     and the corresponding pixel location in `psc1`. This aperture cutout
     is then split on color channels and for each channel the sum of
     the target, the sum of the reference, and the difference is given.
+    
+    ..todo::
+    
+        Adaptive Aperture:
 
     Args:
         psc0 (`numpy.array`): An NxM cube of source postage stamps.
         psc1 (`numpy.array`): An NxM cube to be used as the comparison.
         image_times (list(`datetime`)): A list of `datetime.datetime` objects to
             be used for an index.
+        adaptive_aperture (bool): An adaptive aperture is used, in which the brightest
+            pixels from each channel are used. See note for details.
+        num_stds (int): Number of standard deviations to use for adaptive aperture,
+            default 1.
         aperture_size (int): An aperture around the source that is used
-            for photometry, default 4 pixels.
+            for photometry, default None uses entire stamp if `adaptive_aperture=True`.
         separate_green (bool): If separate green color channels should be created,
             default False. If True, the G2 pixel is marked as `c`.
         subtract_back (bool, optional): If a background annulus should be removed
@@ -680,17 +691,18 @@ def get_aperture_sums(psc0,
 
     stamp_side = int(np.sqrt(stamp_size))
 
-    try:
-        single_frame = psc0[0].reshape(stamp_side, stamp_side)
+    if not adaptive_aperture:
+        try:
+            single_frame = psc0[0].reshape(stamp_side, stamp_side)
 
-        rgb_stamp_masks = helpers.get_rgb_masks(
-            single_frame,
-            force_new=True,
-            separate_green=separate_green
-        )
-        logger.debug('RGB stamp_masks created')
-    except ValueError as e:
-        logger.warning(f"Can't make stamp masks {e!r}")
+            rgb_stamp_masks = helpers.get_rgb_masks(
+                single_frame,
+                force_new=True,
+                separate_green=separate_green
+            )
+            logger.debug('RGB stamp_masks created')
+        except ValueError as e:
+            logger.warning(f"Can't make stamp masks {e!r}")
 
     apertures = list()
     diff = list()
@@ -699,58 +711,89 @@ def get_aperture_sums(psc0,
         # Get target and reference stamp for this frame
         t0 = psc0[frame_idx].reshape(stamp_side, stamp_side)
         i0 = psc1[frame_idx].reshape(stamp_side, stamp_side)
+        
+        if adaptive_aperture:
+            logger.debug(f'Using adaptive apertures')
+            pixel_locations = helpers.get_adaptive_aperture_pixels(target_stamp=t0,
+                                                                   frame_idx=frame_idx,
+                                                                   make_plots=plot_apertures,
+                                                                   target_dir=aperture_plot_path,
+                                                                   picid=picid,
+                                                                   num_stds=num_stds
+                                                                   )
+            logger.debug(f'Frame {frame_idx} pixel locations: {pixel_locations}')
+            
+            for color, pixel_loc in pixel_locations.items():
+                logger.debug(color, pixel_loc)
+                target_pixel_values = np.array([t0[loc[0], loc[1]] for loc in pixel_loc])
+                ideal_pixel_values = np.array([i0[loc[0], loc[1]] for loc in pixel_loc])
+                
+                t_sum = target_pixel_values.sum()
+                i_sum = ideal_pixel_values.sum()
+                
+                # Record the values.
+                diff.append({
+                    'color': color,
+                    'target': t_sum,
+                    'reference': i_sum,
+                    'obstime': image_time,
+                })
+            
+        elif aperture_size:
+            # NOTE: Bad "centroiding" here
+            y_pos, x_pos = np.argwhere(t0 == t0.max())[0]
+            aperture_position = (x_pos, y_pos)
+            center_color = helpers.pixel_color(x_pos, y_pos)
 
-        # NOTE: Bad "centroiding" here
-        y_pos, x_pos = np.argwhere(t0 == t0.max())[0]
-        aperture_position = (x_pos, y_pos)
-        center_color = helpers.pixel_color(x_pos, y_pos)
+            slice0 = None
+            if aperture_size != stamp_side:
+                logger.debug('Aperture Position: {} Size: {} Frame: {} Color: {}'.format(
+                    aperture_position, aperture_size, frame_idx, center_color))
+                slice0 = helpers.get_stamp_slice(x_pos, y_pos, stamp_size=(aperture_size, aperture_size), ignore_superpixel=True)
+                logger.debug(f'Slice for aperture: {slice0}')
 
-        logger.debug('Aperture Position: {} Size: {} Frame: {} Color: {}'.format(aperture_position, aperture_size, frame_idx, center_color))
+            for color, mask in rgb_stamp_masks.items():
 
-        slice0 = None
-        if aperture_size != stamp_side:
-            slice0 = helpers.get_stamp_slice(x_pos, y_pos, stamp_size=(aperture_size, aperture_size), ignore_superpixel=True)
-        logger.debug(f'Slice for aperture: {slice0}')
+                # Get color mask data from target and reference
+                t1 = np.ma.array(t0, mask=~mask)
+                i1 = np.ma.array(i0, mask=~mask)
 
-        for color, mask in rgb_stamp_masks.items():
+                # Make apertures
+                if slice0:
+                    try:
+                        t3 = t1[slice0]
+                        i3 = i1[slice0]
+                    except Exception as e:
+                        logger.debug(e)
+                        continue
 
-            # Get color mask data from target and reference
-            t1 = np.ma.array(t0, mask=~mask)
-            i1 = np.ma.array(i0, mask=~mask)
+                    if plot_apertures:
+                        apertures.append((t3, image_time, center_color))
+                    logger.debug(t3)
+                else:
+                    t3 = t1
+                    i3 = i1
 
-            # Make apertures
-            if slice0:
-                try:
-                    t3 = t1[slice0]
-                    i3 = i1[slice0]
-                except Exception as e:
-                    logger.debug(e)
-                    continue
+                if subtract_back:
+                    mean, median, std = sigma_clipped_stats(t3)
+                    logger.info("Average sky background for {}: {:5.2f}: {:5.2f}".format(
+                        color, mean, t3.sum()))
 
-                if plot_apertures:
-                    apertures.append((t3, image_time, center_color))
-                logger.debug(t3)
-            else:
-                t3 = t1
-                i3 = i1
+                    t3 = t3 - mean
+                    logger.info(t3.sum())
 
-            if subtract_back:
-                mean, median, std = sigma_clipped_stats(t3)
-                logger.info("Average sky background for {}: {:5.2f}: {:5.2f}".format(
-                    color, mean, t3.sum()))
+                t_sum = t3.sum()
+                i_sum = i3.sum()
 
-                t3 = t3 - mean
-                logger.info(t3.sum())
-
-            t_sum = t3.sum()
-            i_sum = i3.sum()
-
-            diff.append({
-                'color': color,
-                'target': t_sum,
-                'reference': i_sum,
-                'obstime': image_time,
-            })
+                # Record the values.
+                diff.append({
+                    'color': color,
+                    'target': t_sum,
+                    'reference': i_sum,
+                    'obstime': image_time,
+                })
+        else:
+            raise UserWarning(f'adaptive_aperture is false but no aperture_size given')
 
     # Light-curve dataframe
     lc0 = pd.DataFrame(diff).set_index(['obstime'])

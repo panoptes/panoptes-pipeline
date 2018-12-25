@@ -45,6 +45,7 @@ def build_ref(build_params):
     output_dir = params['output_dir']
     force = params['force']
     aperture_size = params['aperture_size']
+    num_stds = params['num_stds']
     camera_bias = params['camera_bias']
     gain = params['gain']
     num_refs = params['num_refs']
@@ -167,9 +168,10 @@ def build_ref(build_params):
         target_psc, 
         ideal_psc, 
         image_times,
-        aperture_size=aperture_size, 
         plot_apertures=make_plots,
-        aperture_plot_path=os.path.join(psc_dir, 'plots', 'apertures')
+        aperture_plot_path=os.path.join(psc_dir, 'plots', 'apertures'),
+        picid=picid,
+        num_stds=num_stds
     )
 
     # Save the lightcurve dataframe to a csv file
@@ -298,6 +300,7 @@ def main(base_dir,
          table_filter=None,
          num_refs=50,
          aperture_size=5,
+         num_stds=1,
          make_plots=False,
          picid=None,
          force=False,
@@ -326,6 +329,7 @@ def main(base_dir,
         'table_filter': table_filter,
         'num_refs': num_refs,
         'camera_bias': camera_bias,
+        'num_stds': num_stds,
         'gain': gain,
         'make_plots': make_plots,
         'aperture_size': aperture_size
@@ -364,6 +368,7 @@ if __name__ == '__main__':
                              "exist and a directory corresponding to the sequence id is made for "
                              "this observation inside the PICID dir. Defaults to $PANDIR/processed/."
                             ))
+    parser.add_argument('--num-stds', default=1, type=int, help="Number of stds for adaptive aperture")
     parser.add_argument('--aperture-size', default=5, type=int, help="Aperture size for photometry")
     parser.add_argument('--gain', default=1.5, type=float, help="Gain (e-/pixel)")
     parser.add_argument('--num-refs', default=75, type=int, help="Number of references to use to build comparison")

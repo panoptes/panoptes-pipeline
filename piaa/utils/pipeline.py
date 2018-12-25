@@ -707,7 +707,9 @@ def get_aperture_sums(psc0,
 
         logger.debug('Aperture Position: {} Size: {} Frame: {} Color: {}'.format(aperture_position, aperture_size, frame_idx, center_color))
 
-        slice0 = helpers.get_stamp_slice(x_pos, y_pos, stamp_size=(aperture_size, aperture_size), ignore_superpixel=True)
+        slice0 = None
+        if aperture_size != stamp_side:
+            slice0 = helpers.get_stamp_slice(x_pos, y_pos, stamp_size=(aperture_size, aperture_size), ignore_superpixel=True)
         logger.debug(f'Slice for aperture: {slice0}')
 
         for color, mask in rgb_stamp_masks.items():

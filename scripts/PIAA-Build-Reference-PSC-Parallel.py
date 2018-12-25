@@ -28,7 +28,7 @@ from pocs.utils.logger import get_root_logger
 
 import logging
 logger = get_root_logger()
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 
 plt.style.use('bmh')
 
@@ -77,12 +77,13 @@ def build_ref(build_params):
             logger.error(e)
 
     # Get the list of picids.
-    ref_picid_list = list(similar_stars.picid[:num_refs].values)
+    ref_picid_list = list(similar_stars.picid.values)
     logger.debug(f'Number references: {len(ref_picid_list)}')
 
     # Build stamp collection from references
     psc_collection = list()
     image_times = None
+    good_i = 0
     for i, ref_picid in enumerate(ref_picid_list):
         ref_psc_fn = os.path.join(processed_dir, str(ref_picid), base_dir, 'psc.csv')
         logger.debug(f'Ref PSC path: {ref_psc_fn}')
@@ -108,6 +109,9 @@ def build_ref(build_params):
         ref_psc = np.array(ref_table) - camera_bias
         logger.debug(f'{i} Reference PSC {ref_psc.shape}')
         psc_collection.append(ref_psc)
+        good_i += 1
+        if good_i == num_refs:
+            break
 
     # Big collection of PSCs.
     psc_collection = np.array(psc_collection)[:num_refs]
@@ -119,8 +123,12 @@ def build_ref(build_params):
         image_times = image_times[frame_slice]
 
     # Get target PSC (may have changed with frame_slice)
-    target_psc = psc_collection[0]
-    num_frames = psc_collection.shape[1]
+    try:
+        target_psc = psc_collection[0]
+        num_frames = psc_collection.shape[1]
+    except IndexError as e:
+        logger.warning(f'Problem in {picid} PSC collection {psc_collection.shape}: e')
+        return
 
     # Get a normalized version of the entire stamp collection
     normalized_collection = np.array([pipeline.normalize(s) for s in psc_collection])
@@ -353,7 +361,7 @@ if __name__ == '__main__':
                              "exist and a directory corresponding to the sequence id is made for "
                              "this observation inside the PICID dir. Defaults to $PANDIR/processed/."
                             ))
-    parser.add_argument('--aperture-size', default=5, help="Aperture size for photometry")
+    parser.add_argument('--aperture-size', default=5, type=int, help="Aperture size for photometry")
     parser.add_argument('--num-refs', default=75, type=int, help="Number of references to use to build comparison")
     parser.add_argument('--picid', default=None, type=str, help="Create PSC only for given PICID")
     parser.add_argument('--make-plots', action='store_true', default=False, 

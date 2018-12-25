@@ -10,6 +10,12 @@ from decimal import ROUND_HALF_UP
 from astropy.time import Time
 from astropy.table import Table
 from astropy.wcs import WCS
+from astropy.modeling import models, fitting
+
+from matplotlib.colors import LogNorm
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
+from matplotlib.figure import Figure
 
 from piaa.utils import postgres as clouddb
 from pocs.utils.images import fits as fits_utils
@@ -599,3 +605,98 @@ def get_photon_flux_params(filter_name='V'):
 
     return photon_flux_values.get(filter_name)
 
+
+def get_adaptive_aperture_pixels(target_psc, frame_idx, num_stds=1, make_plots=False, target_dir=None, picid=None):
+    if make_plots:
+        if not target_dir or not os.path.isdir(target_dir):
+            raise UserWarning(f'Target dir not valid: {target_dir}')
+            
+        if not picid:
+            raise UserWarning(f'Please include picide for plot title')
+            
+        fig = Figure()
+        FigureCanvas(fig)
+        plt.style.use('bmh')
+        ax = fig.add_subplot(111)
+        #fig, ax = plt.subplots(constrained_layout=True)
+        fig.set_size_inches(9, 6)
+        
+    stamp_size = int(np.sqrt(target_psc.shape[0]))
+
+    # Get the stamp
+    s0 = np.array(target_psc.iloc[frame_idx]).reshape(stamp_size, stamp_size)
+    rgb_masks = get_rgb_masks(s0)
+
+    pixels_to_use = dict()
+    for color in 'rgb':
+        color_data = np.ma.array(s0.copy(), mask=~rgb_masks[color]).compressed()
+        num_pixels = len(color_data)
+
+        # Reverse order by brightest pixels
+        c0 = np.sort(color_data)
+        c1 = np.flip(c0.copy())
+
+        # Zero and normalize
+        c2 = c1 - c1.mean()
+        c2 /= c2.max()
+
+        # Fit the data using a Gaussian
+        g_init = models.Gaussian1D(amplitude=1., mean=0, stddev=1.)
+        fit_g = fitting.LevMarLSQFitter()
+        smooth_x = np.linspace(0, 50, 500)    
+        x = np.linspace(-1 * num_pixels, num_pixels, num_pixels * 2)
+        y = np.append(np.flip(c2), c2)
+        g = fit_g(g_init, x, y)        
+
+        # Get two std of fit
+        within_std = (g(smooth_x).std() + 1) * num_stds
+        print(color, within_std)
+        
+        # Note that this can have issues if two pixels have the exact same value,
+        # in which case it will include both of them.
+        num_nonzero = int(len(np.argwhere(c2[:int(within_std) + 1])))
+
+        # Find the pixel locations within the number of stds
+        top_pixels = c1[:num_nonzero]
+        top_pixel_locations = np.argwhere(np.isin(s0, top_pixels))
+        pixels_to_use[color] = top_pixel_locations
+
+        if make_plots:
+            # The data
+            ax.plot(np.arange(num_pixels), c2,
+                    color=color, marker='o', ms=8, ls='-.', alpha=0.5, label=f'{color}')
+
+            # The gaussian fit
+            ax.plot(np.linspace(0, 50, 500), g(np.linspace(0, 50, 500)), color=color, lw=3, label=f'{color} gaussian')
+
+            # Axes helper lines - two std and zero
+            ax.axvline(within_std, color=color, ls='--')
+            ax.axhline(0, color='k', ls='--')
+
+            ax.set_xlim([-0.5, 10])
+            ax.set_ylim([-0.2, 1.5])
+            ax.set_title(f'PICID {picid} Frame {frame_idx:03d} Adaptive Pixel Aperture within {num_stds}σ')
+            ax.legend()
+
+    if make_plots:
+        # Stamp inset
+        ax2 = fig.add_axes([.4, .55, .3, .3])
+        cax = ax2.imshow(s0, origin='lower', norm=LogNorm())
+        cbar = fig.colorbar(cax)
+        cbar.ax.set_ylabel('Flux Counts')
+
+        # Mark the selected pixels
+        for color, top_pixel_locations in pixels_to_use.items():
+            ax2.scatter([idx[1] for idx in top_pixel_locations],
+                        [idx[0] for idx in top_pixel_locations], marker='x', color=color, s=100)
+            ax2.set_xticks([])
+            ax2.set_yticks([])    
+
+        aperture_plot_dir = os.path.join(target_dir, 'plots', 'apertures', 'adaptive')
+        os.makedirs(aperture_plot_dir, exist_ok=True)
+        plot_fn = os.path.normpath(os.path.join(aperture_plot_dir, f'{frame_idx:03d}-std{num_stds}.png'))
+
+        #fig.set_tight_layout(True)
+        fig.savefig(plot_fn, transparent=False, dpi=150, bbox_inches='tight')
+    
+    return pixels_to_use

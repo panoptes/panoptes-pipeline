@@ -13,12 +13,12 @@ logger.setLevel(logging.DEBUG)
 def get_stamp_noise(
         stamp,
         exptime,           # seconds
-        camera_bias=2048,  # ADU
+        camera_bias=0,  # ADU
         gain=1.5,          # e- / ADU
         readout_noise=10.5, # e-
         return_detail=False
     ):
-    """Gets the noise for a stamp computed from given values. """
+    """Gets the noise for a stamp computed from given values."""
 
     if hasattr(stamp, 'mask'):
         num_pixels = np.count_nonzero(~stamp.mask)
@@ -35,7 +35,8 @@ def get_stamp_noise(
     back_mean, back_median, back_std = sigma_clipped_stats(stamp_electrons)
     
     # Get background subtracted electrons
-    electron_sum = (stamp_electrons - back_mean).sum()
+    #electron_sum = (stamp_electrons - back_mean).sum()
+    electron_sum = stamp_electrons.sum()
 
     if electron_sum <= 0:
         raise ValueError("Negative electrons found")

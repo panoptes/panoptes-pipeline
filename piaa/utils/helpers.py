@@ -609,13 +609,14 @@ def get_photon_flux_params(filter_name='V'):
 def get_adaptive_aperture_pixels(target_stamp=None,
                                  target_psc=None,
                                  frame_idx=None,
-                                 num_stds=1,
+                                 num_stds=2,
                                  make_plots=False,
                                  target_dir=None,
                                  picid=None,
-                                 plot_title=None,
+                                 plot_title=None
                                 ):
     
+    # Get the target stamp if full PSC passed.
     if target_stamp is None:
         if target_psc is not None and frame_idx is not None:
             stamp_size = int(np.sqrt(target_psc.shape[1]))
@@ -627,8 +628,9 @@ def get_adaptive_aperture_pixels(target_stamp=None,
     rgb_masks = get_rgb_masks(target_stamp)
     
     if make_plots:
-        if not target_dir or not os.path.isdir(target_dir):
+        if not target_dir:
             raise UserWarning(f'Target dir not valid: {target_dir}')
+        os.makedirs(target_dir, exist_ok=True)
             
         if frame_idx is None:
             raise UserWarning(f'frame_idx needed for saving filename')
@@ -644,7 +646,7 @@ def get_adaptive_aperture_pixels(target_stamp=None,
         color_data = np.ma.array(target_stamp.copy(), mask=~rgb_masks[color]).compressed()
         num_pixels = len(color_data)
 
-        # Reverse order by brightest pixels
+        # Sort so brightest pixel is first in list.
         c0 = np.sort(color_data)
         c1 = np.flip(c0.copy())
 
@@ -675,17 +677,18 @@ def get_adaptive_aperture_pixels(target_stamp=None,
         if make_plots:
             # The data
             ax.plot(np.arange(num_pixels), c2,
-                    color=color, marker='o', ms=8, ls='-.', alpha=0.5, label=f'{color}')
+                    color=color, marker='o', ms=8, ls='-.', alpha=0.5, label=f'{color} norm')
 
             # The gaussian fit
-            ax.plot(np.linspace(0, 50, 500), g(np.linspace(0, 50, 500)), color=color, lw=3, label=f'{color} gaussian')
+            ax.plot(np.linspace(0, 50, 500), g(np.linspace(0, 50, 500)),
+                    color=color, lw=3, label=f'{color} gauss')
 
             # Axes helper lines - two std and zero
             ax.axvline(within_std, color=color, ls='--')
             ax.axhline(0, color='k', ls='--')
 
             ax.set_xlim([-0.5, 10])
-            ax.set_ylim([-0.2, 1.5])
+            #ax.set_ylim([-0.2, 1.5])
             
             if not plot_title:
                 plot_title = f'Adaptive Pixel Aperture within {num_stds}σ'
@@ -698,7 +701,7 @@ def get_adaptive_aperture_pixels(target_stamp=None,
 
     if make_plots:
         # Stamp inset
-        ax2 = fig.add_axes([.4, .55, .3, .3])
+        ax2 = fig.add_axes([.42, .55, .3, .3])
         cax = ax2.imshow(target_stamp, origin='lower', norm=LogNorm())
         cbar = fig.colorbar(cax)
         cbar.ax.set_ylabel('Flux Counts')

@@ -641,8 +641,10 @@ def get_aperture_sums(psc0,
                       psc1,
                       image_times,
                       adaptive_aperture=True,
-                      num_stds=1,
+                      num_stds=2,
                       aperture_size=None,
+                      readout_noise=10.5,
+                      gain=1.5,
                       separate_green=False,
                       subtract_back=False,
                       plot_apertures=False,
@@ -672,9 +674,12 @@ def get_aperture_sums(psc0,
         adaptive_aperture (bool): An adaptive aperture is used, in which the brightest
             pixels from each channel are used. See note for details.
         num_stds (int): Number of standard deviations to use for adaptive aperture,
-            default 1.
+            default 2.
         aperture_size (int): An aperture around the source that is used
             for photometry, default None uses entire stamp if `adaptive_aperture=True`.
+        readout_noise (float): Readout noise in e- / pixel, default 10.5.
+        gain (float): Camera gain in e- / ADU, default 1.5. TODO: Alter this for per
+            channel gain.
         separate_green (bool): If separate green color channels should be created,
             default False. If True, the G2 pixel is marked as `c`.
         subtract_back (bool, optional): If a background annulus should be removed
@@ -728,14 +733,26 @@ def get_aperture_sums(psc0,
                 target_pixel_values = np.array([t0[loc[0], loc[1]] for loc in pixel_loc])
                 ideal_pixel_values = np.array([i0[loc[0], loc[1]] for loc in pixel_loc])
                 
-                t_sum = target_pixel_values.sum()
-                i_sum = ideal_pixel_values.sum()
+                # Get the sum in electrons
+                t_sum = (target_pixel_values * gain).sum()
+                i_sum = (ideal_pixel_values * gain).sum()
+                
+                # Add the noise
+                target_photon_noise = np.sqrt(t_sum)
+                ideal_photon_noise = np.sqrt(i_sum)
+                
+                readout = readout_noise * len(pixel_loc)
+                
+                target_total_noise = np.sqrt(target_photon_noise**2 + readout**2)
+                ideal_total_noise = np.sqrt(ideal_photon_noise**2 + readout**2)
                 
                 # Record the values.
                 diff.append({
                     'color': color,
                     'target': t_sum,
+                    'target_err': target_total_noise,
                     'reference': i_sum,
+                    'reference_err': ideal_total_noise,
                     'obstime': image_time,
                 })
             

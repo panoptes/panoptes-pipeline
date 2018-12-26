@@ -14,6 +14,8 @@ from matplotlib import rc
 from matplotlib import pyplot as plt
 from matplotlib import gridspec
 from cycler import cycler as cy
+from matplotlib.ticker import PercentFormatter
+from matplotlib.gridspec import GridSpec
 
 from astropy.coordinates import Angle
 from astropy.modeling import models, fitting
@@ -498,7 +500,7 @@ def make_apertures_plot(apertures, title=None, num_frames=None, output_dir=None)
             fig.savefig(aperture_fn)
 
 
-def plot_lightcurve(x, y, model_flux=None, use_imag=False, transit_info=None, color='k', **kwargs):
+def plot_lightcurve_old(x, y, model_flux=None, use_imag=False, transit_info=None, color='k', **kwargs):
     """Plot the lightcurve
 
     Args:
@@ -571,3 +573,93 @@ def plot_lightcurve(x, y, model_flux=None, use_imag=False, transit_info=None, co
 
     return fig
 
+
+def plot_lightcurve(lc1, base_model_flux=None, transit_datetimes=None, title=None):
+    # Setup figure
+    #fig = plt.figure(figsize=(14, 7), facecolor='white')
+    fig = Figure()
+    FigureCanvas(fig)
+    fig.set_size_inches(14, 7)
+    fig.set_facecolor('white')
+
+    grid_size = (3, 4)
+
+    # Axis for light curve
+    #ax = plt.subplot2grid(grid_size, (0, 0), colspan=3, rowspan=3, fig=fig)
+    spec1 = GridSpec(*grid_size).new_subplotspec((0, 0), colspan=3, rowspan=3)
+    ax = fig.add_subplot(spec1)
+
+    offset = 0  # offset
+    delta_offset = 0  # offset delta
+
+    for i, color in enumerate('rgb'):
+
+        # Get the normalized flux for each channel 
+        color_data = lc1.loc[lc1.color == color]
+
+        # Target and error
+        t0 = color_data.target
+        t0_err = color_data.target_err
+
+        # Reference and error
+        r0 = color_data.reference
+        r0_err = color_data.reference_err
+
+        # Get the differential flux and error
+        diff_flux = t0 / r0
+        diff_err = np.sqrt(t0_err**2 + r0_err**2)
+
+        # Sigma clip the differential flux
+        f0 = sigma_clip(diff_flux, sigma=3)
+        f0_err = np.ma.array(diff_err, mask=f0.mask)
+        f0_index = np.ma.array(color_data.index, mask=f0.mask)
+
+        # Model flux
+        if base_model_flux is None:
+            base_model_flux = np.ones_like(f0)
+        else:
+            # Mask the sigma clipped frames
+            base_model_flux = np.ma.array(base_model_flux, mask=f0.mask)    
+
+        ax.plot(f0_index, base_model_flux, ls='--', color='r', lw=3)
+
+        # Build dataframe for differntial flux
+        flux_df = pd.DataFrame({'flux': f0 + offset, 'flux_err': f0_err}, index=f0_index).dropna()
+
+        # Show the plot
+        flux_df.flux.plot(yerr=flux_df.flux_err, 
+                          marker='o', ls='', alpha=0.25, color=color,
+                          ax=ax,
+                          label=f'{color}')
+
+        # Residual axis
+        spec = GridSpec(*grid_size).new_subplotspec((i, 3))
+        res_ax = fig.add_subplot(spec)
+        
+        #res_ax = plt.subplot2grid(grid_size, (i, 3))
+        res_ax.set_xticks([])
+        res_ax.yaxis.tick_right()
+        res_ax.yaxis.set_major_formatter(PercentFormatter(xmax=1, decimals=0))
+
+        # Residual
+        residual = f0 - base_model_flux
+        res_ax.hist(residual, orientation='horizontal', color=color, alpha=0.5)
+        res_ax.axhline(0, ls='--', color='k', alpha=0.25)
+        res_ax.set_title(f'{color}  σ={residual.std():.2%}')
+
+        # Add the offset
+        offset += delta_offset
+        # Reset for now
+        base_model_flux = None
+
+    if transit_datetimes is not None:
+        midpoint, ingress, egress = transit_datetimes
+        ax.axvline(midpoint, ls='-.', c='g', alpha=0.5)
+        ax.axvline(ingress, ls='--', c='k', alpha=0.5)
+        ax.axvline(egress, ls='--', c='k', alpha=0.5)
+
+    if title is not None:
+        fig.suptitle(title, fontsize=18)
+    ax.legend()
+
+    return fig

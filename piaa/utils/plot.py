@@ -631,6 +631,8 @@ def plot_lightcurve(lc1, base_model_flux=None, transit_datetimes=None, title=Non
                           marker='o', ls='', alpha=0.25, color=color,
                           ax=ax,
                           label=f'{color}')
+        
+        ax.set_ylim([0.93, 1.07])
 
         # Residual axis
         spec = GridSpec(*grid_size).new_subplotspec((i, 3))

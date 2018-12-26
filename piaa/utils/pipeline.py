@@ -833,3 +833,35 @@ def get_imag(x, t=1):
         float|list(float): Instrumental magnitudes.
     """
     return -2.5 * np.log10(x / t)
+
+
+def normalize_lightcurve(lc0, method='median', use_frames=None, verbose=False):
+    """ Normalize the lightcurve data """
+    # Make a copy
+    lc1 = lc0.copy()
+
+    methods = {
+        'median': lambda x: np.median(x),
+        'mean': lambda x: np.mean(x)
+    }
+
+    use_norm = methods[method]
+    if use_frames is None:
+        use_frames = slice(None)
+    norm_data = lc1[use_frames].groupby('color')
+
+    for field in ['reference', 'target']:
+        color_normer = norm_data[field].apply(use_norm)
+
+        for color, normalizer in color_normer.iteritems():
+            if verbose:
+                print(f"{field} {color} μ={normalizer:.04f}")
+
+            # Get the raw values
+            raw_values = lc1.loc[lc1.color == color, (f'{field}')]
+            raw_error = lc1.loc[lc1.color == color, (f'{field}_err')]
+
+            lc1.loc[lc1.color == color, (f'{field}')] = (raw_values / normalizer)
+            lc1.loc[lc1.color == color, (f'{field}_err')] = (raw_error / normalizer)
+            
+    return lc1

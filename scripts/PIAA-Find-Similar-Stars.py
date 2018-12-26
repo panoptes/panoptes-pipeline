@@ -74,29 +74,38 @@ def find_similar(find_params):
         # Normalize
         normalized_target_psc = (target_psc.T / target_psc.sum(1)).T
 
-        # Get all the psc files.
-        processed_dir_glob = os.path.join(processed_dir, '*', base_dir) 
-        psc_files = glob(os.path.join(processed_dir_glob, 'psc.csv'), recursive=True)
-
         # Loop through all other stamp files.
         vary = dict()
+        j = 0
         for ref_picid in picid_list:
             ref_psc_fn = os.path.normpath(os.path.join(processed_dir, str(ref_picid), base_dir, 'psc.csv'))
 
             # Normalize reference PSC.
             ref_table = pd.read_csv(ref_psc_fn).set_index(['obstime', 'picid'])
-            ref_psc = np.array(ref_table) - camera_bias
+            
+            # Align index with target
+            include_frames = ref_table.index.levels[0].isin(target_table.index.levels[0])            
+            # Get PSC for matching frames
+            ref_psc = np.array(ref_table.loc[include_frames]) - camera_bias
 
             # Normalize
             normalized_ref_psc = (ref_psc.T / ref_psc.sum(1)).T
+            
+            if normalized_ref_psc.shape != normalized_target_psc.shape:
+                logger.debug(f"PSC shapes don't match, skipping {ref_picid} ({ref_psc.shape}) for {picid} ({target_psc.shape})")
+                continue
 
             # NOTE TODO: Make sure the index aligns!!!!
+            # NOTE: This is because we took frame in the Source Detection step where they
+            # existed for 98% of total frames but not necessarily the same frames.
             try:
                 score = ((normalized_target_psc - normalized_ref_psc)**2).sum()
                 vary[ref_picid] = score
+                j += 1
             except ValueError as e:
                 logger.warning(f'{picid} Error in finding similar star: {e}')
 
+        logger.debug(f'Found similar stars for {picid} by looking at {j} of {len(picid_list)} sources')
         vary_series = pd.Series(vary).sort_values()
         vary_series[:SAVE_NUM].to_csv(similar_fn)
     
@@ -140,11 +149,14 @@ def main(base_dir,
         'base_dir': base_dir,
         'processed_dir': processed_dir,
         'force': force,
-        'camera_bias': camera_bias
+        'camera_bias': camera_bias,
     }
                                   
     # Build up the parameter list (NB: "clever" zip_longest usage)
-    params = zip_longest(picid_list, [], fillvalue=call_params)
+    if picid:
+        params = zip_longest([picid], [], fillvalue=call_params)
+    else:
+        params = zip_longest(picid_list, [], fillvalue=call_params)
     
     start_time = current_time()
     print(f'Starting at {start_time}')

@@ -48,6 +48,7 @@ def build_ref(build_params):
     num_stds = params['num_stds']
     camera_bias = params['camera_bias']
     gain = params['gain']
+    readout_noise = params['readout_noise']
     num_refs = params['num_refs']
     frame_slice = params['frame_slice']
     table_filter = params['table_filter']
@@ -62,9 +63,7 @@ def build_ref(build_params):
     
     # Get working directories.
     psc_dir = os.path.dirname(psc_fn)
-    similar_dir = os.path.join(psc_dir, 'similar')
     logger.debug(f'PSC dir: {psc_dir}')
-    logger.debug(f'Similar dir: {similar_dir}')
     
     # Get the relative path starting from processed_dir; picid is then first folder.
     picid = os.path.relpath(psc_fn, start=processed_dir).split('/')[0]
@@ -113,17 +112,23 @@ def build_ref(build_params):
         # Get image times
         if i == 0:  # Target
             image_times = pd.to_datetime(ref_table.index.levels[0].values)
-
-        # Load the data, remove the bias, apply the gain
-        ref_psc = (np.array(ref_table) - camera_bias) * gain
-        logger.debug(f'{i} Reference PSC {ref_psc.shape}')
+            target_table = ref_table
+            
+        # Align index with target
+        include_frames = ref_table.index.levels[0].isin(target_table.index.levels[0])            
+        
+        # Get PSC for matching frames
+        ref_psc = np.array(ref_table.loc[include_frames]) - camera_bias
+        
         psc_collection.append(ref_psc)
+        
         good_i += 1
         if good_i == num_refs:
             break
 
     # Big collection of PSCs.
     psc_collection = np.array(psc_collection)[:num_refs]
+    
     logger.debug(f'PICID {picid} PSC collection size: {psc_collection.shape}')
                                   
     # Slice frames from stamp collection - NOTE: could be combined with table_filter logic
@@ -180,7 +185,9 @@ def build_ref(build_params):
         picid=picid,
         num_stds=num_stds,
         aperture_size=aperture_size,
-        adaptive_aperture=adaptive_aperture
+        adaptive_aperture=adaptive_aperture,
+        gain=gain,
+        readout_noise=readout_noise
     )
 
     # Save the lightcurve dataframe to a csv file
@@ -310,6 +317,7 @@ def main(base_dir,
          processed_dir=None,
          camera_bias=2048,
          gain=1.5,
+         readout_noise=10.5,
          frame_slice=None,
          table_filter=None,
          num_refs=50,
@@ -345,6 +353,7 @@ def main(base_dir,
         'camera_bias': camera_bias,
         'num_stds': num_stds,
         'gain': gain,
+        'readout_noise': readout_noise,
         'make_plots': make_plots,
         'aperture_size': aperture_size
     }
@@ -382,9 +391,10 @@ if __name__ == '__main__':
                              "exist and a directory corresponding to the sequence id is made for "
                              "this observation inside the PICID dir. Defaults to $PANDIR/processed/."
                             ))
-    parser.add_argument('--num-stds', default=1, type=int, help="Number of stds for adaptive aperture")
+    parser.add_argument('--num-stds', default=2, type=int, help="Number of stds for adaptive aperture")
     parser.add_argument('--aperture-size', default=None, type=int, help="Aperture size for photometry, typically 5. If none, an adaptive aperture with num-stds will be used")
-    parser.add_argument('--gain', default=1.5, type=float, help="Gain (e-/pixel)")
+    parser.add_argument('--gain', default=1.5, type=float, help="Gain (e-/ADU)")
+    parser.add_argument('--readout-noise', default=10.5, type=float, help="Readout noise (e-/pixel)")
     parser.add_argument('--num-refs', default=75, type=int, help="Number of references to use to build comparison")
     parser.add_argument('--picid', default=None, type=str, help="Create PSC only for given PICID")
     parser.add_argument('--make-plots', action='store_true', default=False, 

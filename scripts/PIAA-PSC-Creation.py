@@ -131,6 +131,7 @@ def main(base_dir=None,
 
     print(f'Starting at {start_time}')
 
+    # Run everything in parallel.
     with concurrent.futures.ProcessPoolExecutor(max_workers=num_workers) as executor:
         grouped_sources = sources.groupby('picid')
 
@@ -155,7 +156,7 @@ if __name__ == '__main__':
                         help=("All artifacts are processed and placed in this directory. "
                               "A subdirectory will be created for each PICID if it does not "
                               "exist and a directory corresponding to the sequence id is made for "
-                              "this observation inside the PICID dir. Defaults to $PANDIR/processed/."
+                              "this observation inside the PICID dir. Default $PANDIR/processed/."
                               ))
     parser.add_argument('--stamp-size', default=10, help="Square stamp size")
     parser.add_argument('--picid', default=None, type=str, help="Create PSC only for given PICID")

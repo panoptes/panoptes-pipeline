@@ -844,7 +844,18 @@ def get_imag(x, t=1):
 
 
 def normalize_lightcurve(lc0, method='median', use_frames=None, verbose=False):
-    """ Normalize the lightcurve data """
+    """Normalize the lightcurve data, including errors.
+
+    Args:
+        lc0 (`pandas.DataFrame`): Dataframe with light curve values.
+        method (str, optional): The normalization method used, either `median` (default) or `mean`.
+        use_frames (None, optional): A `slice` object to select frame for normalization, e.g. the
+            pre-ingress or post-egress frames.
+        verbose (bool, optional): If we should output values, default False.
+
+    Returns:
+        `pandas.DataFrame`: A copy of the dataframe with normalized light curve values and error.
+    """
     # Make a copy
     lc1 = lc0.copy()
 

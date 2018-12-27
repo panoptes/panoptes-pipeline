@@ -39,9 +39,6 @@ def normalize(cube):
     return (cube.T / cube.sum(1)).T
 
 def lookup_sources_for_observation(fits_files=None, filename=None, force_new=False, cursor=None, use_intersection=False):
-    if not cursor:
-        cursor = get_cursor(port=5433, db_name='v6', db_user='postgres')
-
 
     if force_new:
         logger.info(f'Forcing a new source file')
@@ -55,6 +52,9 @@ def lookup_sources_for_observation(fits_files=None, filename=None, force_new=Fal
         observation_sources.rename(columns={'id': 'picid'}, inplace=True)
 
     except FileNotFoundError:
+        if not cursor:
+            cursor = get_cursor(port=5433, db_name='v6', db_user='postgres')
+            
         logger.info(f'Looking up sources in {len(fits_files)} files')
         observation_sources = None
 

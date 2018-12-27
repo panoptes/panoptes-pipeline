@@ -870,17 +870,20 @@ def normalize_lightcurve(lc0, method='median', use_frames=None):
     data_to_normalize = lc1[use_frames].groupby('color')
 
     for field in ['reference', 'target']:
+        field_to_normalize = data_to_normalize[field]
+
         # Apply the normalization.
-        color_normer = data_to_normalize[field].apply(use_method)
+        normalization_values = field_to_normalize.apply(use_method)
 
-        for color, normalizer in color_normer.iteritems():
-            logging.info(f"{field} {color} μ={normalizer:.04f}")
+        for color, norm_value in normalization_values.iteritems():
+            logging.info(f"{field} {color} μ={norm_value:.04f}")
 
-            # Get the raw values
+            # Get the raw values.
             raw_values = lc1.loc[lc1.color == color, (f'{field}')]
             raw_error = lc1.loc[lc1.color == color, (f'{field}_err')]
 
-            lc1.loc[lc1.color == color, (f'{field}')] = (raw_values / normalizer)
-            lc1.loc[lc1.color == color, (f'{field}_err')] = (raw_error / normalizer)
+            # Replace with normalized versions.
+            lc1.loc[lc1.color == color, (f'{field}')] = (raw_values / norm_value)
+            lc1.loc[lc1.color == color, (f'{field}_err')] = (raw_error / norm_value)
 
     return lc1

@@ -65,8 +65,7 @@ def make_psc(make_params):
 
             # Get the stamp for the target
             try:
-                target_slice = helpers.get_stamp_slice(row.x,
-                                                       row.y,
+                target_slice = helpers.get_stamp_slice(row.x, row.y,
                                                        stamp_size=stamp_size,
                                                        ignore_superpixel=False
                                                        )
@@ -109,8 +108,7 @@ def main(base_dir=None,
     num_sources = len(list(sources.index.levels[1].unique()))
 
     # Add full path to filename in table.
-    sources['file'] = [os.path.join(fields_dir, base_dir, row.file)
-                       for _, row in sources.iterrows()]
+    sources.file = sources.file.apply(lambda fn: os.path.join(fields_dir, base_dir, fn))
 
     if picid:
         print(f"Creating stamp for {picid}")

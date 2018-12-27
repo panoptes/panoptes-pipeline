@@ -574,7 +574,10 @@ def plot_lightcurve_old(x, y, model_flux=None, use_imag=False, transit_info=None
     return fig
 
 
-def plot_lightcurve(lc1, base_model_flux=None, transit_datetimes=None, title=None):
+def plot_lightcurve(lc1, 
+                    base_model_flux=None, 
+                    transit_datetimes=None, 
+                    title=None):
     # Setup figure
     #fig = plt.figure(figsize=(14, 7), facecolor='white')
     fig = Figure()
@@ -628,7 +631,7 @@ def plot_lightcurve(lc1, base_model_flux=None, transit_datetimes=None, title=Non
 
         # Show the plot
         flux_df.flux.plot(yerr=flux_df.flux_err, 
-                          marker='o', ls='', alpha=0.25, color=color,
+                          marker='o', ls='', alpha=0.1, color=color,
                           ax=ax,
                           label=f'{color}')
         
@@ -652,7 +655,7 @@ def plot_lightcurve(lc1, base_model_flux=None, transit_datetimes=None, title=Non
         # Add the offset
         offset += delta_offset
         # Reset for now
-        base_model_flux = None
+        #base_model_flux = None
 
     if transit_datetimes is not None:
         midpoint, ingress, egress = transit_datetimes

@@ -40,7 +40,7 @@ from piaa.utils import pipeline
 
 import logging
 logger = get_root_logger()
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 
 
 # How many matches to save

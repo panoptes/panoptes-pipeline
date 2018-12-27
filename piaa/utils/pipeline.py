@@ -843,7 +843,7 @@ def get_imag(x, t=1):
     return -2.5 * np.log10(x / t)
 
 
-def normalize_lightcurve(lc0, method='median', use_frames=None, verbose=False):
+def normalize_lightcurve(lc0, method='median', use_frames=None):
     """Normalize the lightcurve data, including errors.
 
     Args:
@@ -851,7 +851,6 @@ def normalize_lightcurve(lc0, method='median', use_frames=None, verbose=False):
         method (str, optional): The normalization method used, either `median` (default) or `mean`.
         use_frames (None, optional): A `slice` object to select frame for normalization, e.g. the
             pre-ingress or post-egress frames.
-        verbose (bool, optional): If we should output values, default False.
 
     Returns:
         `pandas.DataFrame`: A copy of the dataframe with normalized light curve values and error.
@@ -864,17 +863,18 @@ def normalize_lightcurve(lc0, method='median', use_frames=None, verbose=False):
         'mean': lambda x: np.mean(x)
     }
 
-    use_norm = methods[method]
+    use_method = methods[method]
     if use_frames is None:
         use_frames = slice(None)
-    norm_data = lc1[use_frames].groupby('color')
+
+    data_to_normalize = lc1[use_frames].groupby('color')
 
     for field in ['reference', 'target']:
-        color_normer = norm_data[field].apply(use_norm)
+        # Apply the normalization.
+        color_normer = data_to_normalize[field].apply(use_method)
 
         for color, normalizer in color_normer.iteritems():
-            if verbose:
-                print(f"{field} {color} μ={normalizer:.04f}")
+            logging.info(f"{field} {color} μ={normalizer:.04f}")
 
             # Get the raw values
             raw_values = lc1.loc[lc1.color == color, (f'{field}')]

@@ -17,7 +17,6 @@ from astropy import units as u
 from astropy.coordinates import SkyCoord, match_coordinates_sky
 from astropy.time import Time
 from astropy.stats import sigma_clipped_stats
-from astropy.nddata import Cutout2D, PartialOverlapError, NoOverlapError
 
 from tqdm import tqdm, tqdm_notebook
 
@@ -38,7 +37,13 @@ logger.setLevel(logging.INFO)
 def normalize(cube):
     return (cube.T / cube.sum(1)).T
 
-def lookup_sources_for_observation(fits_files=None, filename=None, force_new=False, cursor=None, use_intersection=False):
+
+def lookup_sources_for_observation(fits_files=None,
+                                   filename=None,
+                                   force_new=False,
+                                   cursor=None,
+                                   use_intersection=False
+                                   ):
 
     if force_new:
         logger.info(f'Forcing a new source file')
@@ -54,23 +59,23 @@ def lookup_sources_for_observation(fits_files=None, filename=None, force_new=Fal
     except FileNotFoundError:
         if not cursor:
             cursor = get_cursor(port=5433, db_name='v6', db_user='postgres')
-            
+
         logger.info(f'Looking up sources in {len(fits_files)} files')
         observation_sources = None
 
         # Lookup the point sources for all frames
         for fn in tqdm(fits_files):
             point_sources = lookup_point_sources(
-                fn, 
+                fn,
                 force_new=force_new,
                 cursor=cursor,
-            )    
+            )
             header = fits_utils.getheader(fn)
             obstime = Time(pd.to_datetime(os.path.basename(fn).split('.')[0]))
             exptime = header['EXPTIME'] * u.second
-            
+
             obstime += (exptime / 2)
-            
+
             point_sources['obstime'] = obstime.datetime
             point_sources['exptime'] = exptime
             point_sources['airmass'] = header['AIRMASS']
@@ -83,14 +88,15 @@ def lookup_sources_for_observation(fits_files=None, filename=None, force_new=Fal
                     idx_intersection = observation_sources.index.intersection(point_sources.index)
                     logger.info(f'Num sources in intersection: {len(idx_intersection)}')
                     observation_sources = pd.concat([observation_sources.loc[idx_intersection],
-                                                    point_sources.loc[idx_intersection]], join='inner')
+                                                     point_sources.loc[idx_intersection]],
+                                                    join='inner')
                 else:
                     observation_sources = pd.concat([observation_sources, point_sources])
             else:
                 observation_sources = point_sources
 
         observation_sources.to_csv(filename)
-        
+
     observation_sources.set_index(['obstime'], inplace=True)
     return observation_sources
 
@@ -176,7 +182,7 @@ def get_catalog_match(point_sources, wcs, table='full_catalog', **kwargs):
 
     # Get some properties from the catalog
     point_sources['id'] = catalog_stars[idx]['id']
-    #point_sources['twomass'] = catalog_stars[idx]['twomass']
+    # point_sources['twomass'] = catalog_stars[idx]['twomass']
     point_sources['tmag'] = catalog_stars[idx]['tmag']
     point_sources['vmag'] = catalog_stars[idx]['vmag']
     point_sources['catalog_sep_arcsec'] = d2d.to(u.arcsec).value
@@ -189,11 +195,11 @@ def _lookup_via_sextractor(fits_file, sextractor_params=None, *args, **kwargs):
     base_dir = os.path.dirname(fits_file)
     source_dir = os.path.join(base_dir, 'sextractor')
     os.makedirs(source_dir, exist_ok=True)
-    
-    img_id = os.path.splitext(os.path.basename(fits_file))[0] 
-    
+
+    img_id = os.path.splitext(os.path.basename(fits_file))[0]
+
     source_file = os.path.join(source_dir, f'point_sources_{img_id}.cat')
-    
+
     # sextractor can't handle compressed data
     if fits_file.endswith('.fz'):
         fits_file = fits_utils.funpack(fits_file)
@@ -378,10 +384,10 @@ def create_stamp_slices(
             image_times.append(fn_imagetime)
         except Exception as e:
             logger.warning('Problem getting image time: {}'.format(e))
-    
-    #image_times = np.array(
+
+    # image_times = np.array(
     #    [Time(date_parse(fits.getval(fn, 'DATE-OBS'))).mjd for fn in fits_files])
-    
+
     airmass = np.array([fits_utils.getval(fn, 'AIRMASS') for fn in fits_files])
 
     stamps.attrs['image_times'] = image_times
@@ -436,7 +442,8 @@ def create_stamp_slices(
                 slice0 = helpers.get_stamp_slice(star_pos[0], star_pos[1], stamp_size=stamp_size)
                 logger.debug("Slice for {} {}: {}".format(star_pos[0], star_pos[1], slice0))
                 if not slice0:
-                    logger.warning("Invalid slice for star_id {} on frame {}".format(star_id, frame_idx))
+                    logger.warning(
+                        "Invalid slice for star_id {} on frame {}".format(star_id, frame_idx))
                     continue
                 d1 = d0[slice0].flatten()
 
@@ -661,9 +668,9 @@ def get_aperture_sums(psc0,
     and the corresponding pixel location in `psc1`. This aperture cutout
     is then split on color channels and for each channel the sum of
     the target, the sum of the reference, and the difference is given.
-    
+
     ..todo::
-    
+
         Adaptive Aperture:
 
     Args:
@@ -716,7 +723,7 @@ def get_aperture_sums(psc0,
         # Get target and reference stamp for this frame
         t0 = psc0[frame_idx].reshape(stamp_side, stamp_side)
         i0 = psc1[frame_idx].reshape(stamp_side, stamp_side)
-        
+
         if adaptive_aperture:
             logger.debug(f'Using adaptive apertures')
             pixel_locations = helpers.get_adaptive_aperture_pixels(target_stamp=t0,
@@ -727,25 +734,25 @@ def get_aperture_sums(psc0,
                                                                    num_stds=num_stds
                                                                    )
             logger.debug(f'Frame {frame_idx} pixel locations: {pixel_locations}')
-            
+
             for color, pixel_loc in pixel_locations.items():
                 logger.debug(color, pixel_loc)
                 target_pixel_values = np.array([t0[loc[0], loc[1]] for loc in pixel_loc])
                 ideal_pixel_values = np.array([i0[loc[0], loc[1]] for loc in pixel_loc])
-                
+
                 # Get the sum in electrons
                 t_sum = (target_pixel_values * gain).sum()
                 i_sum = (ideal_pixel_values * gain).sum()
-                
+
                 # Add the noise
                 target_photon_noise = np.sqrt(t_sum)
                 ideal_photon_noise = np.sqrt(i_sum)
-                
+
                 readout = readout_noise * len(pixel_loc)
-                
+
                 target_total_noise = np.sqrt(target_photon_noise**2 + readout**2)
                 ideal_total_noise = np.sqrt(ideal_photon_noise**2 + readout**2)
-                
+
                 # Record the values.
                 diff.append({
                     'color': color,
@@ -755,7 +762,7 @@ def get_aperture_sums(psc0,
                     'reference_err': ideal_total_noise,
                     'obstime': image_time,
                 })
-            
+
         elif aperture_size:
             # NOTE: Bad "centroiding" here
             y_pos, x_pos = np.argwhere(t0 == t0.max())[0]
@@ -766,7 +773,8 @@ def get_aperture_sums(psc0,
             if aperture_size != stamp_side:
                 logger.debug('Aperture Position: {} Size: {} Frame: {} Color: {}'.format(
                     aperture_position, aperture_size, frame_idx, center_color))
-                slice0 = helpers.get_stamp_slice(x_pos, y_pos, stamp_size=(aperture_size, aperture_size), ignore_superpixel=True)
+                slice0 = helpers.get_stamp_slice(x_pos, y_pos, stamp_size=(
+                    aperture_size, aperture_size), ignore_superpixel=True)
                 logger.debug(f'Slice for aperture: {slice0}')
 
             for color, mask in rgb_stamp_masks.items():
@@ -863,5 +871,5 @@ def normalize_lightcurve(lc0, method='median', use_frames=None, verbose=False):
 
             lc1.loc[lc1.color == color, (f'{field}')] = (raw_values / normalizer)
             lc1.loc[lc1.color == color, (f'{field}_err')] = (raw_error / normalizer)
-            
+
     return lc1

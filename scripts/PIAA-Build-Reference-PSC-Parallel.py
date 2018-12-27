@@ -16,7 +16,6 @@ from tqdm import tqdm
 
 from astropy.stats import sigma_clip
 
-from piaa.utils import helpers
 from piaa.utils import plot
 from piaa.utils import pipeline
 

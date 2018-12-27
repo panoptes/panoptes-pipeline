@@ -20,7 +20,7 @@ from matplotlib.gridspec import GridSpec
 from astropy.coordinates import Angle
 from astropy.modeling import models, fitting
 from astropy import units as u
-from astropy.visualization import LogStretch, ImageNormalize, LinearStretch, PercentileInterval, MinMaxInterval
+from astropy.visualization import LogStretch, ImageNormalize, LinearStretch, MinMaxInterval
 from astropy.stats import sigma_clip
 from photutils import RectangularAperture
 
@@ -46,6 +46,7 @@ def get_palette(cmap='inferno'):
     palette.set_bad('g', 1.0)
     return palette
 
+
 def get_labelled_style_cycler(cmap='viridis'):
 
     try:
@@ -56,7 +57,7 @@ def get_labelled_style_cycler(cmap='viridis'):
     cyl = cy('c', cmap_colors)
 
     finite_cy_iter = iter(cyl)
-    styles = defaultdict(lambda : next(finite_cy_iter))
+    styles = defaultdict(lambda: next(finite_cy_iter))
 
     return styles
 
@@ -70,6 +71,7 @@ def show_stamps(pscs,
                 stretch=None,
                 save_name=None,
                 show_max=False,
+                show_pixel_grid=False,
                 **kwargs):
 
     if aperture_position is None:
@@ -89,7 +91,6 @@ def show_stamps(pscs,
 
     fig = Figure()
     FigureCanvas(fig)
-    #fig.set_dpi(100)
     fig.set_figheight(4)
     fig.set_figwidth(8)
 
@@ -110,7 +111,7 @@ def show_stamps(pscs,
     ax1 = fig.add_subplot(nrows, ncols, 1)
 
     im = ax1.imshow(s0, origin='lower', cmap=get_palette(), norm=norm)
-    #add_pixel_grid(ax1, stamp_size, stamp_size, show_superpixel=False)
+
     if aperture_size:
         aperture.plot(color='r', lw=4, ax=ax1)
         # annulus.plot(color='c', lw=2, ls='--', ax=ax1)
@@ -126,7 +127,7 @@ def show_stamps(pscs,
     # Comparison
     ax2 = fig.add_subplot(nrows, ncols, 2)
     im = ax2.imshow(s1, origin='lower', cmap=get_palette(), norm=norm)
-    #add_pixel_grid(ax2, stamp_size, stamp_size, show_superpixel=False)
+
     if aperture_size:
         aperture.plot(color='r', lw=4, ax=ax1)
         # annulus.plot(color='c', lw=2, ls='--', ax=ax1)
@@ -136,13 +137,17 @@ def show_stamps(pscs,
     fig.colorbar(im, cax=cax)
     ax2.set_title('Comparison')
 
+    if show_pixel_grid:
+        add_pixel_grid(ax1, stamp_size, stamp_size, show_superpixel=False)
+        add_pixel_grid(ax2, stamp_size, stamp_size, show_superpixel=False)
+
     if show_residual:
         ax3 = fig.add_subplot(nrows, ncols, 3)
 
         # Residual
         residual = s0 / s1
-        im = ax3.imshow(residual, origin='lower', cmap=get_palette(), norm=ImageNormalize(residual, interval=MinMaxInterval(), stretch=LinearStretch()))
-        #add_pixel_grid(ax3, stamp_size, stamp_size, show_superpixel=False)
+        im = ax3.imshow(residual, origin='lower', cmap=get_palette(), norm=ImageNormalize(
+            residual, interval=MinMaxInterval(), stretch=LinearStretch()))
 
         divider = make_axes_locatable(ax3)
         cax = divider.append_axes("right", size="5%", pad=0.05)
@@ -151,6 +156,9 @@ def show_stamps(pscs,
         #ax3.set_title('Residual RMS: {:.01%}'.format(residual))
         ax3.set_yticklabels([])
         ax3.set_xticklabels([])
+
+        if show_pixel_grid:
+            add_pixel_grid(ax1, stamp_size, stamp_size, show_superpixel=False)
 
     # Turn off tick labels
     ax1.set_yticklabels([])
@@ -281,7 +289,6 @@ def pixel_hist(hdu, save_plot=True, out_fn=None):
     # Make the rgb masks if needed
     rgb_masks = helpers.get_rgb_masks(data)
 
-
     fig = Figure()
     FigureCanvas(fig)
 
@@ -295,7 +302,7 @@ def pixel_hist(hdu, save_plot=True, out_fn=None):
         d0 = np.ma.array(data, mask=~mask)
 
         d1 = sigma_clip(d0.compressed(), iters=2)
-        
+
         bins = np.arange(d1.min(), d1.max(), 25)
         x = bins[:-1]
 
@@ -428,12 +435,11 @@ def make_apertures_plot(apertures, title=None, num_frames=None, output_dir=None)
         fig = Figure()
         FigureCanvas(fig)
         fig.set_size_inches(9, 3)
-        #fig.set_size_inches(num_cols + 1, num_frames)
 
         axes = fig.subplots(1, num_cols + 1, sharex=True, sharey=True)
 
         all_channels = None
-        
+
         # One column for each color channel plus the sum
         for col_num in range(num_cols):
             idx = (row_num * (num_cols)) + col_num
@@ -450,35 +456,35 @@ def make_apertures_plot(apertures, title=None, num_frames=None, output_dir=None)
             idx = (row_num * (num_cols)) + col_num
 
             target = apertures[idx][0]
-            
+
             try:
                 title = apertures[idx][1]
             except IndexError:
                 pass
 
             im = ax.imshow(target, vmin=target.min(), vmax=target.max(), origin='lower')
-                
 
             # Show the sum
             if col_num == 2:
                 ax2 = axes[col_num + 1]
-                im = ax2.imshow(all_channels, vmin=all_channels.min(), vmax=all_channels.max(), origin='lower')
+                im = ax2.imshow(all_channels, vmin=all_channels.min(),
+                                vmax=all_channels.max(), origin='lower')
 
                 divider = make_axes_locatable(ax2)
                 cax = divider.append_axes("right", size="5%", pad=0.05)
                 fig.colorbar(im, cax=cax)
-                
+
                 plt.setp(ax2.get_xticklabels(), visible=False)
                 plt.setp(ax2.get_yticklabels(), visible=False)
 
             # If first row, set column title
-            #if row_num == 0:
+            # if row_num == 0:
             ax.set_title(c_lookup[col_num])
             if col_num == 2:
                 ax2.set_title('All')
-                    
+
             # If first column, show frame index to left
-            #if col_num == 0:
+            # if col_num == 0:
 #                 y_lab = ax.set_ylabel()
 #                 y_lab.set_rotation(0)
 
@@ -574,12 +580,11 @@ def plot_lightcurve_old(x, y, model_flux=None, use_imag=False, transit_info=None
     return fig
 
 
-def plot_lightcurve(lc1, 
-                    base_model_flux=None, 
-                    transit_datetimes=None, 
+def plot_lightcurve(lc1,
+                    base_model_flux=None,
+                    transit_datetimes=None,
                     title=None):
     # Setup figure
-    #fig = plt.figure(figsize=(14, 7), facecolor='white')
     fig = Figure()
     FigureCanvas(fig)
     fig.set_size_inches(14, 7)
@@ -588,7 +593,6 @@ def plot_lightcurve(lc1,
     grid_size = (3, 4)
 
     # Axis for light curve
-    #ax = plt.subplot2grid(grid_size, (0, 0), colspan=3, rowspan=3, fig=fig)
     spec1 = GridSpec(*grid_size).new_subplotspec((0, 0), colspan=3, rowspan=3)
     ax = fig.add_subplot(spec1)
 
@@ -597,7 +601,7 @@ def plot_lightcurve(lc1,
 
     for i, color in enumerate('rgb'):
 
-        # Get the normalized flux for each channel 
+        # Get the normalized flux for each channel
         color_data = lc1.loc[lc1.color == color]
 
         # Target and error
@@ -622,7 +626,7 @@ def plot_lightcurve(lc1,
             base_model_flux = np.ones_like(f0)
         else:
             # Mask the sigma clipped frames
-            base_model_flux = np.ma.array(base_model_flux, mask=f0.mask)    
+            base_model_flux = np.ma.array(base_model_flux, mask=f0.mask)
 
         ax.plot(f0_index, base_model_flux, ls='--', color='r', lw=3)
 
@@ -630,18 +634,17 @@ def plot_lightcurve(lc1,
         flux_df = pd.DataFrame({'flux': f0 + offset, 'flux_err': f0_err}, index=f0_index).dropna()
 
         # Show the plot
-        flux_df.flux.plot(yerr=flux_df.flux_err, 
+        flux_df.flux.plot(yerr=flux_df.flux_err,
                           marker='o', ls='', alpha=0.1, color=color,
                           ax=ax,
                           label=f'{color}')
-        
+
         ax.set_ylim([0.93, 1.07])
 
         # Residual axis
         spec = GridSpec(*grid_size).new_subplotspec((i, 3))
         res_ax = fig.add_subplot(spec)
-        
-        #res_ax = plt.subplot2grid(grid_size, (i, 3))
+
         res_ax.set_xticks([])
         res_ax.yaxis.tick_right()
         res_ax.yaxis.set_major_formatter(PercentFormatter(xmax=1, decimals=0))
@@ -654,8 +657,6 @@ def plot_lightcurve(lc1,
 
         # Add the offset
         offset += delta_offset
-        # Reset for now
-        #base_model_flux = None
 
     if transit_datetimes is not None:
         midpoint, ingress, egress = transit_datetimes

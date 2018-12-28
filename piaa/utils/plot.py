@@ -16,6 +16,7 @@ from matplotlib import gridspec
 from cycler import cycler as cy
 from matplotlib.ticker import PercentFormatter
 from matplotlib.gridspec import GridSpec
+import matplotlib.dates as mdates
 
 from astropy.coordinates import Angle
 from astropy.modeling import models, fitting
@@ -581,6 +582,7 @@ def plot_lightcurve_old(x, y, model_flux=None, use_imag=False, transit_info=None
 
 
 def plot_lightcurve(lc1,
+                    time_bin=20,  # Minutes
                     base_model_flux=None,
                     transit_datetimes=None,
                     title=None):
@@ -590,11 +592,33 @@ def plot_lightcurve(lc1,
     fig.set_size_inches(14, 7)
     fig.set_facecolor('white')
 
-    grid_size = (3, 4)
+    grid_size = (9, 9)
 
     # Axis for light curve
-    spec1 = GridSpec(*grid_size).new_subplotspec((0, 0), colspan=3, rowspan=3)
-    ax = fig.add_subplot(spec1)
+    gs = GridSpec(*grid_size, hspace=2)
+
+    # Main plot
+    spec1 = gs.new_subplotspec((0, 0), colspan=7, rowspan=7)
+    lc_ax = fig.add_subplot(spec1)
+
+    # Residual
+    spec2 = gs.new_subplotspec((7, 0), colspan=7, rowspan=2)
+    res_scatter_ax = fig.add_subplot(spec2)
+    res_scatter_ax.set_ylim([-0.05, 0.05])
+
+    # Residual histos
+    res_histo_axes = list()
+    for i in range(3):
+        spec = GridSpec(*grid_size).new_subplotspec((i * 3, 7), colspan=2, rowspan=3)
+        res_ax = fig.add_subplot(spec)
+
+        res_ax.set_xticks([])
+        res_ax.set_ylim([-.05, .05])
+        res_ax.set_yticks([-.025, 0, .025])
+        res_ax.yaxis.tick_right()
+        res_ax.yaxis.set_major_formatter(PercentFormatter(xmax=1, decimals=1))
+
+        res_histo_axes.append(res_ax)
 
     offset = 0  # offset
     delta_offset = 0  # offset delta
@@ -628,44 +652,89 @@ def plot_lightcurve(lc1,
             # Mask the sigma clipped frames
             base_model_flux = np.ma.array(base_model_flux, mask=f0.mask)
 
-        ax.plot(f0_index, base_model_flux, ls='--', color='r', lw=3)
-
-        # Build dataframe for differntial flux
-        flux_df = pd.DataFrame({'flux': f0 + offset, 'flux_err': f0_err}, index=f0_index).dropna()
-
-        # Show the plot
-        flux_df.flux.plot(yerr=flux_df.flux_err,
-                          marker='o', ls='', alpha=0.1, color=color,
-                          ax=ax,
-                          label=f'{color}')
-
-        ax.set_ylim([0.93, 1.07])
-
-        # Residual axis
-        spec = GridSpec(*grid_size).new_subplotspec((i, 3))
-        res_ax = fig.add_subplot(spec)
-
-        res_ax.set_xticks([])
-        res_ax.yaxis.tick_right()
-        res_ax.yaxis.set_major_formatter(PercentFormatter(xmax=1, decimals=0))
+        # Flux + offset
+        flux = f0 + offset
 
         # Residual
-        residual = f0 - base_model_flux
+        residual = flux - base_model_flux
+
+        # Build dataframe for differntial flux
+        flux_df = pd.DataFrame({'flux': flux,
+                                'flux_err': f0_err,
+                                'model': base_model_flux,
+                                'residual': residual
+                                }, index=f0_index,
+                               ).dropna()
+
+        # Time-binned
+        binned_flux_df = flux_df.resample(f'{time_bin}T').apply({
+            'flux': np.mean,
+            'flux_err': lambda x: np.sum(x**2)
+        })
+
+        # Start plotting.
+
+        # Unused - can't make it work well for now.
+#         nice_xticks = pd.date_range(flux_df.index.min().floor(f'{time_bin}T'),
+#                                    flux_df.index.max().ceil(f'{time_bin}T'),
+#                                    freq=f'{time_bin}T')
+
+        # Plot target flux.
+        flux_df.flux.plot(yerr=flux_df.flux_err,
+                          marker='o', ls='', alpha=0.1, color=color,
+                          ax=lc_ax,
+                          rot=0,  # Don't rotate date labels
+                          legend=False,
+                          )
+
+        # Plot time-binned target flux.
+        binned_flux_df.plot(yerr=binned_flux_df.flux_err,
+                            ax=lc_ax,
+                            rot=0,
+                            marker='o', ms=10, color=color, ls='',
+                            label=f'Time-binned - {time_bin}min',
+                            legend=False,
+                            )
+
+        # Plot model flux.
+        flux_df.model.plot(ax=lc_ax,
+                           ls='-',
+                           color=color,
+                           alpha=0.5,
+                           lw=3,
+                           rot=0,  # Don't rotate date labels
+                           )
+
+        # Residual scatter
+        flux_df.residual.plot(ax=res_scatter_ax, color=color, ls='', marker='o', alpha=0.5)
+
+        # Residual histograme axis
+        res_ax = res_histo_axes[i]
+
         res_ax.hist(residual, orientation='horizontal', color=color, alpha=0.5)
         res_ax.axhline(0, ls='--', color='k', alpha=0.25)
-        res_ax.set_title(f'{color}  σ={residual.std():.2%}')
+        res_ax.set_title(f'σ={residual.std():.2%}', y=.82)
 
         # Add the offset
         offset += delta_offset
 
     if transit_datetimes is not None:
         midpoint, ingress, egress = transit_datetimes
-        ax.axvline(midpoint, ls='-.', c='g', alpha=0.5)
-        ax.axvline(ingress, ls='--', c='k', alpha=0.5)
-        ax.axvline(egress, ls='--', c='k', alpha=0.5)
+        lc_ax.axvline(midpoint, ls='-.', c='g', alpha=0.5)
+        lc_ax.axvline(ingress, ls='--', c='k', alpha=0.5)
+        lc_ax.axvline(egress, ls='--', c='k', alpha=0.5)
 
     if title is not None:
         fig.suptitle(title, fontsize=18)
-    ax.legend()
+
+    # Better time axis ticks
+    half_hour = mdates.MinuteLocator(interval=30)
+    h_fmt = mdates.DateFormatter('%H:%M:%S')
+
+    lc_ax.xaxis.set_major_locator(half_hour)
+    lc_ax.xaxis.set_major_formatter(h_fmt)
+
+    lc_ax.set_ylim([0.93, 1.07])
+    res_scatter_ax.set_xticks([])
 
     return fig

@@ -681,7 +681,7 @@ def plot_lightcurve(lc1,
 
         # Plot target flux.
         flux_df.flux.plot(yerr=flux_df.flux_err,
-                          marker='o', ls='', alpha=0.1, color=color,
+                          marker='o', ls='', alpha=0.15, color=color,
                           ax=lc_ax,
                           rot=0,  # Don't rotate date labels
                           legend=False,
@@ -691,7 +691,9 @@ def plot_lightcurve(lc1,
         binned_flux_df.plot(yerr=binned_flux_df.flux_err,
                             ax=lc_ax,
                             rot=0,
-                            marker='o', ms=10, color=color, ls='',
+                            marker='o', ms=8,
+                            color=color,
+                            ls='',
                             label=f'Time-binned - {time_bin}min',
                             legend=False,
                             )

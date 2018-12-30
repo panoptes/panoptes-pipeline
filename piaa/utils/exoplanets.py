@@ -72,7 +72,7 @@ EXOPLANET_DB_KEYMAP = {
             'transit_depth': 'pl_trandep',  # Percentage
             'period': 'pl_orbper',  # Days
             'period_ref': '',
-            'midtransit': 'pl_tranmid', # Julian Days
+            'midtransit': 'pl_tranmid',  # Julian Days
             'midtransit_ref': '',
             'star_mag': 'st_optmag',  # V Mag
         }
@@ -87,7 +87,7 @@ class Exoplanet():
         self.name = name
 
         self._print("Looking up info for {}".format(self.name))
-        
+
         # Bug with all_columns means we need to download table first
         if db == 'nasa':
             NasaExoplanetArchive.get_confirmed_planets_table(all_columns=True)
@@ -106,9 +106,9 @@ class Exoplanet():
             assert self.info is not None
             self._db = db
             self._loookups = dict()
-            
+
         self.transit_system = transit_system
-        
+
         if not self.transit_system:
             # Get the transit system for calculating ephemris
             try:
@@ -264,7 +264,7 @@ class Exoplanet():
         obstime = listify(obstime)
 
         ing_egr = self.transit_system.next_primary_ingress_egress_time(Time(obstime))
-        
+
         time_checks = list()
         for t in obstime:
             time_in = Time(t) > ing_egr[0][0] and Time(t) < ing_egr[0][1]
@@ -286,7 +286,7 @@ class Exoplanet():
         """
         if not transit_times:
             transit_times = self.get_transit_info(obstime)
-            
+
         phase = (transit_times.midpoint - obstime).value / self.period.value
 
         if phase > 0.5:
@@ -296,6 +296,7 @@ class Exoplanet():
             phase += 1.0
 
         return phase
+
 
 def get_exoplanet_transit(index, transit_times=None, model_params=None):
     exoplanet = Exoplanet('HD 189733 b')
@@ -340,7 +341,7 @@ def get_exoplanet_transit(index, transit_times=None, model_params=None):
     # Get the orbital phase of the exoplanet
     dt = np.array([(transit_times.midpoint - Time(t0)).value for t0 in index])
     transit_model = batman.TransitModel(transit_params, dt)
-    
+
     base_model_flux = transit_model.light_curve(transit_params)
-    
+
     return base_model_flux

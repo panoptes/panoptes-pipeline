@@ -705,6 +705,8 @@ def plot_lightcurve(lc1,
                            alpha=0.5,
                            lw=3,
                            rot=0,  # Don't rotate date labels
+                           label='Model fit',
+                           legend=True
                            )
 
         # Residual scatter
@@ -735,8 +737,8 @@ def plot_lightcurve(lc1,
 
     lc_ax.xaxis.set_major_locator(half_hour)
     lc_ax.xaxis.set_major_formatter(h_fmt)
-
     lc_ax.set_ylim([0.93, 1.07])
+
     res_scatter_ax.set_xticks([])
 
     return fig

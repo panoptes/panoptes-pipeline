@@ -50,5 +50,5 @@ These notebooks are related to the processing algorithm but use a specific targe
 
 * **[Examine-Target-Noise](processing/PIAA-Examine-Target-Noise.ipynb):** This is a small notebook that takes the noise results from the [Source-Noise](PIAA-Source-Noise.ipynb) and examines them for a specific target. This also produces a basic plot of the aperture photometry (with no additoinal processing or calibration):
 
-    ![Aperture Photometry for target](processing/aperture-photometry.png)
+    ![Aperture Photometry for target](lightcurve-example.png)
     

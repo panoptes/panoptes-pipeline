@@ -647,7 +647,9 @@ def get_ideal_full_psc(stamp_collection, coeffs):
 def get_aperture_sums(psc0,
                       psc1,
                       image_times,
-                      adaptive_aperture=True,
+                      sigma_mask_aperture=True,
+                      sigma_mask_threshold=2.5,
+                      adaptive_aperture=False,
                       num_stds=2,
                       aperture_size=None,
                       readout_noise=10.5,
@@ -715,6 +717,9 @@ def get_aperture_sums(psc0,
             logger.debug('RGB stamp_masks created')
         except ValueError as e:
             logger.warning(f"Can't make stamp masks {e!r}")
+            
+    # We use the reference to make the aperture
+    masked_stamps = helpers.make_median_sigma_masked_psc(psc1.reshape(-1, stamp_side, stamp_side), sigma_thresh=sigma_mask_threshold) 
 
     apertures = list()
     diff = list()
@@ -724,9 +729,42 @@ def get_aperture_sums(psc0,
         t0 = psc0[frame_idx].reshape(stamp_side, stamp_side)
         i0 = psc1[frame_idx].reshape(stamp_side, stamp_side)
 
-        if adaptive_aperture:
+        if sigma_mask_aperture:
+            logger.debug(f'Using sigma mask aperture with σ={sigma_mask_threshold}')
+            
+            i0_rgb_data = helpers.get_rgb_data(i0)
+            
+            for i, color in enumerate('rgb'):
+                # Make the mask with sigma aperture
+                t0_aperture = np.ma.array(t0, mask=masked_stamps[i].mask)
+                i0_aperture = np.ma.array(i0, mask=masked_stamps[i].mask)
+                
+                # Get the sum in electrons
+                t_sum = (t0_aperture * gain).sum()
+                i_sum = (i0_aperture * gain).sum()
+
+                # Add the noise
+                target_photon_noise = np.sqrt(t_sum)
+                ideal_photon_noise = np.sqrt(i_sum)
+
+                readout = readout_noise * i0_aperture.count()
+
+                target_total_noise = np.sqrt(target_photon_noise**2 + readout**2)
+                ideal_total_noise = np.sqrt(ideal_photon_noise**2 + readout**2)
+
+                # Record the values.
+                diff.append({
+                    'color': color,
+                    'target': t_sum,
+                    'target_err': target_total_noise,
+                    'reference': i_sum,
+                    'reference_err': ideal_total_noise,
+                    'obstime': image_time,
+                })
+            
+        elif adaptive_aperture:
             logger.debug(f'Using adaptive apertures')
-            pixel_locations = helpers.get_adaptive_aperture_pixels(target_stamp=t0,
+            pixel_locations = helpers.get_adaptive_aperture_pixels(target_stamp=i0,
                                                                    frame_idx=frame_idx,
                                                                    make_plots=plot_apertures,
                                                                    target_dir=aperture_plot_path,

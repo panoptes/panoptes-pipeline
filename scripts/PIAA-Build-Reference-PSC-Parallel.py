@@ -52,7 +52,7 @@ def build_ref(build_params):
     # Note: the default is no aperture_size=None, so to use adaptive,
     # the logic is a little silly here.
     if not aperture_size:
-        adaptive_aperture = True
+        adaptive_aperture = False  # Temp
     else:
         adaptive_aperture = False
 
@@ -181,6 +181,8 @@ def build_ref(build_params):
         num_stds=num_stds,
         aperture_size=aperture_size,
         adaptive_aperture=adaptive_aperture,
+        sigma_mask_aperture=True,
+        sigma_mask_threshold=2.5,
         gain=gain,
         readout_noise=readout_noise
     )

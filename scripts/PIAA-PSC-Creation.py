@@ -69,11 +69,11 @@ def make_psc(make_params):
                                                        stamp_size=stamp_size,
                                                        ignore_superpixel=False
                                                        )
+                # Get data and flatten
+                stamps.append(data[target_slice].flatten())
             except Exception as e:
                 logger.warning(f'Problem getting target stamp slice: {e}')
 
-            # Get data and flatten
-            stamps.append(data[target_slice].flatten())
 
         df0 = pd.DataFrame(stamps, index=target_table.index)
         logger.debug(f'{picid} PSC shape {df0.shape}')
@@ -158,7 +158,7 @@ if __name__ == '__main__':
                               "exist and a directory corresponding to the sequence id is made for "
                               "this observation inside the PICID dir. Default $PANDIR/processed/."
                               ))
-    parser.add_argument('--stamp-size', default=10, help="Square stamp size")
+    parser.add_argument('--stamp-size', type=int, default=10, help="Square stamp size")
     parser.add_argument('--picid', default=None, type=str, help="Create PSC only for given PICID")
     parser.add_argument('--num-workers', default=None, type=int, help="Number of workers to use")
     parser.add_argument('--chunk-size', default=1, type=int, help="Chunks per worker")

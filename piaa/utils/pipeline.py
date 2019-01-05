@@ -717,9 +717,6 @@ def get_aperture_sums(psc0,
             logger.debug('RGB stamp_masks created')
         except ValueError as e:
             logger.warning(f"Can't make stamp masks {e!r}")
-            
-    # We use the reference to make the aperture
-    masked_stamps = helpers.make_median_sigma_masked_psc(psc1.reshape(-1, stamp_side, stamp_side), sigma_thresh=sigma_mask_threshold) 
 
     apertures = list()
     diff = list()
@@ -734,10 +731,12 @@ def get_aperture_sums(psc0,
             
             i0_rgb_data = helpers.get_rgb_data(i0)
             
-            for i, color in enumerate('rgb'):
+            # We use the reference to make the aperture
+            masked_stamps = helpers.make_sigma_masked_stamps(i0_rgb_data,                       sigma_thresh=sigma_mask_threshold) 
+            for color in 'rgb':
                 # Make the mask with sigma aperture
-                t0_aperture = np.ma.array(t0, mask=masked_stamps[i].mask)
-                i0_aperture = np.ma.array(i0, mask=masked_stamps[i].mask)
+                t0_aperture = np.ma.array(t0, mask=masked_stamps[color].mask)
+                i0_aperture = np.ma.array(i0, mask=masked_stamps[color].mask)
                 
                 # Get the sum in electrons
                 t_sum = (t0_aperture * gain).sum()

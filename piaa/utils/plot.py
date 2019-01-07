@@ -592,7 +592,8 @@ def plot_lightcurve(lc1,
                     base_model_flux=None,
                     transit_datetimes=None,
                     title=None,
-                    colors='rgb'
+                    colors='rgb',
+                    offset_delta=0.
                    ):
     # Setup figure
     fig = Figure()
@@ -629,58 +630,22 @@ def plot_lightcurve(lc1,
         res_histo_axes.append(res_ax)
 
     offset = 0  # offset
-    delta_offset = 0  # offset delta
 
     for i, color in enumerate(colors):
 
         # Get the normalized flux for each channel
-        color_data = lc1.loc[lc1.color == color]
-
-        # Target and error
-        t0 = color_data.target
-        t0_err = color_data.target_err
-
-        # Reference and error
-        r0 = color_data.reference
-        r0_err = color_data.reference_err
-
-        # Get the differential flux and error
-        diff_flux = t0 / r0
-        diff_err = np.sqrt(t0_err**2 + r0_err**2)
-
-        # Sigma clip the differential flux
-        f0 = sigma_clip(diff_flux, sigma=3)
-        f0_err = np.ma.array(diff_err, mask=f0.mask)
-        f0_index = np.ma.array(color_data.index, mask=f0.mask)
-
+        flux_df = lc1.loc[lc1.color == color].copy()
+        
         # Model flux
         if base_model_flux is None:
-            base_model_flux = np.ones_like(f0)
+            flux_df['model'] = np.ones_like(flux_df.flux)
         else:
-            # Mask the sigma clipped frames
-            base_model_flux = np.ma.array(base_model_flux, mask=f0.mask)
-
-        # Flux + offset
-        flux = f0 + offset
+            flux_df['model'] = base_model_flux
 
         # Residual
-        residual = flux - base_model_flux
-
-        # Build dataframe for differntial flux
-        flux_df = pd.DataFrame({'flux': flux,
-                                'flux_err': f0_err,
-                                'model': base_model_flux,
-                                'residual': residual
-                                }, index=f0_index,
-                               ).dropna()
-
+        flux_df['residual'] = flux_df.flux - flux_df.model
 
         # Start plotting.
-
-        # Unused - can't make it work well for now.
-#         nice_xticks = pd.date_range(flux_df.index.min().floor(f'{time_bin}T'),
-#                                    flux_df.index.max().ceil(f'{time_bin}T'),
-#                                    freq=f'{time_bin}T')
 
         # Plot target flux.
         flux_df.flux.plot(yerr=flux_df.flux_err,
@@ -725,12 +690,12 @@ def plot_lightcurve(lc1,
         # Residual histograme axis
         res_ax = res_histo_axes[i]
 
-        res_ax.hist(residual, orientation='horizontal', color=color, alpha=0.5)
+        res_ax.hist(flux_df.residual, orientation='horizontal', color=color, alpha=0.5)
         res_ax.axhline(0, ls='--', color='k', alpha=0.25)
-        res_ax.set_title(f'σ={residual.std():.2%}', y=.82)
+        res_ax.set_title(f'σ={flux_df.residual.std():.2%}', y=.82)
 
         # Add the offset
-        offset += delta_offset
+        offset += offset_delta
 
     if transit_datetimes is not None:
         midpoint, ingress, egress = transit_datetimes
@@ -770,7 +735,7 @@ def make_sigma_aperture_plot(masked_stamps=None, add_pixel_grid=False):
     ax = fig.add_subplot(gs[1])
     cax1 = fig.add_subplot(gs[2])
     
-    # Show the full data
+    # Show the full data - without mask any of 'rgb' are full data
     full_ax.imshow(masked_stamps['r'].data, norm=LogNorm(), cmap=get_palette())
     
     for i, color in enumerate('rgb'):
@@ -850,17 +815,15 @@ def show_stamp_widget(masked_stamps):
 
     fig_list = dict()
     def show_stamp(i):
-        if i not in fig_list:
-            fig = make_sigma_aperture_plot(masked_stamps[i])
+        fig = make_sigma_aperture_plot(masked_stamps[i])
 #             fig.set_size_inches(9, 2.5)
-            fig.suptitle(f'Frame {i:03d}', fontsize=14, y=1.06)
-            fig.axes[1].grid(False)
-            fig.axes[1].set_yticklabels([])
-            fig.axes[1].set_facecolor('#bbbbbb')
-            fig_list[i] = fig
+        fig.suptitle(f'Frame {i:03d}', fontsize=14, y=1.06)
+        fig.axes[1].grid(False)
+        fig.axes[1].set_yticklabels([])
+        fig.axes[1].set_facecolor('#bbbbbb')
         with output_widget:
             display.clear_output()
-            display.display(fig_list[i])
+            display.display(fig)
 
     def on_value_change(change):
         frame_idx = change['new']
@@ -875,4 +838,45 @@ def show_stamp_widget(masked_stamps):
 
     display.display(main_box)
     show_stamp(0)
+    
+    
+def show_obs_plot_widget(data, display_fn):
+    from IPython import display
+    from ipywidgets import widgets
+    
+    text_wid = widgets.IntText(
+        value=0,
+        placeholder='Frame number',
+        description='Frame number:',
+        disabled=False
+    )
+    slider_wid = widgets.IntSlider(
+        value=0,
+        min=0,
+        max=len(data),
+        step=1,
+        description='Frames:',
+        disabled=False,
+        continuous_update=False,
+        orientation='horizontal',
+        readout=True,
+        readout_format='d'
+    )
+    widgets.jslink((text_wid, 'value'), (slider_wid, 'value'))
+
+    output_widget = widgets.Output(layout={'height': '250px'})
+
+    def on_value_change(change):
+        frame_idx = change['new']
+        display_fn(frame_idx)    
+    
+    slider_wid.observe(on_value_change, names='value')
+
+    frame_box = widgets.HBox([output_widget])
+    control_box = widgets.HBox([text_wid, slider_wid])  # Controls
+
+    main_box = widgets.VBox([frame_box, control_box])
+
+    display.display(main_box)
+    display_fn(0)
     

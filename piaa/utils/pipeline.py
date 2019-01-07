@@ -16,7 +16,7 @@ from astropy.wcs import WCS
 from astropy import units as u
 from astropy.coordinates import SkyCoord, match_coordinates_sky
 from astropy.time import Time
-from astropy.stats import sigma_clipped_stats
+from astropy.stats import sigma_clipped_stats, sigma_clip
 
 from tqdm import tqdm, tqdm_notebook
 
@@ -647,7 +647,8 @@ def get_ideal_full_psc(stamp_collection, coeffs):
 def get_aperture_sums(psc0,
                       psc1,
                       image_times,
-                      sigma_mask_aperture=True,
+                      use_bright_pixels=False,
+                      sigma_mask_aperture=False,
                       sigma_mask_threshold=2.5,
                       adaptive_aperture=False,
                       num_stds=2,
@@ -726,13 +727,46 @@ def get_aperture_sums(psc0,
         t0 = psc0[frame_idx].reshape(stamp_side, stamp_side)
         i0 = psc1[frame_idx].reshape(stamp_side, stamp_side)
 
-        if sigma_mask_aperture:
+        if use_bright_pixels:
+            logger.debug(f'Using bright pixels')
+            
+            # Get the bright pixels but don't sum yet
+            t_bright_pixels = helpers.get_bright_pixels(t0, sum=False)
+            i_bright_pixels = helpers.get_bright_pixels(i0, sum=False)
+            
+            for color in 'rgb':
+                
+                # Get the sum in electrons
+                t_sum = t_bright_pixels[color].sum()
+                i_sum = i_bright_pixels[color].sum()
+
+                # Add the noise
+                target_photon_noise = np.sqrt(t_sum)
+                ideal_photon_noise = np.sqrt(i_sum)
+                
+                pixel_count = len(t_bright_pixels[color])
+
+                readout = readout_noise * pixel_count
+
+                target_total_noise = np.sqrt(target_photon_noise**2 + readout**2)
+                ideal_total_noise = np.sqrt(ideal_photon_noise**2 + readout**2)
+
+                # Record the values.
+                diff.append({
+                    'color': color,
+                    'target': t_sum,
+                    'target_err': target_total_noise,
+                    'reference': i_sum,
+                    'reference_err': ideal_total_noise,
+                    'obstime': image_time,
+                })
+        elif sigma_mask_aperture:
             logger.debug(f'Using sigma mask aperture with σ={sigma_mask_threshold}')
             
             i0_rgb_data = helpers.get_rgb_data(i0)
             
             # We use the reference to make the aperture
-            masked_stamps = helpers.make_sigma_masked_stamps(i0_rgb_data,                       sigma_thresh=sigma_mask_threshold) 
+            masked_stamps = helpers.make_sigma_masked_stamps(i0_rgb_data, sigma_thresh=sigma_mask_threshold) 
             for color in 'rgb':
                 # Make the mask with sigma aperture
                 t0_aperture = np.ma.array(t0, mask=masked_stamps[color].mask)
@@ -924,3 +958,38 @@ def normalize_lightcurve(lc0, method='median', use_frames=None):
             lc1.loc[lc1.color == color, (f'{field}_err')] = (raw_error / norm_value)
 
     return lc1
+
+def get_diff_flux(lc1):
+    color_dfs = list()
+    for i, color in enumerate('rgb'):
+        # Get the normalized flux for each channel
+        color_data = lc1.loc[lc1.color == color]
+
+        # Target and error
+        t0 = color_data.target
+        t0_err = color_data.target_err
+
+        # Reference and error
+        r0 = color_data.reference
+        r0_err = color_data.reference_err
+
+        # Get the differential flux and error
+        diff_flux = t0 / r0
+        diff_err = np.sqrt(t0_err**2 + r0_err**2)
+
+        # Sigma clip the differential flux
+        flux = sigma_clip(diff_flux, sigma=3)
+        flux_err = np.ma.array(diff_err, mask=flux.mask)
+        flux_index = np.ma.array(color_data.index, mask=flux.mask)
+
+        # Build dataframe for differntial flux
+        flux_df = pd.DataFrame({
+                                'color': color,
+                                'flux': flux,
+                                'flux_err': flux_err,
+                                }, index=flux_index,
+                               ).dropna()   
+        color_dfs.append(flux_df)
+
+    flux0 = pd.concat(color_dfs).sort_index()    
+    return flux0

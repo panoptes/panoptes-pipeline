@@ -136,8 +136,9 @@ def get_rgb_cube(cube):
     
     """
 
+    stamp_side = int(np.sqrt(cube[0].shape))
     # Get the masks
-    first_frame = cube[0].reshape(10, 10)
+    first_frame = cube[0].reshape(stamp_side, stamp_side)
     rgb_masks = np.array([m for m in get_rgb_masks(first_frame).values()])
     
     def mask_frame(f):
@@ -915,3 +916,25 @@ def make_median_sigma_masked_psc(psc, sigma_thresh=2.5):
          ]
     
     return d0
+
+def get_bright_pixels(target_stamp=None,
+                      num_per_channel={'r': 4, 'g': 6, 'b': 4},
+                      sum=True
+                      ):
+    
+    rgb_masks = get_rgb_masks(target_stamp)
+    
+    pixels_to_use = dict()
+    for color in 'rgb':
+        color_data = np.ma.array(target_stamp.copy(), mask=~rgb_masks[color]).compressed()
+        num_pixels = len(color_data)
+
+        # Sort so brightest pixel is first in list.
+        c0 = np.sort(color_data)
+        c1 = np.flip(c0.copy())
+        pixels_to_use[color] = c1[:num_per_channel[color]]
+        
+        if sum:
+            pixels_to_use[color] = pixels_to_use[color].sum()
+
+    return pixels_to_use

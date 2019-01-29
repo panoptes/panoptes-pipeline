@@ -17,6 +17,7 @@ from astropy import units as u
 from astropy.coordinates import SkyCoord, match_coordinates_sky
 from astropy.time import Time
 from astropy.stats import sigma_clipped_stats, sigma_clip
+from scipy.signal import savgol_filter
 
 from tqdm import tqdm, tqdm_notebook
 
@@ -42,7 +43,8 @@ def lookup_sources_for_observation(fits_files=None,
                                    filename=None,
                                    force_new=False,
                                    cursor=None,
-                                   use_intersection=False
+                                   use_intersection=False,
+                                   **kwargs
                                    ):
 
     if force_new:
@@ -69,6 +71,7 @@ def lookup_sources_for_observation(fits_files=None,
                 fn,
                 force_new=force_new,
                 cursor=cursor,
+                **kwargs
             )
             header = fits_utils.getheader(fn)
             obstime = Time(pd.to_datetime(os.path.basename(fn).split('.')[0]))
@@ -959,7 +962,17 @@ def normalize_lightcurve(lc0, method='median', use_frames=None):
 
     return lc1
 
-def get_diff_flux(lc1):
+def get_diff_flux(lc0, 
+                  smooth=False,
+                  savgol_polyorder=None,
+                  savgol_sigma=3,
+                  sigma_cutoff=None
+                 ):
+    
+    lc1 = lc0.copy()
+    lc1['flux'] = np.nan
+    lc1['flux_err'] = np.nan
+    
     color_dfs = list()
     for i, color in enumerate('rgb'):
         # Get the normalized flux for each channel
@@ -974,22 +987,43 @@ def get_diff_flux(lc1):
         r0_err = color_data.reference_err
 
         # Get the differential flux and error
-        diff_flux = t0 / r0
-        diff_err = np.sqrt(t0_err**2 + r0_err**2)
+        flux = t0 / r0
+        flux_err = np.sqrt((t0_err / t0)**2 + (r0_err / r0)**2)
+        flux_index = color_data.index
+        
+        if savgol_polyorder:
+            if savgol_polyorder % 2 == 0:
+                window_size = savgol_polyorder+1
+            else:
+                window_size = savgol_polyorder+2
+                
+            filter0 = savgol_filter(flux, window_size, polyorder=savgol_polyorder)
+            flux = (flux - filter0)
+            
+            # Clip the filtered
+            flux = sigma_clip(flux, sigma=savgol_sigma)
+            
+            # Add back the filter
+            flux = flux + filter0
+            
+            flux_err = np.ma.array(flux_err, mask=flux.mask)
+            flux_index = np.ma.array(color_data.index, mask=flux.mask)
 
-        # Sigma clip the differential flux
-        flux = sigma_clip(diff_flux, sigma=3)
-        flux_err = np.ma.array(diff_err, mask=flux.mask)
-        flux_index = np.ma.array(color_data.index, mask=flux.mask)
-
-        # Build dataframe for differntial flux
-        flux_df = pd.DataFrame({
-                                'color': color,
-                                'flux': flux,
-                                'flux_err': flux_err,
-                                }, index=flux_index,
-                               ).dropna()   
-        color_dfs.append(flux_df)
-
-    flux0 = pd.concat(color_dfs).sort_index()    
-    return flux0
+        if sigma_cutoff:
+            # Sigma clip the differential flux
+            flux = sigma_clip(flux, sigma=sigma_cutoff)
+            flux_err = np.ma.array(flux_err, mask=flux.mask)
+            flux_index = np.ma.array(color_data.index, mask=flux.mask, dtype=bool)
+            
+        # Basic correction
+        if smooth:
+            window_size = len(flux)
+            if window_size % 2 == 0:
+                window_size -= 1
+            smooth1 = savgol_filter(flux, window_size, polyorder=1)
+            flux = (flux - smooth1) + 1
+            
+        lc1.loc[lc1.color == color, ('flux')] = flux.filled(np.nan)
+        lc1.loc[lc1.color == color, ('flux_err')] = flux_err.filled(np.nan)
+            
+    return lc1, flux.mask

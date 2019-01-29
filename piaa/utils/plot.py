@@ -634,16 +634,35 @@ def plot_lightcurve_combined(lc1,
     for i, color in enumerate(colors):
 
         # Get the normalized flux for each channel
-        flux_df = lc1.loc[lc1.color == color].copy()
+        color_data = lc1.loc[lc1.color == color].copy()
         
         # Model flux
         if base_model_flux is None:
-            flux_df['model'] = np.ones_like(flux_df.flux)
+            base_model = np.ones_like(color_data.flux)
         else:
-            flux_df['model'] = base_model_flux
+            # Mask the sigma clipped frames
+            base_model = base_model_flux.copy()
+        color_data['model'] = base_model
+
+        # Get the differential flux and error
+        f0 = color_data.flux
+        f0_err = color_data.flux_err
+        f0_index = color_data.index
+        m0 = color_data.model
+
+        # Flux + offset
+        flux = f0 + offset
 
         # Residual
-        flux_df['residual'] = flux_df.flux - flux_df.model
+        residual = flux - base_model
+
+        # Build dataframe for differntial flux
+        flux_df = pd.DataFrame({'flux': flux,
+                                'flux_err': f0_err,
+                                'model': m0,
+                                'residual': residual
+                                }, index=f0_index,
+                               ).dropna()
 
         # Start plotting.
 
@@ -687,7 +706,7 @@ def plot_lightcurve_combined(lc1,
         # Residual scatter
         flux_df.residual.plot(ax=res_scatter_ax, color=color, ls='', marker='o', alpha=0.5)
 
-        # Residual histograme axis
+        # Residual histogram axis
         res_ax = res_histo_axes[i]
 
         res_ax.hist(flux_df.residual, orientation='horizontal', color=color, alpha=0.5)
@@ -712,7 +731,7 @@ def plot_lightcurve_combined(lc1,
 
     lc_ax.xaxis.set_major_locator(half_hour)
     lc_ax.xaxis.set_major_formatter(h_fmt)
-    lc_ax.set_ylim([0.93, 1.07])
+    #lc_ax.set_ylim([0.93, 1.07])
 
     res_scatter_ax.set_xticks([])
 
@@ -867,7 +886,7 @@ def make_sigma_aperture_plot(masked_stamps=None, add_pixel_grid=False):
     cax1 = fig.add_subplot(gs[2])
     
     # Show the full data - without mask any of 'rgb' are full data
-    full_ax.imshow(masked_stamps['r'].data, norm=LogNorm(), cmap=get_palette())
+    full_ax.imshow(masked_stamps['r'].data)
     
     for i, color in enumerate('rgb'):
         masked_stamp = masked_stamps[color]

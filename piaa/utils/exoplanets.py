@@ -298,8 +298,8 @@ class Exoplanet():
         return phase
 
 
-def get_exoplanet_transit(index, transit_times=None, model_params=None):
-    exoplanet = Exoplanet('HD 189733 b')
+def get_exoplanet_transit(field, index, transit_times=None, model_params=None):
+    exoplanet = Exoplanet(field)
 
     if not transit_times:
         transit_times = TransitInfo(

@@ -297,8 +297,8 @@ def get_rgb_masks(data, separate_green=False, mask_path=None, force_new=False, v
                 'b': blue_mask,
             }
 
-        logger.debug("Saving masks files")
-        np.savez_compressed(mask_path, **_rgb_masks)
+        #logger.debug("Saving masks files")
+        #np.savez_compressed(mask_path, **_rgb_masks)
 
     return _rgb_masks
 
@@ -918,7 +918,7 @@ def make_median_sigma_masked_psc(psc, sigma_thresh=2.5):
     return d0
 
 def get_bright_pixels(target_stamp=None,
-                      num_per_channel={'r': 4, 'g': 6, 'b': 4},
+                      num_per_channel={'r': 6, 'g': 6, 'b': 6},
                       sum=True
                       ):
     

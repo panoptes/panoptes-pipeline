@@ -26,13 +26,17 @@ from dateutil.parser import parse as date_parse
 from photutils import DAOStarFinder
 
 from pocs.utils.images import fits as fits_utils
+
+from pocs.utils.logger import get_root_logger
+
 from piaa.utils import helpers
 from piaa.utils import plot
 from piaa.utils.postgres import get_cursor
 
 import logging
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+#logger = logging.getLogger(__name__)
+logger = get_root_logger()
+logger.setLevel(logging.DEBUG)
 
 
 def normalize(cube):
@@ -60,7 +64,7 @@ def lookup_sources_for_observation(fits_files=None,
 
     except FileNotFoundError:
         if not cursor:
-            cursor = get_cursor(port=5433, db_name='v6', db_user='postgres')
+            cursor = get_cursor(port=5433, db_name='v702', db_user='panoptes')
 
         logger.info(f'Looking up sources in {len(fits_files)} files')
         observation_sources = None
@@ -85,8 +89,10 @@ def lookup_sources_for_observation(fits_files=None,
             point_sources['file'] = os.path.basename(fn)
             point_sources['picid'] = point_sources.index
 
+            logger.info(f'Combining sources with previous observations')
             if observation_sources is not None:
                 if use_intersection:
+                    logger.info(f'Getting intersection of sources')
 
                     idx_intersection = observation_sources.index.intersection(point_sources.index)
                     logger.info(f'Num sources in intersection: {len(idx_intersection)}')
@@ -98,6 +104,7 @@ def lookup_sources_for_observation(fits_files=None,
             else:
                 observation_sources = point_sources
 
+        logger.info(f'Writing sources out to file')
         observation_sources.to_csv(filename)
 
     observation_sources.set_index(['obstime'], inplace=True)
@@ -135,14 +142,16 @@ def lookup_point_sources(fits_file,
 
     # Lookup our appropriate method and call it with the fits file and kwargs
     try:
-        logger.info("Using {} method {}".format(method, lookup_function[method]))
+        logger.debug("Using {} method {}".format(method, lookup_function[method]))
         point_sources = lookup_function[method](fits_file, force_new=force_new, **kwargs)
     except Exception as e:
         logger.error("Problem looking up sources: {}".format(e))
         raise Exception("Problem lookup up sources: {}".format(e))
 
     if catalog_match:
+        logger.debug(f'Doing catalog match against stars')
         point_sources = get_catalog_match(point_sources, wcs, **kwargs)
+        logger.debug(f'Done with catalog match')
 
     # Change the index to the picid
     point_sources.set_index('id', inplace=True)
@@ -167,12 +176,14 @@ def get_catalog_match(point_sources, wcs, table='full_catalog', **kwargs):
     )
 
     # Lookup stars in catalog
+    logger.debug(f'Getting catalog stars')
     catalog_stars = helpers.get_stars_from_footprint(
         wcs.calc_footprint(),
         cursor_only=False,
         table=table,
         **kwargs
     )
+    logger.debug(f'Matched {len(catalog_stars)} sources to catalog')
 
     # Get coords for catalog stars
     catalog_coords = SkyCoord(
@@ -181,7 +192,9 @@ def get_catalog_match(point_sources, wcs, table='full_catalog', **kwargs):
     )
 
     # Do catalog matching
+    logger.debug(f'Doing actual match')
     idx, d2d, d3d = match_coordinates_sky(stars_coords, catalog_coords)
+    logger.debug(f'Got matched sources')
 
     # Get some properties from the catalog
     point_sources['id'] = catalog_stars[idx]['id']
@@ -235,6 +248,7 @@ def _lookup_via_sextractor(fits_file, sextractor_params=None, *args, **kwargs):
             raise Exception("Problem running sextractor: {}".format(e))
 
     # Read catalog
+    logger.info('Building detected source table')
     point_sources = Table.read(source_file, format='ascii.sextractor')
 
     # Remove the point sources that sextractor has flagged
@@ -252,6 +266,7 @@ def _lookup_via_sextractor(fits_file, sextractor_params=None, *args, **kwargs):
 
     stamp_size = 60
 
+    logger.info('Trimming sources near edge')
     top = point_sources['y'] > stamp_size
     bottom = point_sources['y'] < w - stamp_size
     left = point_sources['x'] > stamp_size
@@ -272,6 +287,7 @@ def _lookup_via_sextractor(fits_file, sextractor_params=None, *args, **kwargs):
         'flags',
     ]
 
+    logger.info(f'Returning {len(point_sources)} sources')
     return point_sources
 
 
@@ -933,8 +949,8 @@ def normalize_lightcurve(lc0, method='median', use_frames=None):
     lc1 = lc0.copy()
 
     methods = {
-        'median': lambda x: np.median(x),
-        'mean': lambda x: np.mean(x)
+        'median': lambda x: np.ma.median(x),
+        'mean': lambda x: np.ma.mean(x)
     }
 
     use_method = methods[method]
@@ -950,7 +966,7 @@ def normalize_lightcurve(lc0, method='median', use_frames=None):
         normalization_values = field_to_normalize.apply(use_method)
 
         for color, norm_value in normalization_values.iteritems():
-            logging.info(f"{field} {color} μ={norm_value:.04f}")
+            #logger.debug(f"{field} {color} μ={norm_value:.04f}")
 
             # Get the raw values.
             raw_values = lc1.loc[lc1.color == color, (f'{field}')]

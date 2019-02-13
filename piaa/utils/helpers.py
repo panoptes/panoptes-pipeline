@@ -20,10 +20,12 @@ from matplotlib.figure import Figure
 
 from piaa.utils import postgres as clouddb
 from pocs.utils.images import fits as fits_utils
+from pocs.utils.logger import get_root_logger
 
 import logging
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+#logger = logging.getLogger(__name__)
+logger = get_root_logger()
+logger.setLevel(logging.DEBUG)
 
 
 def get_stars_from_footprint(wcs_footprint, **kwargs):
@@ -40,6 +42,8 @@ def get_stars_from_footprint(wcs_footprint, **kwargs):
     """
     ra = wcs_footprint[:, 0]
     dec = wcs_footprint[:, 1]
+    
+    logger.debug(f'WCS footprint: {ra} {dec}')
 
     return get_stars(ra.min(), ra.max(), dec.min(), dec.max(), **kwargs)
 
@@ -49,6 +53,7 @@ def get_stars(
         ra_max,
         dec_min,
         dec_max,
+        vmag=13,
         table='full_catalog',
         cursor=None,
         cursor_only=True,
@@ -71,24 +76,28 @@ def get_stars(
             otherwise the raw cursor if `cursor_only=True`.
     """
     if not cursor:
+        logger.info(f'No DB cursor, getting new one')
         cursor = clouddb.get_cursor(
-                instance='tess-catalog', 
-                db_name='v6', 
+                instance='panoptes-tess-catalog', 
+                db_name='v702', 
                 db_user='postgres',
                 port=5433,
                 **kwargs)
         
+    logger.debug(f'About to execute SELECT sql')
+    logger.debug('{} {} {} {}'.format(ra_min, ra_max, dec_min, dec_max))
     cursor.execute("""SELECT id, ra, dec, tmag, vmag, e_tmag, twomass
         FROM {}
-        WHERE tmag < 13 AND ra >= %s AND ra <= %s AND dec >= %s AND dec <= %s;""".format(table),
-                (ra_min, ra_max, dec_min, dec_max)
+        WHERE ra >= %s AND ra <= %s AND dec >= %s AND dec <= %s AND vmag < %s;""".format(table),
+                (ra_min, ra_max, dec_min, dec_max, vmag)
                 )
     if cursor_only:
+        logger.debug(f'Returning cursor')
         return cursor
 
+    logger.debug('Bulding table of results')
     d0 = cursor.fetchall()
-    if verbose:
-        print(d0)
+    logger.debug(f'Fetched {len(d0)} sources')
     return Table(
         data=d0,
         names=['id', 'ra', 'dec', 'tmag', 'vmag', 'e_tmag', 'twomass'],

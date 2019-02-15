@@ -230,7 +230,7 @@ def get_rgb_masks(data, separate_green=False, mask_path=None, force_new=False, v
             logger.debug("Using saved masks")
             _rgb_masks = {color: loaded_masks[color] for color in loaded_masks.files}
     except Exception:
-        logger.info("Making RGB masks")
+        logger.debug("Making RGB masks")
 
         if data.ndim > 2:
             data = data[0]
@@ -306,8 +306,8 @@ def get_rgb_masks(data, separate_green=False, mask_path=None, force_new=False, v
                 'b': blue_mask,
             }
 
-        #logger.debug("Saving masks files")
-        #np.savez_compressed(mask_path, **_rgb_masks)
+        logger.debug("Saving masks files")
+        np.savez_compressed(mask_path, **_rgb_masks)
 
     return _rgb_masks
 
@@ -645,7 +645,6 @@ def get_photon_flux_params(filter_name='V'):
 def get_adaptive_aperture_pixels(target_stamp=None,
                                  target_psc=None,
                                  frame_idx=None,
-                                 num_stds=2,
                                  make_plots=False,
                                  target_dir=None,
                                  picid=None,
@@ -661,103 +660,38 @@ def get_adaptive_aperture_pixels(target_stamp=None,
         else:
             raise UserWarning(f'Must pass either target_stamp or target_psc and a frame_idx.')
             
-    rgb_masks = get_rgb_masks(target_stamp)
+    rgb_data = get_rgb_data(target_stamp)
     
-    if make_plots:
-        if not target_dir:
-            raise UserWarning(f'Target dir not valid: {target_dir}')
-        os.makedirs(target_dir, exist_ok=True)
-            
-        if frame_idx is None:
-            raise UserWarning(f'frame_idx needed for saving filename')
-            
-        fig = Figure()
-        FigureCanvas(fig)
-        plt.style.use('bmh')
-        ax = fig.add_subplot(111)
-        fig.set_size_inches(9, 6)
+    aperture_pixels = dict()
+    for color, i in zip('rgb', range(len(rgb_data))):
+        color_data = rgb_data[i]
 
-    pixels_to_use = dict()
-    for color in 'rgb':
-        color_data = np.ma.array(target_stamp.copy(), mask=~rgb_masks[color]).compressed()
-        num_pixels = len(color_data)
+        # Get the background 
+        s_mean, s_med, s_std = sigma_clipped_stats(color_data.compressed())
 
-        # Sort so brightest pixel is first in list.
-        c0 = np.sort(color_data)
-        c1 = np.flip(c0.copy())
+        color_sort = np.sort((color_data - s_med).flatten().filled(0))[::-1]
+        color_sort_index = np.argsort((color_data).flatten().filled(0))[::-1]
 
-        # Zero and normalize
-        c2 = c1 - c1.mean()
-        c2 /= c2.max()
+        snr = list()
+        for k, pix in enumerate(color_sort):
+            signal = color_sort[:k + 1].sum()
+            noise = np.sqrt(signal + ((k + 1) * 10.5)**2)
+            snr.append(signal / noise)
 
-        # Fit the data using a Gaussian
-        g_init = models.Gaussian1D(amplitude=1., mean=0, stddev=1.)
-        fit_g = fitting.LevMarLSQFitter()
-        smooth_x = np.linspace(0, 50, 500)    
-        x = np.linspace(-1 * num_pixels, num_pixels, num_pixels * 2)
-        y = np.append(np.flip(c2), c2)
-        g = fit_g(g_init, x, y)        
+        snr = np.array(snr)
 
-        # Get two std of fit
-        within_std = (g(smooth_x).std() + 1) * num_stds
+        # Peak of growth curve
+        max_idx = snr.argmax() + 2
         
-        # Note that this can have issues if two pixels have the exact same value,
-        # in which case it will include both of them.
-        num_nonzero = int(len(np.argwhere(c2[:int(within_std) + 1])))
+        aperture_pixels[color] = [idx
+                                  for idx
+                                  in zip(*np.unravel_index(
+                                      color_sort_index[:max_idx],
+                                      color_data.shape
+                                  ))]
 
-        # Find the pixel locations within the number of stds
-        top_pixels = c1[:num_nonzero]
-        top_pixel_locations = np.argwhere(np.isin(target_stamp, top_pixels))
-        pixels_to_use[color] = top_pixel_locations
-
-        if make_plots:
-            # The data
-            ax.plot(np.arange(num_pixels), c2,
-                    color=color, marker='o', ms=8, ls='-.', alpha=0.5, label=f'{color} norm')
-
-            # The gaussian fit
-            ax.plot(np.linspace(0, 50, 500), g(np.linspace(0, 50, 500)),
-                    color=color, lw=3, label=f'{color} gauss')
-
-            # Axes helper lines - two std and zero
-            ax.axvline(within_std, color=color, ls='--')
-            ax.axhline(0, color='k', ls='--')
-
-            ax.set_xlim([-0.5, 10])
-            #ax.set_ylim([-0.2, 1.5])
-            
-            if not plot_title:
-                plot_title = f'Adaptive Pixel Aperture within {num_stds}σ'
-            try:
-                ax.set_title(f'PICID {picid} Frame {frame_idx:03d} {plot_title}')
-            except TypeError:
-                ax.set_title(plot_title)
-                
-            ax.legend()
-
-    if make_plots:
-        # Stamp inset
-        ax2 = fig.add_axes([.42, .55, .3, .3])
-        stamp_med, stamp_mean, stamp_std = sigma_clipped_stats(target_stamp)
-        cax = ax2.imshow(target_stamp, origin='lower', norm=LogNorm(vmin=stamp_med))
-        cbar = fig.colorbar(cax)
-        cbar.ax.set_ylabel('Flux Counts')
-
-        # Mark the selected pixels
-        for color, top_pixel_locations in pixels_to_use.items():
-            ax2.scatter([idx[1] for idx in top_pixel_locations],
-                        [idx[0] for idx in top_pixel_locations], marker='x', color=color, s=100)
-            ax2.set_xticks([])
-            ax2.set_yticks([])    
-
-        aperture_plot_dir = os.path.join(target_dir, 'plots', 'apertures', 'adaptive')
-        os.makedirs(aperture_plot_dir, exist_ok=True)
-        plot_fn = os.path.normpath(os.path.join(aperture_plot_dir, f'{frame_idx:03d}-std{num_stds}.png'))
-
-        #fig.set_tight_layout(True)
-        fig.savefig(plot_fn, transparent=False, dpi=150, bbox_inches='tight')
     
-    return pixels_to_use
+    return aperture_pixels
 
 def get_bright_aperture_pixels(target_stamp=None,
                                  target_psc=None,

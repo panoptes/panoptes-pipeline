@@ -666,16 +666,8 @@ def get_ideal_full_psc(stamp_collection, coeffs):
 def get_aperture_sums(psc0,
                       psc1,
                       image_times,
-                      use_bright_pixels=False,
-                      sigma_mask_aperture=False,
-                      sigma_mask_threshold=2.5,
-                      adaptive_aperture=False,
-                      num_stds=2,
-                      aperture_size=None,
                       readout_noise=10.5,
-                      gain=1.5,
                       separate_green=False,
-                      subtract_back=False,
                       plot_apertures=False,
                       aperture_plot_path=None,
                       picid=None,
@@ -700,19 +692,9 @@ def get_aperture_sums(psc0,
         psc1 (`numpy.array`): An NxM cube to be used as the comparison.
         image_times (list(`datetime`)): A list of `datetime.datetime` objects to
             be used for an index.
-        adaptive_aperture (bool): An adaptive aperture is used, in which the brightest
-            pixels from each channel are used. See note for details.
-        num_stds (int): Number of standard deviations to use for adaptive aperture,
-            default 2.
-        aperture_size (int): An aperture around the source that is used
-            for photometry, default None uses entire stamp if `adaptive_aperture=True`.
         readout_noise (float): Readout noise in e- / pixel, default 10.5.
-        gain (float): Camera gain in e- / ADU, default 1.5. TODO: Alter this for per
-            channel gain.
         separate_green (bool): If separate green color channels should be created,
             default False. If True, the G2 pixel is marked as `c`.
-        subtract_back (bool, optional): If a background annulus should be removed
-            from the sum, default False.
         plot_apertures (bool, optional): If a figure should be generated showing
             each of the aperture stamps, default False.
 
@@ -725,19 +707,6 @@ def get_aperture_sums(psc0,
 
     stamp_side = int(np.sqrt(stamp_size))
 
-    if not adaptive_aperture:
-        try:
-            single_frame = psc0[0].reshape(stamp_side, stamp_side)
-
-            rgb_stamp_masks = helpers.get_rgb_masks(
-                single_frame,
-                force_new=True,
-                separate_green=separate_green
-            )
-            logger.debug('RGB stamp_masks created')
-        except ValueError as e:
-            logger.warning(f"Can't make stamp masks {e!r}")
-
     apertures = list()
     diff = list()
     for frame_idx, image_time in zip(range(num_frames), image_times):
@@ -746,169 +715,43 @@ def get_aperture_sums(psc0,
         t0 = psc0[frame_idx].reshape(stamp_side, stamp_side)
         i0 = psc1[frame_idx].reshape(stamp_side, stamp_side)
 
-        if use_bright_pixels:
-            logger.debug(f'Using bright pixels')
-            
-            # Get the bright pixels but don't sum yet
-            t_bright_pixels = helpers.get_bright_pixels(t0, sum=False)
-            i_bright_pixels = helpers.get_bright_pixels(i0, sum=False)
-            
-            for color in 'rgb':
-                
-                # Get the sum in electrons
-                t_sum = t_bright_pixels[color].sum()
-                i_sum = i_bright_pixels[color].sum()
+        logger.debug(f'Using adaptive apertures')
+        pixel_locations = helpers.get_adaptive_aperture_pixels(target_stamp=i0,
+                                                               frame_idx=frame_idx,
+                                                               make_plots=plot_apertures,
+                                                               target_dir=aperture_plot_path,
+                                                               picid=picid,
+                                                               )
+        logger.debug(f'Frame {frame_idx} pixel locations: {pixel_locations}')
 
-                # Add the noise
-                target_photon_noise = np.sqrt(t_sum)
-                ideal_photon_noise = np.sqrt(i_sum)
-                
-                pixel_count = len(t_bright_pixels[color])
+        for color, pixel_loc in pixel_locations.items():
+            #logger.debug(color, pixel_loc)
+            target_pixel_values = np.array([t0[loc[0], loc[1]] for loc in pixel_loc])
+            ideal_pixel_values = np.array([i0[loc[0], loc[1]] for loc in pixel_loc])
 
-                readout = readout_noise * pixel_count
+            # Get the sum in electrons
+            t_sum = target_pixel_values.sum()
+            i_sum = ideal_pixel_values.sum()
 
-                target_total_noise = np.sqrt(target_photon_noise**2 + readout**2)
-                ideal_total_noise = np.sqrt(ideal_photon_noise**2 + readout**2)
+            # Add the noise
+            target_photon_noise = np.sqrt(t_sum)
+            ideal_photon_noise = np.sqrt(i_sum)
 
-                # Record the values.
-                diff.append({
-                    'color': color,
-                    'target': t_sum,
-                    'target_err': target_total_noise,
-                    'reference': i_sum,
-                    'reference_err': ideal_total_noise,
-                    'obstime': image_time,
-                })
-        elif sigma_mask_aperture:
-            logger.debug(f'Using sigma mask aperture with σ={sigma_mask_threshold}')
-            
-            i0_rgb_data = helpers.get_rgb_data(i0)
-            
-            # We use the reference to make the aperture
-            masked_stamps = helpers.make_sigma_masked_stamps(i0_rgb_data, sigma_thresh=sigma_mask_threshold) 
-            for color in 'rgb':
-                # Make the mask with sigma aperture
-                t0_aperture = np.ma.array(t0, mask=masked_stamps[color].mask)
-                i0_aperture = np.ma.array(i0, mask=masked_stamps[color].mask)
-                
-                # Get the sum in electrons
-                t_sum = (t0_aperture * gain).sum()
-                i_sum = (i0_aperture * gain).sum()
+            readout = readout_noise * len(pixel_loc)
 
-                # Add the noise
-                target_photon_noise = np.sqrt(t_sum)
-                ideal_photon_noise = np.sqrt(i_sum)
+            target_total_noise = np.sqrt(target_photon_noise**2 + readout**2)
+            ideal_total_noise = np.sqrt(ideal_photon_noise**2 + readout**2)
 
-                readout = readout_noise * i0_aperture.count()
+            # Record the values.
+            diff.append({
+                'color': color,
+                'target': t_sum,
+                'target_err': target_total_noise,
+                'reference': i_sum,
+                'reference_err': ideal_total_noise,
+                'obstime': image_time,
+            })
 
-                target_total_noise = np.sqrt(target_photon_noise**2 + readout**2)
-                ideal_total_noise = np.sqrt(ideal_photon_noise**2 + readout**2)
-
-                # Record the values.
-                diff.append({
-                    'color': color,
-                    'target': t_sum,
-                    'target_err': target_total_noise,
-                    'reference': i_sum,
-                    'reference_err': ideal_total_noise,
-                    'obstime': image_time,
-                })
-            
-        elif adaptive_aperture:
-            logger.debug(f'Using adaptive apertures')
-            pixel_locations = helpers.get_adaptive_aperture_pixels(target_stamp=i0,
-                                                                   frame_idx=frame_idx,
-                                                                   make_plots=plot_apertures,
-                                                                   target_dir=aperture_plot_path,
-                                                                   picid=picid,
-                                                                   num_stds=num_stds
-                                                                   )
-            logger.debug(f'Frame {frame_idx} pixel locations: {pixel_locations}')
-
-            for color, pixel_loc in pixel_locations.items():
-                logger.debug(color, pixel_loc)
-                target_pixel_values = np.array([t0[loc[0], loc[1]] for loc in pixel_loc])
-                ideal_pixel_values = np.array([i0[loc[0], loc[1]] for loc in pixel_loc])
-
-                # Get the sum in electrons
-                t_sum = (target_pixel_values * gain).sum()
-                i_sum = (ideal_pixel_values * gain).sum()
-
-                # Add the noise
-                target_photon_noise = np.sqrt(t_sum)
-                ideal_photon_noise = np.sqrt(i_sum)
-
-                readout = readout_noise * len(pixel_loc)
-
-                target_total_noise = np.sqrt(target_photon_noise**2 + readout**2)
-                ideal_total_noise = np.sqrt(ideal_photon_noise**2 + readout**2)
-
-                # Record the values.
-                diff.append({
-                    'color': color,
-                    'target': t_sum,
-                    'target_err': target_total_noise,
-                    'reference': i_sum,
-                    'reference_err': ideal_total_noise,
-                    'obstime': image_time,
-                })
-
-        elif aperture_size:
-            # NOTE: Bad "centroiding" here
-            y_pos, x_pos = np.argwhere(t0 == t0.max())[0]
-            aperture_position = (x_pos, y_pos)
-            center_color = helpers.pixel_color(x_pos, y_pos)
-
-            slice0 = None
-            if aperture_size != stamp_side:
-                logger.debug('Aperture Position: {} Size: {} Frame: {} Color: {}'.format(
-                    aperture_position, aperture_size, frame_idx, center_color))
-                slice0 = helpers.get_stamp_slice(x_pos, y_pos, stamp_size=(
-                    aperture_size, aperture_size), ignore_superpixel=True)
-                logger.debug(f'Slice for aperture: {slice0}')
-
-            for color, mask in rgb_stamp_masks.items():
-
-                # Get color mask data from target and reference
-                t1 = np.ma.array(t0, mask=~mask)
-                i1 = np.ma.array(i0, mask=~mask)
-
-                # Make apertures
-                if slice0:
-                    try:
-                        t3 = t1[slice0]
-                        i3 = i1[slice0]
-                    except Exception as e:
-                        logger.debug(e)
-                        continue
-
-                    if plot_apertures:
-                        apertures.append((t3, image_time, center_color))
-                    logger.debug(t3)
-                else:
-                    t3 = t1
-                    i3 = i1
-
-                if subtract_back:
-                    mean, median, std = sigma_clipped_stats(t3)
-                    logger.info("Average sky background for {}: {:5.2f}: {:5.2f}".format(
-                        color, mean, t3.sum()))
-
-                    t3 = t3 - mean
-                    logger.info(t3.sum())
-
-                t_sum = t3.sum()
-                i_sum = i3.sum()
-
-                # Record the values.
-                diff.append({
-                    'color': color,
-                    'target': t_sum,
-                    'reference': i_sum,
-                    'obstime': image_time,
-                })
-        else:
-            raise UserWarning(f'adaptive_aperture is false but no aperture_size given')
 
     # Light-curve dataframe
     lc0 = pd.DataFrame(diff).set_index(['obstime'])

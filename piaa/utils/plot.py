@@ -677,12 +677,12 @@ def plot_lightcurve_combined(lc1,
         if time_bin is not None:
             # Time-binned
             binned_flux_df = flux_df.resample(f'{time_bin}T').apply({
-                'flux': np.mean,
+                'flux': np.median,
                 'flux_err': lambda x: np.sum(x**2)
             })
 
             # Plot time-binned target flux.
-            binned_flux_df.plot(yerr=binned_flux_df.flux_err,
+            binned_flux_df.flux.plot(yerr=binned_flux_df.flux_err,
                                 ax=lc_ax,
                                 rot=0,
                                 marker='o', ms=8,

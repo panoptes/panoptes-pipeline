@@ -39,9 +39,6 @@ def build_ref(build_params):
     base_dir = params['base_dir']
     processed_dir = params['processed_dir']
     force = params['force']
-    method = params['method']
-    aperture_size = params['aperture_size']
-    num_stds = params['num_stds']
     camera_bias = params['camera_bias']
     gain = params['gain']
     readout_noise = params['readout_noise']
@@ -51,17 +48,6 @@ def build_ref(build_params):
     make_plots = params['make_plots']
     color_correction = params['color_correction']
     
-    use_bright_pixels = False
-    adaptive_aperture = False
-    sigma_mask_aperture = False
-
-    if method == 'adaptive':
-        adaptive_aperture = True
-    elif method == 'bright':
-        use_bright_pixels = True
-    elif method == 'sigma_mask':
-        sigma_mask_aperture = True
-
     # Get working directories.
     psc_dir = os.path.dirname(psc_fn)
     logger.debug(f'PSC dir: {psc_dir}')
@@ -120,6 +106,7 @@ def build_ref(build_params):
 
         # Get PSC for matching frames
         ref_psc = np.array(ref_table.loc[include_frames]) - camera_bias
+        ref_psc = ref_psc * gain
 
         psc_collection.append(ref_psc)
 
@@ -182,24 +169,10 @@ def build_ref(build_params):
         plot_apertures=make_plots,
         aperture_plot_path=os.path.join(psc_dir, 'plots', 'apertures'),
         picid=picid,
-        num_stds=num_stds,
-        use_bright_pixels=use_bright_pixels,
-        adaptive_aperture=adaptive_aperture,
-        sigma_mask_aperture=sigma_mask_aperture,
-        aperture_size=aperture_size,
-        sigma_mask_threshold=2.5,
-        gain=gain,
         readout_noise=readout_noise
     )
 
-    # Save the lightcurve dataframe to a csv file
-    # NOTE: We do this before normalizing
-    if method == 'adaptive':
-        lc_fn = f'raw-flux-std{num_stds}-refs{num_refs:03d}.csv'
-    elif method == 'bright':
-        lc_fn = f'raw-flux-bright-refs{num_refs:03d}.csv'
-    elif method == 'sigma_mask':
-        lc_fn = f'raw-flux-aper{num_stds}-refs{num_refs:03d}.csv'
+    lc_fn = f'raw-flux-snr-refs{num_refs:03d}.csv'
 
     lc0.to_csv(os.path.join(psc_dir, lc_fn))
 
@@ -330,14 +303,12 @@ def main(base_dir,
          table_filter=None,
          num_refs=50,
          aperture_size=5,
-         num_stds=1,
          make_plots=False,
          color_correction=False,
          picid=None,
          force=False,
          num_workers=8,
          chunk_size=12,
-         method='bright'
          ):
 
     logger.info(f'Building references for stars for observation in {base_dir}')
@@ -361,13 +332,10 @@ def main(base_dir,
         'table_filter': table_filter,
         'num_refs': num_refs,
         'camera_bias': camera_bias,
-        'num_stds': num_stds,
         'gain': gain,
         'readout_noise': readout_noise,
         'make_plots': make_plots,
-        'aperture_size': aperture_size,
         'color_correction': color_correction,
-        'method': method,
     }
     logger.debug(f'Call params: {call_params}')
 
@@ -403,13 +371,6 @@ if __name__ == '__main__':
                               "exist and a directory corresponding to the sequence id is made for "
                               "the observation inside the PICID dir. Default $PANDIR/processed/."
                               ))
-    parser.add_argument('--method', default='bright', type=str,
-                       help='The aperture method to use, default brightest pixels')
-    parser.add_argument('--num-stds', default=2, type=int,
-                        help="Number of stds for adaptive aperture")
-    parser.add_argument('--aperture-size', default=None, type=int,
-                        help="Aperture size for photometry, typically 5. "
-                        "If none, an adaptive aperture with num-stds will be used")
     parser.add_argument('--gain', default=1.5, type=float, help="Gain (e-/ADU)")
     parser.add_argument('--readout-noise', default=10.5,
                         type=float, help="Readout noise (e-/pixel)")

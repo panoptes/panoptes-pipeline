@@ -113,7 +113,7 @@ def show_stamps(pscs,
 
     ax1 = fig.add_subplot(nrows, ncols, 1)
 
-    im = ax1.imshow(s0, origin='lower', cmap=get_palette(), norm=norm)
+    im = ax1.imshow(s0, cmap=get_palette(), norm=norm)
 
     if aperture_size:
         aperture.plot(color='r', lw=4, ax=ax1)
@@ -129,7 +129,7 @@ def show_stamps(pscs,
 
     # Comparison
     ax2 = fig.add_subplot(nrows, ncols, 2)
-    im = ax2.imshow(s1, origin='lower', cmap=get_palette(), norm=norm)
+    im = ax2.imshow(s1, cmap=get_palette(), norm=norm)
 
     if aperture_size:
         aperture.plot(color='r', lw=4, ax=ax1)
@@ -149,7 +149,7 @@ def show_stamps(pscs,
 
         # Residual
         residual = s0 / s1
-        im = ax3.imshow(residual, origin='lower', cmap=get_palette(), norm=ImageNormalize(
+        im = ax3.imshow(residual, cmap=get_palette(), norm=ImageNormalize(
             residual, interval=MinMaxInterval(), stretch=LinearStretch()))
 
         divider = make_axes_locatable(ax3)

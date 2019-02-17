@@ -642,15 +642,63 @@ def get_photon_flux_params(filter_name='V'):
     return photon_flux_values.get(filter_name)
 
 
-def get_adaptive_aperture_pixels(target_stamp=None,
+def get_adaptive_aperture(target_stamp, snr_gradient=True, return_snr=False, cutoff_value=1e-1):
+    aperture_pixels = dict()
+    snr = dict()
+    
+    rgb_data = get_rgb_data(target_stamp)
+    
+    for color, i in zip('rgb', range(3)):
+        color_data = rgb_data[i]
+
+        # Get the background 
+        s_mean, s_med, s_std = sigma_clipped_stats(color_data.compressed())
+        
+        # Subtract background
+        color_data = color_data - s_med
+        
+        # Get SNR of each pixel
+        noise0 = np.sqrt(color_data + 10.5**2)
+        snr0 = color_data / noise0
+
+        # Weight each pixel according to SNR
+        w0 = snr0**2 / (snr0**2).sum()
+        color_data = snr0 * w0
+
+        color_sort = np.sort(color_data.flatten().filled(0))[::-1]
+        color_sort_index = np.argsort((color_data).flatten().filled(0))[::-1]
+
+        # Running sum of SNR
+        snr0 = np.cumsum(color_sort)
+        # Snip to first fourth
+        snr0 = snr0[:int(len(color_sort) / 4)]
+        
+        # Use gradient to determine cutoff (to zero)
+        snr1 = np.gradient(snr0)            
+        snr1 = snr1[snr1 > cutoff_value]
+               
+        aperture_pixels[color] = [idx for idx in zip(*np.unravel_index(color_sort_index[:len(snr1)], color_data.shape))]         
+        
+        if snr_gradient:
+            snr[color] = snr1
+        else:
+            snr[color] = snr0
+        
+    if return_snr:
+        return aperture_pixels, snr
+    else:
+        return aperture_pixels
+
+    
+def get_snr_growth_aperture(target_stamp=None,
                                  target_psc=None,
                                  frame_idx=None,
                                  make_plots=False,
                                  target_dir=None,
                                  picid=None,
-                                 plot_title=None
+                                 plot_title=None,
+                                extra_pixels=1,
                                 ):
-    
     # Get the target stamp if full PSC passed.
     if target_stamp is None:
         if target_psc is not None and frame_idx is not None:
@@ -681,7 +729,7 @@ def get_adaptive_aperture_pixels(target_stamp=None,
         snr = np.array(snr)
 
         # Peak of growth curve
-        max_idx = snr.argmax() + 2
+        max_idx = int(snr.argmax() + extra_pixels)
         
         aperture_pixels[color] = [idx
                                   for idx
@@ -692,7 +740,6 @@ def get_adaptive_aperture_pixels(target_stamp=None,
 
     
     return aperture_pixels
-
 
 def make_sigma_masked_stamps(rgb_data, sigma_thresh=2.5, as_dict=True):
     stamps = dict()

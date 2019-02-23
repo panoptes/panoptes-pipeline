@@ -148,15 +148,15 @@ def show_stamps(pscs,
         ax3 = fig.add_subplot(nrows, ncols, 3)
 
         # Residual
-        residual = s0 / s1
+        residual = s0 - s1
         im = ax3.imshow(residual, cmap=get_palette(), norm=ImageNormalize(
             residual, interval=MinMaxInterval(), stretch=LinearStretch()))
 
         divider = make_axes_locatable(ax3)
         cax = divider.append_axes("right", size="5%", pad=0.05)
         fig.colorbar(im, cax=cax)
-        ax3.set_title('Residual')
-        #ax3.set_title('Residual RMS: {:.01%}'.format(residual))
+        ax3.set_title('Noise Residual')
+        ax3.set_title('Residual RMS: {:.01%}'.format(residual.std()))
         ax3.set_yticklabels([])
         ax3.set_xticklabels([])
 

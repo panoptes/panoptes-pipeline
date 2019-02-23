@@ -118,11 +118,8 @@ def find_similar(find_params):
                     ref_picid, ref_psc.shape, picid, target_psc.shape))
                 continue
 
-            # NOTE TODO: Make sure the index aligns!!!!
-            # NOTE: This is because we took frame in the Source Detection step where they
-            # existed for 98% of total frames but not necessarily the same frames.
             try:
-                score = ((normalized_target_psc - normalized_ref_psc)**2).sum()
+                score = ((normalized_target_psc - normalized_ref_psc)**2).sum(axis=1)
                 vary[ref_picid] = score
                 j += 1
             except ValueError as e:
@@ -130,7 +127,13 @@ def find_similar(find_params):
 
         logger.debug(
             f'Found similar stars for {picid} by looking at {j} of {len(picid_list)} sources')
-        vary_series = pd.Series(vary).sort_values()
+        #vary_series = pd.Series(vary).sort_values()
+        vary_series = pd.DataFrame(vary, index=target_table.index.get_level_values(0))
+        
+        # Normalize each sum by the std across the frames
+        vary_series = (vary_series.sum() / vary_series.std()).sort_values()
+        #vary_series = vary_series.sum().sort_values()
+
         vary_series[:SAVE_NUM].to_csv(similar_fn)
 
     return picid

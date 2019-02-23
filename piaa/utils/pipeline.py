@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 
 from scipy import linalg
+from scipy import optimize
 from astropy.io import fits
 from astropy.table import Table
 from astropy.wcs import WCS
@@ -60,7 +61,6 @@ def lookup_sources_for_observation(fits_files=None,
         logger.info(f'Using existing source file: {filename}')
         observation_sources = pd.read_csv(filename, parse_dates=True)
         observation_sources['obstime'] = pd.to_datetime(observation_sources.obstime)
-        observation_sources.rename(columns={'id': 'picid'}, inplace=True)
 
     except FileNotFoundError:
         if not cursor:
@@ -280,8 +280,6 @@ def _lookup_via_sextractor(fits_file, sextractor_params=None, *args, **kwargs):
         'background',
         'flux_best', 'fluxerr_best',
         'mag_best', 'magerr_best',
-        'flux_aper', 'fluxerr_aper',
-        'mag_aper', 'magerr_aper',
         'flux_max',
         'fwhm_image',
         'flags',
@@ -716,12 +714,7 @@ def get_aperture_sums(psc0,
         i0 = psc1[frame_idx].reshape(stamp_side, stamp_side)
 
         logger.debug(f'Using adaptive apertures')
-        pixel_locations = helpers.get_adaptive_aperture_pixels(target_stamp=i0,
-                                                               frame_idx=frame_idx,
-                                                               make_plots=plot_apertures,
-                                                               target_dir=aperture_plot_path,
-                                                               picid=picid,
-                                                               )
+        pixel_locations = helpers.get_adaptive_aperture(t0, cutoff_value=2e-1)
         logger.debug(f'Frame {frame_idx} pixel locations: {pixel_locations}')
 
         for color, pixel_loc in pixel_locations.items():

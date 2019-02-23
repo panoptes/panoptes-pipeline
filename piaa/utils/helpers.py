@@ -642,7 +642,7 @@ def get_photon_flux_params(filter_name='V'):
     return photon_flux_values.get(filter_name)
 
 
-def get_adaptive_aperture(target_stamp, snr_gradient=True, return_snr=False, cutoff_value=1e-1):
+def get_adaptive_aperture(target_stamp, return_snr=False, cutoff_value=1):
     aperture_pixels = dict()
     snr = dict()
     
@@ -658,31 +658,38 @@ def get_adaptive_aperture(target_stamp, snr_gradient=True, return_snr=False, cut
         color_data = color_data - s_med
         
         # Get SNR of each pixel
-        noise0 = np.sqrt(color_data + 10.5**2)
+        noise0 = np.sqrt(np.abs(color_data) + 10.5**2)
         snr0 = color_data / noise0
 
         # Weight each pixel according to SNR
-        w0 = snr0**2 / (snr0**2).sum()
-        color_data = snr0 * w0
+        w0 = snr0**2 / (snr0).sum()
+        weighted_snr = snr0 * w0
 
-        color_sort = np.sort(color_data.flatten().filled(0))[::-1]
-        color_sort_index = np.argsort((color_data).flatten().filled(0))[::-1]
+        weighted_sort_snr = np.sort(weighted_snr.flatten().filled(0))[::-1]
+        weighted_sort_idx = np.argsort((weighted_snr).flatten().filled(0))[::-1]
 
         # Running sum of SNR
-        snr0 = np.cumsum(color_sort)
+        snr_pixel_sum = np.cumsum(weighted_sort_snr)
+        
         # Snip to first fourth
-        snr0 = snr0[:int(len(color_sort) / 4)]
+        snr_pixel_sum = snr_pixel_sum[:int(len(weighted_sort_snr) / 4)]
         
         # Use gradient to determine cutoff (to zero)
-        snr1 = np.gradient(snr0)            
-        snr1 = snr1[snr1 > cutoff_value]
-               
-        aperture_pixels[color] = [idx for idx in zip(*np.unravel_index(color_sort_index[:len(snr1)], color_data.shape))]         
+        snr_pixel_gradient = np.gradient(snr_pixel_sum)            
         
-        if snr_gradient:
-            snr[color] = snr1
-        else:
-            snr[color] = snr0
+        # Get gradient above cutoff value
+        top_snr_gradient = snr_pixel_gradient[snr_pixel_gradient > cutoff_value]
+        
+        # Get the positions for the matching pixels
+        best_pixel_idx = weighted_sort_idx[:len(top_snr_gradient)]
+               
+        # Get the original index position in the unflattened matrix
+        aperture_pixels[color] = [idx
+                                  for idx
+                                  in zip(*np.unravel_index(best_pixel_idx,
+                                                           color_data.shape))]         
+        
+        snr[color] = (snr_pixel_sum, snr_pixel_gradient)
         
     if return_snr:
         return aperture_pixels, snr

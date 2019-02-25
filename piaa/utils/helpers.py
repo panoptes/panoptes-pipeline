@@ -42,7 +42,7 @@ def get_stars_from_footprint(wcs_footprint, **kwargs):
     """
     ra = wcs_footprint[:, 0]
     dec = wcs_footprint[:, 1]
-    
+
     logger.debug(f'WCS footprint: {ra} {dec}')
 
     return get_stars(ra.min(), ra.max(), dec.min(), dec.max(), **kwargs)
@@ -78,24 +78,24 @@ def get_stars(
     if not cursor:
         logger.info(f'No DB cursor, getting new one')
         cursor = clouddb.get_cursor(
-                instance='panoptes-tess-catalog', 
-                db_name='v702', 
-                db_user='postgres',
-                port=5433,
-                **kwargs)
-        
+            instance='panoptes-tess-catalog',
+            db_name='v702',
+            db_user='postgres',
+            port=5433,
+            **kwargs)
+
     logger.debug(f'About to execute SELECT sql')
     logger.debug('{} {} {} {}'.format(ra_min, ra_max, dec_min, dec_max))
     cursor.execute("""SELECT id, ra, dec, tmag, vmag, e_tmag, twomass
         FROM {}
         WHERE ra >= %s AND ra <= %s AND dec >= %s AND dec <= %s AND vmag < %s;""".format(table),
-                (ra_min, ra_max, dec_min, dec_max, vmag)
-                )
+                   (ra_min, ra_max, dec_min, dec_max, vmag)
+                   )
     if cursor_only:
         logger.debug(f'Returning cursor')
         return cursor
 
-    logger.debug('Bulding table of results')
+    logger.debug('Building table of results')
     d0 = cursor.fetchall()
     logger.debug(f'Fetched {len(d0)} sources')
     return Table(
@@ -130,39 +130,40 @@ def get_star_info(picid=None, twomass_id=None, table='full_catalog', cursor=None
         col = 'twomass'
 
     cursor.execute('SELECT * FROM {} WHERE {}=%s'.format(table, col), (val,))
-    
+
     rec = cursor.fetchone()
-    
+
     if rec and not raw:
         StarInfo = namedtuple('StarInfo', sorted(rec.keys()))
         rec = StarInfo(**rec)
-        
+
     return rec
+
 
 def get_rgb_cube(cube):
     """ Given a cube of data, return the same cube split by RGB 
-    
-    
+
+
     """
 
     stamp_side = int(np.sqrt(cube[0].shape))
     # Get the masks
     first_frame = cube[0].reshape(stamp_side, stamp_side)
     rgb_masks = np.array([m for m in get_rgb_masks(first_frame).values()])
-    
+
     def mask_frame(f):
         r = np.ma.array(f, mask=~rgb_masks[0])
         g = np.ma.array(f, mask=~rgb_masks[1])
         b = np.ma.array(f, mask=~rgb_masks[2])
-        return np.ma.array([r, g, b])   
-    
+        return np.ma.array([r, g, b])
+
     rgb_cube = np.apply_along_axis(mask_frame, 1, cube)
-    
+
     # Rearrange so the color is first
     r = rgb_cube[:, 0, :]
     g = rgb_cube[:, 1, :]
     b = rgb_cube[:, 2, :]
-    
+
     return np.ma.array([r, g, b])
 
 
@@ -206,7 +207,8 @@ def get_rgb_masks(data, separate_green=False, mask_path=None, force_new=False, v
         TYPE: Description
     """
     if mask_path is None:
-        mask_path = os.path.join(os.environ['PANDIR'], f'rgb_masks_{data.shape[0]}_{data.shape[1]}.npz')
+        mask_path = os.path.join(os.environ['PANDIR'],
+                                 f'rgb_masks_{data.shape[0]}_{data.shape[1]}.npz')
 
     logger.debug('Mask path: {}'.format(mask_path))
 
@@ -238,31 +240,34 @@ def get_rgb_masks(data, separate_green=False, mask_path=None, force_new=False, v
         w, h = data.shape
 
         # See the docstring for `pixel_color` for full description of indexing values.
-        
-        #        |   row   |  col     
+
+        #        |   row   |  col
         #    --------------| ------
         #     R  |  odd i, | even j
         #     G1 |  odd i, |  odd j
         #     G2 | even i, | even j
         #     B  | even i, |  odd j
-        
-        is_red = lambda pos: pos[0] % 2 == 1 and pos[1] % 2 == 0
-        is_blue = lambda pos: pos[0] % 2 == 0 and pos[1] % 2 == 1
-        is_g1 = lambda pos: pos[0] % 2 == 1 and pos[1] % 2 == 1
-        is_g2 = lambda pos: pos[0] % 2 == 0 and pos[1] % 2 == 0
-        
+
+        def is_red(pos): return pos[0] % 2 == 1 and pos[1] % 2 == 0
+
+        def is_blue(pos): return pos[0] % 2 == 0 and pos[1] % 2 == 1
+
+        def is_g1(pos): return pos[0] % 2 == 1 and pos[1] % 2 == 1
+
+        def is_g2(pos): return pos[0] % 2 == 0 and pos[1] % 2 == 0
+
         red_mask = (np.array(
             [
-                 is_red(index)
-                 for index, _ 
-                 in np.ndenumerate(data)
+                is_red(index)
+                for index, _
+                in np.ndenumerate(data)
             ]
         ).reshape(w, h))
 
         blue_mask = (np.array(
             [
                 is_blue(index)
-                for index, _ 
+                for index, _
                 in np.ndenumerate(data)
             ]
         ).reshape(w, h))
@@ -276,7 +281,7 @@ def get_rgb_masks(data, separate_green=False, mask_path=None, force_new=False, v
                     in np.ndenumerate(data)
                 ]
             ).reshape(w, h))
-            
+
             green2_mask = (np.array(
                 [
                     is_g2(index)
@@ -297,7 +302,7 @@ def get_rgb_masks(data, separate_green=False, mask_path=None, force_new=False, v
                     is_g1(index) or is_g2(index)
                     for index, _ in
                     np.ndenumerate(data)
-                 ]
+                ]
             ).reshape(w, h))
 
             _rgb_masks = {
@@ -348,19 +353,19 @@ def get_pixel_index(x):
 
 def pixel_color(x, y):
     """ Given an x,y position, return the corresponding color.
-    
+
     The Bayer array defines a superpixel as a collection of 4 pixels
     set in a square grid:
-    
+
                      R G
                      G B
-                     
+
     `ds9` and other image viewers define the coordinate axis from the
     lower left corner of the image, which is how a traditional x-y plane
     is defined and how most images would expect to look when viewed. This
     means that the `(0, 0)` coordinate position will be in the lower left
     corner of the image.
-    
+
     When the data is loaded into a `numpy` array the data is flipped on the
     vertical axis in order to maintain the same indexing/slicing features.
     This means the the `(0, 0)` coordinate position is in the upper-left
@@ -369,9 +374,9 @@ def pixel_color(x, y):
     a normal image although this does not change the actual index.
 
     Note:
-    
+
         Image dimensions:
-        
+
          ----------------------------
          x | width  | i | columns |  5208
          y | height | j | rows    |  3476
@@ -393,8 +398,8 @@ def pixel_color(x, y):
                   2 | G2    B   G2     B       G2    B   G2    B
                   1 |  R   G1    R    G1        R   G1    R   G1
                   0 | G2    B   G2     B       G2    B   G2    B
-                  
-                  
+
+
         This can be described by:
 
                  | row (y) |  col (x)
@@ -403,7 +408,7 @@ def pixel_color(x, y):
               G1 |  odd i, |   odd j
               G2 | even i, |  even j
               B  | even i, |   odd j
-              
+
             bayer[1::2, 0::2, 0] = 1 # Red
             bayer[1::2, 1::2, 1] = 1 # Green
             bayer[0::2, 0::2, 1] = 1 # Green
@@ -490,7 +495,7 @@ def get_stamp_slice(x, y, stamp_size=(14, 14), verbose=False, ignore_superpixel=
         x_max -= 0
         y_min -= 1
         y_max -= 1
-        
+
     # if stamp_size is odd add extra
     if (stamp_size[0] % 2 == 1):
         x_max += 1
@@ -561,16 +566,17 @@ def get_planet_phase(period, midpoint, obs_time):
     """
     return ((Time(obs_time).mjd - Time(midpoint).mjd) % period) / period
 
+
 def scintillation_index(exptime, airmass, elevation, diameter=0.061, scale_height=8000, correction_coeff=1.5):
     """Calculate the scintillation index.
-    
+
     A modification to Young's approximation for estimating the scintillation index, this
     uses a default correction coefficient of 1.5 (see reference).
-    
+
     Note:
         The scintillation index defines the amount of scintillation and is expressed as a variance. 
         Scintillation noise is the square root of the index value.
-    
+
     Empirical Coefficients:
         Observatory Cmedian C Q1  CQ3
         Armazones      1.61 1.30 2.00
@@ -585,22 +591,23 @@ def scintillation_index(exptime, airmass, elevation, diameter=0.061, scale_heigh
         # 85 mm at f/1.4
         diameter = 85 / 1.4 
         diameter = 0.061 m
-        
+
     Reference:
         Osborn, J., Föhring, D., Dhillon, V. S., & Wilson, R. W. (2015). 
         Atmospheric scintillation in astronomical photometry. 
         Monthly Notices of the Royal Astronomical Society, 452(2), 1707–1716. 
         https://doi.org/10.1093/mnras/stv1400        
-        
+
     """
     zenith_distance = (np.arccos(1 / airmass))
-    
-    #TODO(wtgee) make this less ugly
+
+    # TODO(wtgee) make this less ugly
     return 10e-6 * (correction_coeff**2) * \
-            (diameter**(-4/3)) * \
-            (1/exptime) * \
-            (np.cos(zenith_distance)**-3) * \
-            np.exp(-2*elevation / scale_height)
+        (diameter**(-4 / 3)) * \
+        (1 / exptime) * \
+        (np.cos(zenith_distance)**-3) * \
+        np.exp(-2 * elevation / scale_height)
+
 
 def get_photon_flux_params(filter_name='V'):
     """
@@ -645,18 +652,18 @@ def get_photon_flux_params(filter_name='V'):
 def get_adaptive_aperture(target_stamp, return_snr=False, cutoff_value=1):
     aperture_pixels = dict()
     snr = dict()
-    
+
     rgb_data = get_rgb_data(target_stamp)
-    
+
     for color, i in zip('rgb', range(3)):
         color_data = rgb_data[i]
 
-        # Get the background 
+        # Get the background
         s_mean, s_med, s_std = sigma_clipped_stats(color_data.compressed())
-        
+
         # Subtract background
         color_data = color_data - s_med
-        
+
         # Get SNR of each pixel
         noise0 = np.sqrt(np.abs(color_data) + 10.5**2)
         snr0 = color_data / noise0
@@ -670,42 +677,42 @@ def get_adaptive_aperture(target_stamp, return_snr=False, cutoff_value=1):
 
         # Running sum of SNR
         snr_pixel_sum = np.cumsum(weighted_sort_snr)
-        
+
         # Snip to first fourth
         snr_pixel_sum = snr_pixel_sum[:int(len(weighted_sort_snr) / 4)]
-        
+
         # Use gradient to determine cutoff (to zero)
-        snr_pixel_gradient = np.gradient(snr_pixel_sum)            
-        
+        snr_pixel_gradient = np.gradient(snr_pixel_sum)
+
         # Get gradient above cutoff value
         top_snr_gradient = snr_pixel_gradient[snr_pixel_gradient > cutoff_value]
-        
+
         # Get the positions for the matching pixels
         best_pixel_idx = weighted_sort_idx[:len(top_snr_gradient)]
-               
+
         # Get the original index position in the unflattened matrix
         aperture_pixels[color] = [idx
                                   for idx
                                   in zip(*np.unravel_index(best_pixel_idx,
-                                                           color_data.shape))]         
-        
+                                                           color_data.shape))]
+
         snr[color] = (snr_pixel_sum, snr_pixel_gradient)
-        
+
     if return_snr:
         return aperture_pixels, snr
     else:
         return aperture_pixels
 
-    
+
 def get_snr_growth_aperture(target_stamp=None,
-                                 target_psc=None,
-                                 frame_idx=None,
-                                 make_plots=False,
-                                 target_dir=None,
-                                 picid=None,
-                                 plot_title=None,
-                                extra_pixels=1,
-                                ):
+                            target_psc=None,
+                            frame_idx=None,
+                            make_plots=False,
+                            target_dir=None,
+                            picid=None,
+                            plot_title=None,
+                            extra_pixels=1,
+                            ):
     # Get the target stamp if full PSC passed.
     if target_stamp is None:
         if target_psc is not None and frame_idx is not None:
@@ -714,14 +721,14 @@ def get_snr_growth_aperture(target_stamp=None,
             target_stamp = np.array(target_psc.iloc[frame_idx]).reshape(stamp_size, stamp_size)
         else:
             raise UserWarning(f'Must pass either target_stamp or target_psc and a frame_idx.')
-            
+
     rgb_data = get_rgb_data(target_stamp)
-    
+
     aperture_pixels = dict()
     for color, i in zip('rgb', range(len(rgb_data))):
         color_data = rgb_data[i]
 
-        # Get the background 
+        # Get the background
         s_mean, s_med, s_std = sigma_clipped_stats(color_data.compressed())
 
         color_sort = np.sort((color_data - s_med).flatten().filled(0))[::-1]
@@ -737,7 +744,7 @@ def get_snr_growth_aperture(target_stamp=None,
 
         # Peak of growth curve
         max_idx = int(snr.argmax() + extra_pixels)
-        
+
         aperture_pixels[color] = [idx
                                   for idx
                                   in zip(*np.unravel_index(
@@ -745,8 +752,8 @@ def get_snr_growth_aperture(target_stamp=None,
                                       color_data.shape
                                   ))]
 
-    
     return aperture_pixels
+
 
 def make_sigma_masked_stamps(rgb_data, sigma_thresh=2.5, as_dict=True):
     stamps = dict()
@@ -756,15 +763,14 @@ def make_sigma_masked_stamps(rgb_data, sigma_thresh=2.5, as_dict=True):
         # Mask the pixels that are *below* sigma threshold
         # This combines the color mask with sigma mask
         m0 = np.logical_or(
-            sigma_clip(color_data, sigma=sigma_thresh).mask, 
+            sigma_clip(color_data, sigma=sigma_thresh).mask,
             color_data.mask
-        )    
+        )
         # Create the masked samp
-        masked_stamp = np.ma.array(color_data, mask=~m0)    
+        masked_stamp = np.ma.array(color_data, mask=~m0)
         stamps[color] = masked_stamp
-        
+
     if not as_dict:
         stamps = list(stamps.values())
-        
-    return stamps
 
+    return stamps

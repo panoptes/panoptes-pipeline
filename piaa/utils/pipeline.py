@@ -181,6 +181,10 @@ def get_catalog_match(point_sources, wcs, table='full_catalog', **kwargs):
         table=table,
         **kwargs
     )
+    if catalog_stars is None:
+        logger.warn('No catalog matches, returning table without ids')
+        return point_sources
+
     logger.debug(f'Matched {len(catalog_stars)} sources to catalog')
 
     # Get coords for catalog stars

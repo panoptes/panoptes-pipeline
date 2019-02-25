@@ -90,10 +90,17 @@ def get_stars(
     logger.debug('Building table of results')
     d0 = cursor.fetchall()
     logger.debug(f'Fetched {len(d0)} sources')
-    return Table(
-        data=d0,
-        names=['id', 'ra', 'dec', 'tmag', 'vmag', 'e_tmag', 'twomass'],
-        dtype=['i4', 'f8', 'f8', 'f4', 'f4', 'f4', 'U26'])
+    try:
+        source_table = Table(
+            data=d0,
+            names=['id', 'ra', 'dec', 'tmag', 'vmag', 'e_tmag', 'twomass'],
+            dtype=['i4', 'f8', 'f8', 'f4', 'f4', 'f4', 'U26'])
+    except TypeError:
+        logger.warn(f'Error building star catalog table')
+        return None
+    else:
+        logger.debug(f'Returning source table')
+        return source_table
 
 
 def get_star_info(picid=None,

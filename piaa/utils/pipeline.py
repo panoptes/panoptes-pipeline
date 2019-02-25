@@ -10,7 +10,6 @@ import numpy as np
 import pandas as pd
 
 from scipy import linalg
-from scipy import optimize
 from astropy.io import fits
 from astropy.table import Table
 from astropy.wcs import WCS
@@ -35,7 +34,6 @@ from piaa.utils import plot
 from piaa.utils.postgres import get_cursor
 
 import logging
-#logger = logging.getLogger(__name__)
 logger = get_root_logger()
 logger.setLevel(logging.DEBUG)
 
@@ -243,7 +241,11 @@ def _lookup_via_sextractor(fits_file, sextractor_params=None, *args, **kwargs):
         logger.info(cmd)
 
         try:
-            subprocess.run(cmd, stdout=subprocess.PIPE, timeout=60, check=True)
+            subprocess.run(cmd,
+                           stdout=subprocess.PIPE,
+                           stderr=subprocess.PIPE,
+                           timeout=60,
+                           check=True)
         except subprocess.CalledProcessError as e:
             raise Exception("Problem running sextractor: {}".format(e))
 
@@ -745,7 +747,6 @@ def get_aperture_sums(psc0,
                 'obstime': image_time,
             })
 
-
     # Light-curve dataframe
     lc0 = pd.DataFrame(diff).set_index(['obstime'])
 
@@ -814,17 +815,18 @@ def normalize_lightcurve(lc0, method='median', use_frames=None):
 
     return lc1
 
-def get_diff_flux(lc0, 
+
+def get_diff_flux(lc0,
                   smooth=False,
                   savgol_polyorder=None,
                   savgol_sigma=3,
                   sigma_cutoff=None
-                 ):
-    
+                  ):
+
     lc1 = lc0.copy()
     lc1['flux'] = np.nan
     lc1['flux_err'] = np.nan
-    
+
     color_dfs = list()
     for i, color in enumerate('rgb'):
         # Get the normalized flux for each channel
@@ -842,22 +844,22 @@ def get_diff_flux(lc0,
         flux = t0 / r0
         flux_err = np.sqrt((t0_err / t0)**2 + (r0_err / r0)**2)
         flux_index = color_data.index
-        
+
         if savgol_polyorder:
             if savgol_polyorder % 2 == 0:
-                window_size = savgol_polyorder+1
+                window_size = savgol_polyorder + 1
             else:
-                window_size = savgol_polyorder+2
-                
+                window_size = savgol_polyorder + 2
+
             filter0 = savgol_filter(flux, window_size, polyorder=savgol_polyorder)
             flux = (flux - filter0)
-            
+
             # Clip the filtered
             flux = sigma_clip(flux, sigma=savgol_sigma)
-            
+
             # Add back the filter
             flux = flux + filter0
-            
+
             flux_err = np.ma.array(flux_err, mask=flux.mask)
             flux_index = np.ma.array(color_data.index, mask=flux.mask)
 
@@ -866,7 +868,7 @@ def get_diff_flux(lc0,
             flux = sigma_clip(flux, sigma=sigma_cutoff)
             flux_err = np.ma.array(flux_err, mask=flux.mask)
             flux_index = np.ma.array(color_data.index, mask=flux.mask, dtype=bool)
-            
+
         # Basic correction
         if smooth:
             window_size = len(flux)
@@ -874,8 +876,8 @@ def get_diff_flux(lc0,
                 window_size -= 1
             smooth1 = savgol_filter(flux, window_size, polyorder=1)
             flux = (flux - smooth1) + 1
-            
+
         lc1.loc[lc1.color == color, ('flux')] = flux.filled(np.nan)
         lc1.loc[lc1.color == color, ('flux_err')] = flux_err.filled(np.nan)
-            
+
     return lc1, flux.mask

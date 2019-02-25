@@ -1,5 +1,4 @@
 import os
-import sys
 
 import numpy as np
 from collections import namedtuple
@@ -10,20 +9,13 @@ from decimal import ROUND_HALF_UP
 from astropy.time import Time
 from astropy.table import Table
 from astropy.wcs import WCS
-from astropy.modeling import models, fitting
 from astropy.stats import sigma_clipped_stats, sigma_clip
-
-from matplotlib.colors import LogNorm
-import matplotlib.pyplot as plt
-from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
-from matplotlib.figure import Figure
 
 from piaa.utils import postgres as clouddb
 from pocs.utils.images import fits as fits_utils
 from pocs.utils.logger import get_root_logger
 
 import logging
-#logger = logging.getLogger(__name__)
 logger = get_root_logger()
 logger.setLevel(logging.DEBUG)
 
@@ -104,7 +96,13 @@ def get_stars(
         dtype=['i4', 'f8', 'f8', 'f4', 'f4', 'f4', 'U26'])
 
 
-def get_star_info(picid=None, twomass_id=None, table='full_catalog', cursor=None, raw=False, verbose=False, **kwargs):
+def get_star_info(picid=None,
+                  twomass_id=None,
+                  table='full_catalog',
+                  cursor=None,
+                  raw=False,
+                  verbose=False,
+                  **kwargs):
     """Lookup catalog information about a given star.
 
     Args:
@@ -141,10 +139,7 @@ def get_star_info(picid=None, twomass_id=None, table='full_catalog', cursor=None
 
 
 def get_rgb_cube(cube):
-    """ Given a cube of data, return the same cube split by RGB 
-
-
-    """
+    """ Given a cube of data, return the same cube split by RGB """
 
     stamp_side = int(np.sqrt(cube[0].shape))
     # Get the masks
@@ -248,13 +243,17 @@ def get_rgb_masks(data, separate_green=False, mask_path=None, force_new=False, v
         #     G2 | even i, | even j
         #     B  | even i, |  odd j
 
-        def is_red(pos): return pos[0] % 2 == 1 and pos[1] % 2 == 0
+        def is_red(pos):
+            return pos[0] % 2 == 1 and pos[1] % 2 == 0
 
-        def is_blue(pos): return pos[0] % 2 == 0 and pos[1] % 2 == 1
+        def is_blue(pos):
+            return pos[0] % 2 == 0 and pos[1] % 2 == 1
 
-        def is_g1(pos): return pos[0] % 2 == 1 and pos[1] % 2 == 1
+        def is_g1(pos):
+            return pos[0] % 2 == 1 and pos[1] % 2 == 1
 
-        def is_g2(pos): return pos[0] % 2 == 0 and pos[1] % 2 == 0
+        def is_g2(pos):
+            return pos[0] % 2 == 0 and pos[1] % 2 == 0
 
         red_mask = (np.array(
             [
@@ -567,14 +566,19 @@ def get_planet_phase(period, midpoint, obs_time):
     return ((Time(obs_time).mjd - Time(midpoint).mjd) % period) / period
 
 
-def scintillation_index(exptime, airmass, elevation, diameter=0.061, scale_height=8000, correction_coeff=1.5):
+def scintillation_index(exptime,
+                        airmass,
+                        elevation,
+                        diameter=0.061,
+                        scale_height=8000,
+                        correction_coeff=1.5):
     """Calculate the scintillation index.
 
     A modification to Young's approximation for estimating the scintillation index, this
     uses a default correction coefficient of 1.5 (see reference).
 
     Note:
-        The scintillation index defines the amount of scintillation and is expressed as a variance. 
+        The scintillation index defines the amount of scintillation and is expressed as a variance.
         Scintillation noise is the square root of the index value.
 
     Empirical Coefficients:
@@ -584,19 +588,19 @@ def scintillation_index(exptime, airmass, elevation, diameter=0.061, scale_heigh
         Mauna Kea      1.63 1.34 2.02
         Paranal        1.56 1.27 1.90
         San Pedro      1.67 1.32 2.14
-        Tololo         1.42 1.17 1.74    
+        Tololo         1.42 1.17 1.74
 
     For PANOPTES, the default lens is an 85 mm f/1.4 lens. This gives an effective
     diameter of:
         # 85 mm at f/1.4
-        diameter = 85 / 1.4 
+        diameter = 85 / 1.4
         diameter = 0.061 m
 
     Reference:
-        Osborn, J., Föhring, D., Dhillon, V. S., & Wilson, R. W. (2015). 
-        Atmospheric scintillation in astronomical photometry. 
-        Monthly Notices of the Royal Astronomical Society, 452(2), 1707–1716. 
-        https://doi.org/10.1093/mnras/stv1400        
+        Osborn, J., Föhring, D., Dhillon, V. S., & Wilson, R. W. (2015).
+        Atmospheric scintillation in astronomical photometry.
+        Monthly Notices of the Royal Astronomical Society, 452(2), 1707–1716.
+        https://doi.org/10.1093/mnras/stv1400
 
     """
     zenith_distance = (np.arccos(1 / airmass))

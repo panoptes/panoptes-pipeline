@@ -60,7 +60,7 @@ def lookup_sources_for_observation(fits_files=None,
 
     except FileNotFoundError:
         if not cursor:
-            cursor = get_cursor(port=5433, db_name='v6', db_user='postgres')
+            cursor = get_cursor(port=5433, db_name='v702', db_user='panoptes')
 
         logger.info(f'Looking up sources in {len(fits_files)} files')
         observation_sources = None

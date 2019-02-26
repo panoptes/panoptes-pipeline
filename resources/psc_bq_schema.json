@@ -1,0 +1,34 @@
+[
+    {
+        "name": "sequence",
+        "type": "STRING",
+        "mode": "NULLABLE"
+    },
+    {
+        "name": "obstime",
+        "type": "DATETIME",
+        "mode": "NULLABLE"
+    },
+    {
+        "name": "picid",
+        "type": "INTEGER",
+        "mode": "NULLABLE"
+    },
+    {
+        "name": "pixels",
+        "type": "RECORD",
+        "mode": "REPEATED",
+        "fields": [
+            {
+                "name": "color",
+                "type": "STRING",
+                "mode": "NULLABLE"
+            },
+            {
+                "name": "value",
+                "type": "FLOAT",
+                "mode": "NULLABLE"
+            }
+        ]
+    }
+]

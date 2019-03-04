@@ -17,7 +17,6 @@ from cycler import cycler as cy
 from matplotlib.ticker import PercentFormatter
 from matplotlib.gridspec import GridSpec
 import matplotlib.dates as mdates
-from matplotlib.colors import LogNorm
 
 from astropy.coordinates import Angle
 from astropy.modeling import models, fitting
@@ -353,7 +352,7 @@ def animate_stamp(d0):
     ax = fig.add_subplot(111)
     ax.set_xticks([])
     ax.set_yticks([])
-    
+
     line = ax.imshow(d0[0])
     ax.set_title(f'Frame 0')
 
@@ -513,7 +512,13 @@ def make_apertures_plot(apertures, title=None, num_frames=None, output_dir=None)
             fig.savefig(aperture_fn)
 
 
-def plot_lightcurve_old(x, y, model_flux=None, use_imag=False, transit_info=None, color='k', **kwargs):
+def plot_lightcurve_old(x,
+                        y,
+                        model_flux=None,
+                        use_imag=False,
+                        transit_info=None,
+                        color='k',
+                        **kwargs):
     """Plot the lightcurve
 
     Args:
@@ -588,13 +593,13 @@ def plot_lightcurve_old(x, y, model_flux=None, use_imag=False, transit_info=None
 
 
 def plot_lightcurve_combined(lc1,
-                    time_bin=20,  # Minutes
-                    base_model_flux=None,
-                    transit_datetimes=None,
-                    title=None,
-                    colors='rgb',
-                    offset_delta=0.
-                   ):
+                             time_bin=20,  # Minutes
+                             base_model_flux=None,
+                             transit_datetimes=None,
+                             title=None,
+                             colors='rgb',
+                             offset_delta=0.
+                             ):
     # Setup figure
     fig = Figure()
     FigureCanvas(fig)
@@ -635,7 +640,7 @@ def plot_lightcurve_combined(lc1,
 
         # Get the normalized flux for each channel
         color_data = lc1.loc[lc1.color == color].copy()
-        
+
         # Model flux
         if base_model_flux is None:
             base_model = np.ones_like(color_data.flux)
@@ -673,7 +678,7 @@ def plot_lightcurve_combined(lc1,
                           rot=0,  # Don't rotate date labels
                           legend=False,
                           )
-        
+
         if time_bin is not None:
             # Time-binned
             binned_flux_df = flux_df.resample(f'{time_bin}T').apply({
@@ -683,14 +688,14 @@ def plot_lightcurve_combined(lc1,
 
             # Plot time-binned target flux.
             binned_flux_df.flux.plot(yerr=binned_flux_df.flux_err,
-                                ax=lc_ax,
-                                rot=0,
-                                marker='o', ms=8,
-                                color=color,
-                                ls='',
-                                label=f'Time-binned - {time_bin}min',
-                                legend=False,
-                                )
+                                     ax=lc_ax,
+                                     rot=0,
+                                     marker='o', ms=8,
+                                     color=color,
+                                     ls='',
+                                     label=f'Time-binned - {time_bin}min',
+                                     legend=False,
+                                     )
 
         # Plot model flux.
         flux_df.model.plot(ax=lc_ax,
@@ -731,11 +736,11 @@ def plot_lightcurve_combined(lc1,
 
     lc_ax.xaxis.set_major_locator(half_hour)
     lc_ax.xaxis.set_major_formatter(h_fmt)
-    #lc_ax.set_ylim([0.93, 1.07])
 
     res_scatter_ax.set_xticks([])
 
     return fig
+
 
 def plot_lightcurve(lc1,
                     time_bin=20,  # Minutes
@@ -744,7 +749,7 @@ def plot_lightcurve(lc1,
                     title=None,
                     colors='rgb',
                     offset_delta=0.
-                   ):
+                    ):
     # Setup figure
     fig = Figure()
     FigureCanvas(fig)
@@ -791,7 +796,7 @@ def plot_lightcurve(lc1,
 
         # Get the normalized flux for each channel
         flux_df = lc1.loc[lc1.color == color].copy()
-        
+
         # Model flux
         if base_model_flux is None:
             flux_df['model'] = np.ones_like(flux_df.flux)
@@ -810,7 +815,7 @@ def plot_lightcurve(lc1,
                           rot=0,  # Don't rotate date labels
                           legend=False,
                           )
-        
+
         if time_bin is not None:
             # Time-binned
             binned_flux_df = flux_df.resample(f'{time_bin}T').apply({
@@ -844,10 +849,10 @@ def plot_lightcurve(lc1,
         flux_df.residual.plot(ax=res_scatter_ax,
                               color=color,
                               ls='',
-                              marker='o', 
+                              marker='o',
                               rot=0,  # Don't rotate date labels
                               alpha=0.5
-                             )
+                              )
 
         # Residual histogram
         res_ax.hist(flux_df.residual, orientation='horizontal', color=color, alpha=0.5)
@@ -868,13 +873,14 @@ def plot_lightcurve(lc1,
 
     return fig
 
+
 def make_sigma_aperture_plot(masked_stamps=None, add_pixel_grid=False):
     cmap_lookup = {
         'r': 'Reds',
         'g': 'Greens',
         'b': 'Blues'
-    }    
-    
+    }
+
     fig = Figure()
     FigureCanvas(fig)
     fig.set_size_inches(9, 3)
@@ -884,42 +890,41 @@ def make_sigma_aperture_plot(masked_stamps=None, add_pixel_grid=False):
     full_ax = fig.add_subplot(gs[0])
     ax = fig.add_subplot(gs[1])
     cax1 = fig.add_subplot(gs[2])
-    
+
     # Show the full data - without mask any of 'rgb' are full data
     full_ax.imshow(masked_stamps['r'].data)
-    
+
     for i, color in enumerate('rgb'):
         masked_stamp = masked_stamps[color]
         # Mask values below zero for display
         masked_stamp.mask[masked_stamp <= 0] = True
-        
+
         # Show plots
         ax.imshow(masked_stamp,
                   vmin=0,
-                  #norm=LogNorm(vmin=masked_stamp.min(), vmax=masked_stamp.max()),
                   cmap=cmap_lookup[color], alpha=0.95)
         cax1.bar(i, masked_stamp.sum(),
                  color=color, align='edge',
                  label=f'{masked_stamp.sum():.0f}')
-        # Add a dummy bar to get width 
-        cax1.bar(i+3, 0)
+        # Add a dummy bar to get width
+        cax1.bar(i + 3, 0)
 
     full_ax.set_xticks([])
     full_ax.set_yticks([])
     if add_pixel_grid:
-        add_pixel_grid(ax, 10, 10, 
-                            show_axis_labels=False,
-                            show_superpixel=True, 
-                            major_alpha=0.05, minor_alpha=0.025
-                      )
-        
+        add_pixel_grid(ax, 10, 10,
+                       show_axis_labels=False,
+                       show_superpixel=True,
+                       major_alpha=0.05, minor_alpha=0.025
+                       )
+
     ax.set_facecolor('#bbbbbb')
     ax.set_xticks([])
     ax.set_yticks([])
     ax.set_xticklabels([])
     ax.set_yticklabels([])
     ax.grid(False)
-        
+
     cax1.legend(fontsize=12)
     cax1.set_ylim([0, 1e5])
     cax1.set_xticks([])
@@ -931,16 +936,17 @@ def make_sigma_aperture_plot(masked_stamps=None, add_pixel_grid=False):
     full_ax.set_title('Full stamp')
     ax.set_title(f'Aperture pixels')
     cax1.set_title(f'Aperture sum')
-    
+
     # p = Polygon([(0.5, 2.5), (1.5, 2.5)], linewidth=2, edgecolor='black')
     # ax.add_patch(p)
 
     return fig
 
+
 def show_stamp_widget(masked_stamps):
     from IPython import display
     from ipywidgets import widgets
-    
+
     text_wid = widgets.IntText(
         value=0,
         placeholder='Frame number',
@@ -963,7 +969,6 @@ def show_stamp_widget(masked_stamps):
 
     output_widget = widgets.Output(layout={'height': '250px'})
 
-    fig_list = dict()
     def show_stamp(i):
         fig = make_sigma_aperture_plot(masked_stamps[i])
 #             fig.set_size_inches(9, 2.5)
@@ -977,7 +982,7 @@ def show_stamp_widget(masked_stamps):
 
     def on_value_change(change):
         frame_idx = change['new']
-        show_stamp(frame_idx)    
+        show_stamp(frame_idx)
 
     slider_wid.observe(on_value_change, names='value')
 
@@ -988,12 +993,12 @@ def show_stamp_widget(masked_stamps):
 
     display.display(main_box)
     show_stamp(0)
-    
-    
+
+
 def show_obs_plot_widget(data, display_fn):
     from IPython import display
     from ipywidgets import widgets
-    
+
     text_wid = widgets.IntText(
         value=0,
         placeholder='Frame number',
@@ -1018,8 +1023,8 @@ def show_obs_plot_widget(data, display_fn):
 
     def on_value_change(change):
         frame_idx = change['new']
-        display_fn(frame_idx)    
-    
+        display_fn(frame_idx)
+
     slider_wid.observe(on_value_change, names='value')
 
     frame_box = widgets.HBox([output_widget])
@@ -1029,4 +1034,3 @@ def show_obs_plot_widget(data, display_fn):
 
     display.display(main_box)
     display_fn(0)
-    

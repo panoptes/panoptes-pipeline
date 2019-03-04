@@ -119,7 +119,6 @@ class Exoplanet():
                 )
             except Exception:
                 pass
-                #warn(f"Can't create EclipsingSystem, please define manually")
 
     def get_prop(self, col, raw=False):
         val = None

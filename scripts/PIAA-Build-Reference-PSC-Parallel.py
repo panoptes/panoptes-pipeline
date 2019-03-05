@@ -39,8 +39,6 @@ def build_ref(build_params):
     base_dir = params['base_dir']
     processed_dir = params['processed_dir']
     force = params['force']
-    aperture_size = params['aperture_size']
-    num_stds = params['num_stds']
     camera_bias = params['camera_bias']
     gain = params['gain']
     readout_noise = params['readout_noise']
@@ -48,14 +46,8 @@ def build_ref(build_params):
     frame_slice = params['frame_slice']
     table_filter = params['table_filter']
     make_plots = params['make_plots']
-
-    # Note: the default is no aperture_size=None, so to use adaptive,
-    # the logic is a little silly here.
-    if not aperture_size:
-        adaptive_aperture = True
-    else:
-        adaptive_aperture = False
-
+    color_correction = params['color_correction']
+    
     # Get working directories.
     psc_dir = os.path.dirname(psc_fn)
     logger.debug(f'PSC dir: {psc_dir}')
@@ -114,12 +106,11 @@ def build_ref(build_params):
 
         # Get PSC for matching frames
         ref_psc = np.array(ref_table.loc[include_frames]) - camera_bias
+        ref_psc = ref_psc * gain
 
         psc_collection.append(ref_psc)
 
         good_i += 1
-        if good_i == num_refs:
-            break
 
     # Big collection of PSCs.
     psc_collection = np.array(psc_collection)[:num_refs]
@@ -178,19 +169,10 @@ def build_ref(build_params):
         plot_apertures=make_plots,
         aperture_plot_path=os.path.join(psc_dir, 'plots', 'apertures'),
         picid=picid,
-        num_stds=num_stds,
-        aperture_size=aperture_size,
-        adaptive_aperture=adaptive_aperture,
-        gain=gain,
         readout_noise=readout_noise
     )
 
-    # Save the lightcurve dataframe to a csv file
-    # NOTE: We do this before normalizing
-    if adaptive_aperture:
-        lc_fn = f'raw-flux-std{num_stds}-refs{num_refs:03d}.csv'
-    else:
-        lc_fn = f'raw-flux-aper{num_stds}-refs{num_refs:03d}.csv'
+    lc_fn = f'raw-flux-snr-refs{num_refs:03d}.csv'
 
     lc0.to_csv(os.path.join(psc_dir, lc_fn))
 
@@ -321,12 +303,12 @@ def main(base_dir,
          table_filter=None,
          num_refs=50,
          aperture_size=5,
-         num_stds=1,
          make_plots=False,
+         color_correction=False,
          picid=None,
          force=False,
          num_workers=8,
-         chunk_size=12
+         chunk_size=12,
          ):
 
     logger.info(f'Building references for stars for observation in {base_dir}')
@@ -350,11 +332,10 @@ def main(base_dir,
         'table_filter': table_filter,
         'num_refs': num_refs,
         'camera_bias': camera_bias,
-        'num_stds': num_stds,
         'gain': gain,
         'readout_noise': readout_noise,
         'make_plots': make_plots,
-        'aperture_size': aperture_size
+        'color_correction': color_correction,
     }
     logger.debug(f'Call params: {call_params}')
 
@@ -390,11 +371,6 @@ if __name__ == '__main__':
                               "exist and a directory corresponding to the sequence id is made for "
                               "the observation inside the PICID dir. Default $PANDIR/processed/."
                               ))
-    parser.add_argument('--num-stds', default=2, type=int,
-                        help="Number of stds for adaptive aperture")
-    parser.add_argument('--aperture-size', default=None, type=int,
-                        help="Aperture size for photometry, typically 5. "
-                        "If none, an adaptive aperture with num-stds will be used")
     parser.add_argument('--gain', default=1.5, type=float, help="Gain (e-/ADU)")
     parser.add_argument('--readout-noise', default=10.5,
                         type=float, help="Readout noise (e-/pixel)")
@@ -403,6 +379,8 @@ if __name__ == '__main__':
     parser.add_argument('--picid', default=None, type=str, help="Create PSC only for given PICID")
     parser.add_argument('--make-plots', action='store_true', default=False,
                         help="Create plots (increases time)")
+    parser.add_argument('--color-correction', action='store_true', default=False,
+                        help="Do a color correction on red and blue pixels")
     parser.add_argument('--num-workers', default=None, type=int, help="Number of workers to use")
     parser.add_argument('--chunk-size', default=1, type=int, help="Chunks per worker")
     parser.add_argument('--force', action='store_true', default=False,

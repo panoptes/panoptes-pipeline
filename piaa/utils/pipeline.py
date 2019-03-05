@@ -16,7 +16,8 @@ from astropy.wcs import WCS
 from astropy import units as u
 from astropy.coordinates import SkyCoord, match_coordinates_sky
 from astropy.time import Time
-from astropy.stats import sigma_clipped_stats
+from astropy.stats import sigma_clipped_stats, sigma_clip
+from scipy.signal import savgol_filter
 
 from tqdm import tqdm, tqdm_notebook
 
@@ -25,13 +26,16 @@ from dateutil.parser import parse as date_parse
 from photutils import DAOStarFinder
 
 from pocs.utils.images import fits as fits_utils
+
+from pocs.utils.logger import get_root_logger
+
 from piaa.utils import helpers
 from piaa.utils import plot
 from piaa.utils.postgres import get_cursor
 
 import logging
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+logger = get_root_logger()
+logger.setLevel(logging.DEBUG)
 
 
 def normalize(cube):
@@ -42,7 +46,8 @@ def lookup_sources_for_observation(fits_files=None,
                                    filename=None,
                                    force_new=False,
                                    cursor=None,
-                                   use_intersection=False
+                                   use_intersection=False,
+                                   **kwargs
                                    ):
 
     if force_new:
@@ -54,11 +59,10 @@ def lookup_sources_for_observation(fits_files=None,
         logger.info(f'Using existing source file: {filename}')
         observation_sources = pd.read_csv(filename, parse_dates=True)
         observation_sources['obstime'] = pd.to_datetime(observation_sources.obstime)
-        observation_sources.rename(columns={'id': 'picid'}, inplace=True)
 
     except FileNotFoundError:
         if not cursor:
-            cursor = get_cursor(port=5433, db_name='v6', db_user='postgres')
+            cursor = get_cursor(port=5433, db_name='v702', db_user='panoptes')
 
         logger.info(f'Looking up sources in {len(fits_files)} files')
         observation_sources = None
@@ -69,6 +73,7 @@ def lookup_sources_for_observation(fits_files=None,
                 fn,
                 force_new=force_new,
                 cursor=cursor,
+                **kwargs
             )
             header = fits_utils.getheader(fn)
             obstime = Time(pd.to_datetime(os.path.basename(fn).split('.')[0]))
@@ -82,8 +87,10 @@ def lookup_sources_for_observation(fits_files=None,
             point_sources['file'] = os.path.basename(fn)
             point_sources['picid'] = point_sources.index
 
+            logger.info(f'Combining sources with previous observations')
             if observation_sources is not None:
                 if use_intersection:
+                    logger.info(f'Getting intersection of sources')
 
                     idx_intersection = observation_sources.index.intersection(point_sources.index)
                     logger.info(f'Num sources in intersection: {len(idx_intersection)}')
@@ -95,6 +102,7 @@ def lookup_sources_for_observation(fits_files=None,
             else:
                 observation_sources = point_sources
 
+        logger.info(f'Writing sources out to file')
         observation_sources.to_csv(filename)
 
     observation_sources.set_index(['obstime'], inplace=True)
@@ -132,14 +140,16 @@ def lookup_point_sources(fits_file,
 
     # Lookup our appropriate method and call it with the fits file and kwargs
     try:
-        logger.info("Using {} method {}".format(method, lookup_function[method]))
+        logger.debug("Using {} method {}".format(method, lookup_function[method]))
         point_sources = lookup_function[method](fits_file, force_new=force_new, **kwargs)
     except Exception as e:
         logger.error("Problem looking up sources: {}".format(e))
         raise Exception("Problem lookup up sources: {}".format(e))
 
     if catalog_match:
+        logger.debug(f'Doing catalog match against stars')
         point_sources = get_catalog_match(point_sources, wcs, **kwargs)
+        logger.debug(f'Done with catalog match')
 
     # Change the index to the picid
     point_sources.set_index('id', inplace=True)
@@ -164,12 +174,18 @@ def get_catalog_match(point_sources, wcs, table='full_catalog', **kwargs):
     )
 
     # Lookup stars in catalog
+    logger.debug(f'Getting catalog stars')
     catalog_stars = helpers.get_stars_from_footprint(
         wcs.calc_footprint(),
         cursor_only=False,
         table=table,
         **kwargs
     )
+    if catalog_stars is None:
+        logger.warn('No catalog matches, returning table without ids')
+        return point_sources
+
+    logger.debug(f'Matched {len(catalog_stars)} sources to catalog')
 
     # Get coords for catalog stars
     catalog_coords = SkyCoord(
@@ -178,7 +194,9 @@ def get_catalog_match(point_sources, wcs, table='full_catalog', **kwargs):
     )
 
     # Do catalog matching
+    logger.debug(f'Doing actual match')
     idx, d2d, d3d = match_coordinates_sky(stars_coords, catalog_coords)
+    logger.debug(f'Got matched sources')
 
     # Get some properties from the catalog
     point_sources['id'] = catalog_stars[idx]['id']
@@ -227,11 +245,16 @@ def _lookup_via_sextractor(fits_file, sextractor_params=None, *args, **kwargs):
         logger.info(cmd)
 
         try:
-            subprocess.run(cmd, stdout=subprocess.PIPE, timeout=60, check=True)
+            subprocess.run(cmd,
+                           stdout=subprocess.PIPE,
+                           stderr=subprocess.PIPE,
+                           timeout=60,
+                           check=True)
         except subprocess.CalledProcessError as e:
             raise Exception("Problem running sextractor: {}".format(e))
 
     # Read catalog
+    logger.info('Building detected source table')
     point_sources = Table.read(source_file, format='ascii.sextractor')
 
     # Remove the point sources that sextractor has flagged
@@ -249,6 +272,7 @@ def _lookup_via_sextractor(fits_file, sextractor_params=None, *args, **kwargs):
 
     stamp_size = 60
 
+    logger.info('Trimming sources near edge')
     top = point_sources['y'] > stamp_size
     bottom = point_sources['y'] < w - stamp_size
     left = point_sources['x'] > stamp_size
@@ -262,13 +286,12 @@ def _lookup_via_sextractor(fits_file, sextractor_params=None, *args, **kwargs):
         'background',
         'flux_best', 'fluxerr_best',
         'mag_best', 'magerr_best',
-        'flux_aper', 'fluxerr_aper',
-        'mag_aper', 'magerr_aper',
         'flux_max',
         'fwhm_image',
         'flags',
     ]
 
+    logger.info(f'Returning {len(point_sources)} sources')
     return point_sources
 
 
@@ -647,13 +670,8 @@ def get_ideal_full_psc(stamp_collection, coeffs):
 def get_aperture_sums(psc0,
                       psc1,
                       image_times,
-                      adaptive_aperture=True,
-                      num_stds=2,
-                      aperture_size=None,
                       readout_noise=10.5,
-                      gain=1.5,
                       separate_green=False,
-                      subtract_back=False,
                       plot_apertures=False,
                       aperture_plot_path=None,
                       picid=None,
@@ -678,19 +696,9 @@ def get_aperture_sums(psc0,
         psc1 (`numpy.array`): An NxM cube to be used as the comparison.
         image_times (list(`datetime`)): A list of `datetime.datetime` objects to
             be used for an index.
-        adaptive_aperture (bool): An adaptive aperture is used, in which the brightest
-            pixels from each channel are used. See note for details.
-        num_stds (int): Number of standard deviations to use for adaptive aperture,
-            default 2.
-        aperture_size (int): An aperture around the source that is used
-            for photometry, default None uses entire stamp if `adaptive_aperture=True`.
         readout_noise (float): Readout noise in e- / pixel, default 10.5.
-        gain (float): Camera gain in e- / ADU, default 1.5. TODO: Alter this for per
-            channel gain.
         separate_green (bool): If separate green color channels should be created,
             default False. If True, the G2 pixel is marked as `c`.
-        subtract_back (bool, optional): If a background annulus should be removed
-            from the sum, default False.
         plot_apertures (bool, optional): If a figure should be generated showing
             each of the aperture stamps, default False.
 
@@ -703,19 +711,6 @@ def get_aperture_sums(psc0,
 
     stamp_side = int(np.sqrt(stamp_size))
 
-    if not adaptive_aperture:
-        try:
-            single_frame = psc0[0].reshape(stamp_side, stamp_side)
-
-            rgb_stamp_masks = helpers.get_rgb_masks(
-                single_frame,
-                force_new=True,
-                separate_green=separate_green
-            )
-            logger.debug('RGB stamp_masks created')
-        except ValueError as e:
-            logger.warning(f"Can't make stamp masks {e!r}")
-
     apertures = list()
     diff = list()
     for frame_idx, image_time in zip(range(num_frames), image_times):
@@ -724,101 +719,37 @@ def get_aperture_sums(psc0,
         t0 = psc0[frame_idx].reshape(stamp_side, stamp_side)
         i0 = psc1[frame_idx].reshape(stamp_side, stamp_side)
 
-        if adaptive_aperture:
-            logger.debug(f'Using adaptive apertures')
-            pixel_locations = helpers.get_adaptive_aperture_pixels(target_stamp=t0,
-                                                                   frame_idx=frame_idx,
-                                                                   make_plots=plot_apertures,
-                                                                   target_dir=aperture_plot_path,
-                                                                   picid=picid,
-                                                                   num_stds=num_stds
-                                                                   )
-            logger.debug(f'Frame {frame_idx} pixel locations: {pixel_locations}')
+        logger.debug(f'Using adaptive apertures')
+        pixel_locations = helpers.get_adaptive_aperture(t0, cutoff_value=2e-1)
+        logger.debug(f'Frame {frame_idx} pixel locations: {pixel_locations}')
 
-            for color, pixel_loc in pixel_locations.items():
-                logger.debug(color, pixel_loc)
-                target_pixel_values = np.array([t0[loc[0], loc[1]] for loc in pixel_loc])
-                ideal_pixel_values = np.array([i0[loc[0], loc[1]] for loc in pixel_loc])
+        for color, pixel_loc in pixel_locations.items():
+            #logger.debug(color, pixel_loc)
+            target_pixel_values = np.array([t0[loc[0], loc[1]] for loc in pixel_loc])
+            ideal_pixel_values = np.array([i0[loc[0], loc[1]] for loc in pixel_loc])
 
-                # Get the sum in electrons
-                t_sum = (target_pixel_values * gain).sum()
-                i_sum = (ideal_pixel_values * gain).sum()
+            # Get the sum in electrons
+            t_sum = target_pixel_values.sum()
+            i_sum = ideal_pixel_values.sum()
 
-                # Add the noise
-                target_photon_noise = np.sqrt(t_sum)
-                ideal_photon_noise = np.sqrt(i_sum)
+            # Add the noise
+            target_photon_noise = np.sqrt(t_sum)
+            ideal_photon_noise = np.sqrt(i_sum)
 
-                readout = readout_noise * len(pixel_loc)
+            readout = readout_noise * len(pixel_loc)
 
-                target_total_noise = np.sqrt(target_photon_noise**2 + readout**2)
-                ideal_total_noise = np.sqrt(ideal_photon_noise**2 + readout**2)
+            target_total_noise = np.sqrt(target_photon_noise**2 + readout**2)
+            ideal_total_noise = np.sqrt(ideal_photon_noise**2 + readout**2)
 
-                # Record the values.
-                diff.append({
-                    'color': color,
-                    'target': t_sum,
-                    'target_err': target_total_noise,
-                    'reference': i_sum,
-                    'reference_err': ideal_total_noise,
-                    'obstime': image_time,
-                })
-
-        elif aperture_size:
-            # NOTE: Bad "centroiding" here
-            y_pos, x_pos = np.argwhere(t0 == t0.max())[0]
-            aperture_position = (x_pos, y_pos)
-            center_color = helpers.pixel_color(x_pos, y_pos)
-
-            slice0 = None
-            if aperture_size != stamp_side:
-                logger.debug('Aperture Position: {} Size: {} Frame: {} Color: {}'.format(
-                    aperture_position, aperture_size, frame_idx, center_color))
-                slice0 = helpers.get_stamp_slice(x_pos, y_pos, stamp_size=(
-                    aperture_size, aperture_size), ignore_superpixel=True)
-                logger.debug(f'Slice for aperture: {slice0}')
-
-            for color, mask in rgb_stamp_masks.items():
-
-                # Get color mask data from target and reference
-                t1 = np.ma.array(t0, mask=~mask)
-                i1 = np.ma.array(i0, mask=~mask)
-
-                # Make apertures
-                if slice0:
-                    try:
-                        t3 = t1[slice0]
-                        i3 = i1[slice0]
-                    except Exception as e:
-                        logger.debug(e)
-                        continue
-
-                    if plot_apertures:
-                        apertures.append((t3, image_time, center_color))
-                    logger.debug(t3)
-                else:
-                    t3 = t1
-                    i3 = i1
-
-                if subtract_back:
-                    mean, median, std = sigma_clipped_stats(t3)
-                    logger.info("Average sky background for {}: {:5.2f}: {:5.2f}".format(
-                        color, mean, t3.sum()))
-
-                    t3 = t3 - mean
-                    logger.info(t3.sum())
-
-                t_sum = t3.sum()
-                i_sum = i3.sum()
-
-                # Record the values.
-                diff.append({
-                    'color': color,
-                    'target': t_sum,
-                    'reference': i_sum,
-                    'obstime': image_time,
-                })
-        else:
-            raise UserWarning(f'adaptive_aperture is false but no aperture_size given')
+            # Record the values.
+            diff.append({
+                'color': color,
+                'target': t_sum,
+                'target_err': target_total_noise,
+                'reference': i_sum,
+                'reference_err': ideal_total_noise,
+                'obstime': image_time,
+            })
 
     # Light-curve dataframe
     lc0 = pd.DataFrame(diff).set_index(['obstime'])
@@ -859,8 +790,8 @@ def normalize_lightcurve(lc0, method='median', use_frames=None):
     lc1 = lc0.copy()
 
     methods = {
-        'median': lambda x: np.median(x),
-        'mean': lambda x: np.mean(x)
+        'median': lambda x: np.ma.median(x),
+        'mean': lambda x: np.ma.mean(x)
     }
 
     use_method = methods[method]
@@ -876,7 +807,7 @@ def normalize_lightcurve(lc0, method='median', use_frames=None):
         normalization_values = field_to_normalize.apply(use_method)
 
         for color, norm_value in normalization_values.iteritems():
-            logging.info(f"{field} {color} μ={norm_value:.04f}")
+            #logger.debug(f"{field} {color} μ={norm_value:.04f}")
 
             # Get the raw values.
             raw_values = lc1.loc[lc1.color == color, (f'{field}')]
@@ -887,3 +818,70 @@ def normalize_lightcurve(lc0, method='median', use_frames=None):
             lc1.loc[lc1.color == color, (f'{field}_err')] = (raw_error / norm_value)
 
     return lc1
+
+
+def get_diff_flux(lc0,
+                  smooth=False,
+                  savgol_polyorder=None,
+                  savgol_sigma=3,
+                  sigma_cutoff=None
+                  ):
+
+    lc1 = lc0.copy()
+    lc1['flux'] = np.nan
+    lc1['flux_err'] = np.nan
+
+    color_dfs = list()
+    for i, color in enumerate('rgb'):
+        # Get the normalized flux for each channel
+        color_data = lc1.loc[lc1.color == color]
+
+        # Target and error
+        t0 = color_data.target
+        t0_err = color_data.target_err
+
+        # Reference and error
+        r0 = color_data.reference
+        r0_err = color_data.reference_err
+
+        # Get the differential flux and error
+        flux = t0 / r0
+        flux_err = np.sqrt((t0_err / t0)**2 + (r0_err / r0)**2)
+        flux_index = color_data.index
+
+        if savgol_polyorder:
+            if savgol_polyorder % 2 == 0:
+                window_size = savgol_polyorder + 1
+            else:
+                window_size = savgol_polyorder + 2
+
+            filter0 = savgol_filter(flux, window_size, polyorder=savgol_polyorder)
+            flux = (flux - filter0)
+
+            # Clip the filtered
+            flux = sigma_clip(flux, sigma=savgol_sigma)
+
+            # Add back the filter
+            flux = flux + filter0
+
+            flux_err = np.ma.array(flux_err, mask=flux.mask)
+            flux_index = np.ma.array(color_data.index, mask=flux.mask)
+
+        if sigma_cutoff:
+            # Sigma clip the differential flux
+            flux = sigma_clip(flux, sigma=sigma_cutoff)
+            flux_err = np.ma.array(flux_err, mask=flux.mask)
+            flux_index = np.ma.array(color_data.index, mask=flux.mask, dtype=bool)
+
+        # Basic correction
+        if smooth:
+            window_size = len(flux)
+            if window_size % 2 == 0:
+                window_size -= 1
+            smooth1 = savgol_filter(flux, window_size, polyorder=1)
+            flux = (flux - smooth1) + 1
+
+        lc1.loc[lc1.color == color, ('flux')] = flux.filled(np.nan)
+        lc1.loc[lc1.color == color, ('flux_err')] = flux_err.filled(np.nan)
+
+    return lc1, flux.mask

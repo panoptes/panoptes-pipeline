@@ -27,6 +27,7 @@ from photutils import RectangularAperture
 
 from piaa.utils import helpers
 
+
 rc('animation', html='html5')
 
 
@@ -111,7 +112,7 @@ def show_stamps(pscs,
 
     ax1 = fig.add_subplot(nrows, ncols, 1)
 
-    im = ax1.imshow(s0, origin='lower', cmap=get_palette(), norm=norm)
+    im = ax1.imshow(s0, cmap=get_palette(), norm=norm)
 
     if aperture_size:
         aperture.plot(color='r', lw=4, ax=ax1)
@@ -127,7 +128,7 @@ def show_stamps(pscs,
 
     # Comparison
     ax2 = fig.add_subplot(nrows, ncols, 2)
-    im = ax2.imshow(s1, origin='lower', cmap=get_palette(), norm=norm)
+    im = ax2.imshow(s1, cmap=get_palette(), norm=norm)
 
     if aperture_size:
         aperture.plot(color='r', lw=4, ax=ax1)
@@ -146,15 +147,15 @@ def show_stamps(pscs,
         ax3 = fig.add_subplot(nrows, ncols, 3)
 
         # Residual
-        residual = s0 / s1
-        im = ax3.imshow(residual, origin='lower', cmap=get_palette(), norm=ImageNormalize(
+        residual = s0 - s1
+        im = ax3.imshow(residual, cmap=get_palette(), norm=ImageNormalize(
             residual, interval=MinMaxInterval(), stretch=LinearStretch()))
 
         divider = make_axes_locatable(ax3)
         cax = divider.append_axes("right", size="5%", pad=0.05)
         fig.colorbar(im, cax=cax)
-        ax3.set_title('Residual')
-        #ax3.set_title('Residual RMS: {:.01%}'.format(residual))
+        ax3.set_title('Noise Residual')
+        ax3.set_title('Residual RMS: {:.01%}'.format(residual.std()))
         ax3.set_yticklabels([])
         ax3.set_xticklabels([])
 
@@ -349,11 +350,15 @@ def animate_stamp(d0):
     FigureCanvas(fig)
 
     ax = fig.add_subplot(111)
+    ax.set_xticks([])
+    ax.set_yticks([])
 
     line = ax.imshow(d0[0])
+    ax.set_title(f'Frame 0')
 
     def animate(i):
         line.set_data(d0[i])  # update the data
+        ax.set_title(f'Frame {i:03d}')
         return line,
 
     # Init only required for blitting to give a clean slate.
@@ -507,7 +512,13 @@ def make_apertures_plot(apertures, title=None, num_frames=None, output_dir=None)
             fig.savefig(aperture_fn)
 
 
-def plot_lightcurve_old(x, y, model_flux=None, use_imag=False, transit_info=None, color='k', **kwargs):
+def plot_lightcurve_old(x,
+                        y,
+                        model_flux=None,
+                        use_imag=False,
+                        transit_info=None,
+                        color='k',
+                        **kwargs):
     """Plot the lightcurve
 
     Args:
@@ -581,11 +592,14 @@ def plot_lightcurve_old(x, y, model_flux=None, use_imag=False, transit_info=None
     return fig
 
 
-def plot_lightcurve(lc1,
-                    time_bin=20,  # Minutes
-                    base_model_flux=None,
-                    transit_datetimes=None,
-                    title=None):
+def plot_lightcurve_combined(lc1,
+                             time_bin=20,  # Minutes
+                             base_model_flux=None,
+                             transit_datetimes=None,
+                             title=None,
+                             colors='rgb',
+                             offset_delta=0.
+                             ):
     # Setup figure
     fig = Figure()
     FigureCanvas(fig)
@@ -621,63 +635,41 @@ def plot_lightcurve(lc1,
         res_histo_axes.append(res_ax)
 
     offset = 0  # offset
-    delta_offset = 0  # offset delta
 
-    for i, color in enumerate('rgb'):
+    for i, color in enumerate(colors):
 
         # Get the normalized flux for each channel
-        color_data = lc1.loc[lc1.color == color]
-
-        # Target and error
-        t0 = color_data.target
-        t0_err = color_data.target_err
-
-        # Reference and error
-        r0 = color_data.reference
-        r0_err = color_data.reference_err
-
-        # Get the differential flux and error
-        diff_flux = t0 / r0
-        diff_err = np.sqrt(t0_err**2 + r0_err**2)
-
-        # Sigma clip the differential flux
-        f0 = sigma_clip(diff_flux, sigma=3)
-        f0_err = np.ma.array(diff_err, mask=f0.mask)
-        f0_index = np.ma.array(color_data.index, mask=f0.mask)
+        color_data = lc1.loc[lc1.color == color].copy()
 
         # Model flux
         if base_model_flux is None:
-            base_model_flux = np.ones_like(f0)
+            base_model = np.ones_like(color_data.flux)
         else:
             # Mask the sigma clipped frames
-            base_model_flux = np.ma.array(base_model_flux, mask=f0.mask)
+            base_model = base_model_flux.copy()
+        color_data['model'] = base_model
+
+        # Get the differential flux and error
+        f0 = color_data.flux
+        f0_err = color_data.flux_err
+        f0_index = color_data.index
+        m0 = color_data.model
 
         # Flux + offset
         flux = f0 + offset
 
         # Residual
-        residual = flux - base_model_flux
+        residual = flux - base_model
 
         # Build dataframe for differntial flux
         flux_df = pd.DataFrame({'flux': flux,
                                 'flux_err': f0_err,
-                                'model': base_model_flux,
+                                'model': m0,
                                 'residual': residual
                                 }, index=f0_index,
                                ).dropna()
 
-        # Time-binned
-        binned_flux_df = flux_df.resample(f'{time_bin}T').apply({
-            'flux': np.mean,
-            'flux_err': lambda x: np.sum(x**2)
-        })
-
         # Start plotting.
-
-        # Unused - can't make it work well for now.
-#         nice_xticks = pd.date_range(flux_df.index.min().floor(f'{time_bin}T'),
-#                                    flux_df.index.max().ceil(f'{time_bin}T'),
-#                                    freq=f'{time_bin}T')
 
         # Plot target flux.
         flux_df.flux.plot(yerr=flux_df.flux_err,
@@ -687,16 +679,23 @@ def plot_lightcurve(lc1,
                           legend=False,
                           )
 
-        # Plot time-binned target flux.
-        binned_flux_df.plot(yerr=binned_flux_df.flux_err,
-                            ax=lc_ax,
-                            rot=0,
-                            marker='o', ms=8,
-                            color=color,
-                            ls='',
-                            label=f'Time-binned - {time_bin}min',
-                            legend=False,
-                            )
+        if time_bin is not None:
+            # Time-binned
+            binned_flux_df = flux_df.resample(f'{time_bin}T').apply({
+                'flux': np.median,
+                'flux_err': lambda x: np.sum(x**2)
+            })
+
+            # Plot time-binned target flux.
+            binned_flux_df.flux.plot(yerr=binned_flux_df.flux_err,
+                                     ax=lc_ax,
+                                     rot=0,
+                                     marker='o', ms=8,
+                                     color=color,
+                                     ls='',
+                                     label=f'Time-binned - {time_bin}min',
+                                     legend=False,
+                                     )
 
         # Plot model flux.
         flux_df.model.plot(ax=lc_ax,
@@ -712,15 +711,15 @@ def plot_lightcurve(lc1,
         # Residual scatter
         flux_df.residual.plot(ax=res_scatter_ax, color=color, ls='', marker='o', alpha=0.5)
 
-        # Residual histograme axis
+        # Residual histogram axis
         res_ax = res_histo_axes[i]
 
-        res_ax.hist(residual, orientation='horizontal', color=color, alpha=0.5)
+        res_ax.hist(flux_df.residual, orientation='horizontal', color=color, alpha=0.5)
         res_ax.axhline(0, ls='--', color='k', alpha=0.25)
-        res_ax.set_title(f'σ={residual.std():.2%}', y=.82)
+        res_ax.set_title(f'σ={flux_df.residual.std():.2%}', y=.82)
 
         # Add the offset
-        offset += delta_offset
+        offset += offset_delta
 
     if transit_datetimes is not None:
         midpoint, ingress, egress = transit_datetimes
@@ -737,8 +736,301 @@ def plot_lightcurve(lc1,
 
     lc_ax.xaxis.set_major_locator(half_hour)
     lc_ax.xaxis.set_major_formatter(h_fmt)
-    lc_ax.set_ylim([0.93, 1.07])
 
     res_scatter_ax.set_xticks([])
 
     return fig
+
+
+def plot_lightcurve(lc1,
+                    time_bin=20,  # Minutes
+                    base_model_flux=None,
+                    transit_datetimes=None,
+                    title=None,
+                    colors='rgb',
+                    offset_delta=0.
+                    ):
+    # Setup figure
+    fig = Figure()
+    FigureCanvas(fig)
+    fig.set_size_inches(14, 7)
+    fig.set_facecolor('white')
+
+    grid_size = (9, 9)
+
+    # Axis for light curve
+    gs = GridSpec(*grid_size, hspace=0.1)
+
+    offset = 0  # offset
+    # Better time axis ticks
+    half_hour = mdates.MinuteLocator(interval=30)
+    h_fmt = mdates.DateFormatter('%H:%M:%S')
+
+    for i, color in enumerate(colors):
+
+        # Light curve plot
+        spec1 = gs.new_subplotspec((i * 3, 0), colspan=7, rowspan=2)
+        lc_ax = fig.add_subplot(spec1)
+        lc_ax.set_xticks([])
+        lc_ax.set_ylim([0.93, 1.07])
+
+        # Residual
+        spec2 = gs.new_subplotspec((i * 3 + 2, 0), colspan=7, rowspan=1)
+        res_scatter_ax = fig.add_subplot(spec2)
+        res_scatter_ax.set_ylim([-0.05, 0.05])
+        res_scatter_ax.set_yticks([-0.025, 0.025])
+        if i != 2:
+            res_scatter_ax.set_xticks([])
+        else:
+            res_scatter_ax.xaxis.set_major_locator(half_hour)
+            res_scatter_ax.xaxis.set_major_formatter(h_fmt)
+
+        # Residual histos
+        spec = GridSpec(*grid_size).new_subplotspec((i * 3, 7), colspan=2, rowspan=3)
+        res_ax = fig.add_subplot(spec)
+        res_ax.set_xticks([])
+        res_ax.set_ylim([-.05, .05])
+        res_ax.set_yticks([-.025, 0, .025])
+        res_ax.yaxis.tick_right()
+        res_ax.yaxis.set_major_formatter(PercentFormatter(xmax=1, decimals=1))
+
+        # Get the normalized flux for each channel
+        flux_df = lc1.loc[lc1.color == color].copy()
+
+        # Model flux
+        if base_model_flux is None:
+            flux_df['model'] = np.ones_like(flux_df.flux)
+        else:
+            flux_df['model'] = base_model_flux
+
+        # Residual
+        flux_df['residual'] = flux_df.flux - flux_df.model
+
+        # Start plotting.
+
+        # Plot target flux.
+        flux_df.flux.plot(yerr=flux_df.flux_err,
+                          marker='o', ls='', alpha=0.15, color=color,
+                          ax=lc_ax,
+                          rot=0,  # Don't rotate date labels
+                          legend=False,
+                          )
+
+        if time_bin is not None:
+            # Time-binned
+            binned_flux_df = flux_df.resample(f'{time_bin}T').apply({
+                'flux': np.mean,
+                'flux_err': lambda x: np.sum(x**2)
+            })
+
+            # Plot time-binned target flux.
+            binned_flux_df.plot(yerr=binned_flux_df.flux_err,
+                                ax=lc_ax,
+                                rot=0,
+                                marker='o', ms=8,
+                                color=color,
+                                ls='',
+                                label=f'Time-binned - {time_bin}min',
+                                legend=False,
+                                )
+
+        # Plot model flux.
+        flux_df.model.plot(ax=lc_ax,
+                           ls='-',
+                           color=color,
+                           alpha=0.5,
+                           lw=3,
+                           rot=0,  # Don't rotate date labels
+                           label='Model fit',
+                           legend=True
+                           )
+
+        # Residual scatter
+        flux_df.residual.plot(ax=res_scatter_ax,
+                              color=color,
+                              ls='',
+                              marker='o',
+                              rot=0,  # Don't rotate date labels
+                              alpha=0.5
+                              )
+
+        # Residual histogram
+        res_ax.hist(flux_df.residual, orientation='horizontal', color=color, alpha=0.5)
+        res_ax.axhline(0, ls='--', color='k', alpha=0.25)
+        res_ax.set_title(f'σ={flux_df.residual.std():.2%}', y=.82)
+
+        # Add the offset
+        offset += offset_delta
+
+    if transit_datetimes is not None:
+        midpoint, ingress, egress = transit_datetimes
+        lc_ax.axvline(midpoint, ls='-.', c='g', alpha=0.5)
+        lc_ax.axvline(ingress, ls='--', c='k', alpha=0.5)
+        lc_ax.axvline(egress, ls='--', c='k', alpha=0.5)
+
+    if title is not None:
+        fig.suptitle(title, fontsize=18)
+
+    return fig
+
+
+def make_sigma_aperture_plot(masked_stamps=None, add_pixel_grid=False):
+    cmap_lookup = {
+        'r': 'Reds',
+        'g': 'Greens',
+        'b': 'Blues'
+    }
+
+    fig = Figure()
+    FigureCanvas(fig)
+    fig.set_size_inches(9, 3)
+
+    gs = GridSpec(1, 3, figure=fig)
+
+    full_ax = fig.add_subplot(gs[0])
+    ax = fig.add_subplot(gs[1])
+    cax1 = fig.add_subplot(gs[2])
+
+    # Show the full data - without mask any of 'rgb' are full data
+    full_ax.imshow(masked_stamps['r'].data)
+
+    for i, color in enumerate('rgb'):
+        masked_stamp = masked_stamps[color]
+        # Mask values below zero for display
+        masked_stamp.mask[masked_stamp <= 0] = True
+
+        # Show plots
+        ax.imshow(masked_stamp,
+                  vmin=0,
+                  cmap=cmap_lookup[color], alpha=0.95)
+        cax1.bar(i, masked_stamp.sum(),
+                 color=color, align='edge',
+                 label=f'{masked_stamp.sum():.0f}')
+        # Add a dummy bar to get width
+        cax1.bar(i + 3, 0)
+
+    full_ax.set_xticks([])
+    full_ax.set_yticks([])
+    if add_pixel_grid:
+        add_pixel_grid(ax, 10, 10,
+                       show_axis_labels=False,
+                       show_superpixel=True,
+                       major_alpha=0.05, minor_alpha=0.025
+                       )
+
+    ax.set_facecolor('#bbbbbb')
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.set_xticklabels([])
+    ax.set_yticklabels([])
+    ax.grid(False)
+
+    cax1.legend(fontsize=12)
+    cax1.set_ylim([0, 1e5])
+    cax1.set_xticks([])
+    cax1.set_yticks([])
+    cax1.set_xticklabels([])
+    cax1.set_yticklabels([])
+    cax1.grid(False)
+
+    full_ax.set_title('Full stamp')
+    ax.set_title(f'Aperture pixels')
+    cax1.set_title(f'Aperture sum')
+
+    # p = Polygon([(0.5, 2.5), (1.5, 2.5)], linewidth=2, edgecolor='black')
+    # ax.add_patch(p)
+
+    return fig
+
+
+def show_stamp_widget(masked_stamps):
+    from IPython import display
+    from ipywidgets import widgets
+
+    text_wid = widgets.IntText(
+        value=0,
+        placeholder='Frame number',
+        description='Frame number:',
+        disabled=False
+    )
+    slider_wid = widgets.IntSlider(
+        value=0,
+        min=0,
+        max=len(masked_stamps),
+        step=1,
+        description='Frames:',
+        disabled=False,
+        continuous_update=False,
+        orientation='horizontal',
+        readout=True,
+        readout_format='d'
+    )
+    widgets.jslink((text_wid, 'value'), (slider_wid, 'value'))
+
+    output_widget = widgets.Output(layout={'height': '250px'})
+
+    def show_stamp(i):
+        fig = make_sigma_aperture_plot(masked_stamps[i])
+#             fig.set_size_inches(9, 2.5)
+        fig.suptitle(f'Frame {i:03d}', fontsize=14, y=1.06)
+        fig.axes[1].grid(False)
+        fig.axes[1].set_yticklabels([])
+        fig.axes[1].set_facecolor('#bbbbbb')
+        with output_widget:
+            display.clear_output()
+            display.display(fig)
+
+    def on_value_change(change):
+        frame_idx = change['new']
+        show_stamp(frame_idx)
+
+    slider_wid.observe(on_value_change, names='value')
+
+    frame_box = widgets.HBox([output_widget])
+    control_box = widgets.HBox([text_wid, slider_wid])  # Controls
+
+    main_box = widgets.VBox([frame_box, control_box])
+
+    display.display(main_box)
+    show_stamp(0)
+
+
+def show_obs_plot_widget(data, display_fn):
+    from IPython import display
+    from ipywidgets import widgets
+
+    text_wid = widgets.IntText(
+        value=0,
+        placeholder='Frame number',
+        description='Frame number:',
+        disabled=False
+    )
+    slider_wid = widgets.IntSlider(
+        value=0,
+        min=0,
+        max=len(data),
+        step=1,
+        description='Frames:',
+        disabled=False,
+        continuous_update=False,
+        orientation='horizontal',
+        readout=True,
+        readout_format='d'
+    )
+    widgets.jslink((text_wid, 'value'), (slider_wid, 'value'))
+
+    output_widget = widgets.Output(layout={'height': '250px'})
+
+    def on_value_change(change):
+        frame_idx = change['new']
+        display_fn(frame_idx)
+
+    slider_wid.observe(on_value_change, names='value')
+
+    frame_box = widgets.HBox([output_widget])
+    control_box = widgets.HBox([text_wid, slider_wid])  # Controls
+
+    main_box = widgets.VBox([frame_box, control_box])
+
+    display.display(main_box)
+    display_fn(0)

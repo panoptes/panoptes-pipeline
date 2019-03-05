@@ -1,9 +1,8 @@
--e git://github.com/panoptes/POCS.git#egg=pocs
 astroplan
 astropy
 astroquery
 exoplanet
-google-cloud-bigquery[pandas,pyarrow]==1.7.0
+google-cloud-bigquery[pandas,pyarrow]
 h5py
 ipython-autotime
 matplotlib

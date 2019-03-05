@@ -7,7 +7,8 @@ google-cloud-bigquery[pandas,pyarrow]==1.7.0
 h5py
 ipython-autotime
 matplotlib
-numpy
+numpy>1.13
 photutils
 psycopg2-binary
+PyYAML
 tqdm

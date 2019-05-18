@@ -6,10 +6,10 @@ from astropy.table import Table
 from astropy.wcs import WCS
 from astropy.stats import sigma_clipped_stats, sigma_clip
 
-from panoptes_utils.google.cloudsql import get_cursor
-from panoptes_utils.images import fits as fits_utils
-from panoptes_utils.logger import get_root_logger
-from panoptes_utils.bayer import get_rgb_data
+from panoptes.utils.google.cloudsql import get_cursor
+from panoptes.utils.images import fits as fits_utils
+from panoptes.utils.logger import get_root_logger
+from panoptes.utils.bayer import get_rgb_data
 
 import logging
 logger = get_root_logger()

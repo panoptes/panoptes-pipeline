@@ -18,7 +18,7 @@ from photutils import DAOStarFinder
 from pocs.utils.images import fits as fits_utils
 from pocs.utils.logger import get_root_logger
 
-from panoptes_utils.google.cloudsql import get_cursor
+from panoptes.utils.google.cloudsql import get_cursor
 from piaa.utils import helpers
 
 import logging

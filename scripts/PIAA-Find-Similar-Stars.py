@@ -129,7 +129,7 @@ def find_similar(find_params):
             f'Found similar stars for {picid} by looking at {j} of {len(picid_list)} sources')
         #vary_series = pd.Series(vary).sort_values()
         vary_series = pd.DataFrame(vary, index=target_table.index.get_level_values(0))
-        
+
         # Normalize each sum by the std across the frames
         vary_series = (vary_series.sum() / vary_series.std()).sort_values()
         #vary_series = vary_series.sum().sort_values()

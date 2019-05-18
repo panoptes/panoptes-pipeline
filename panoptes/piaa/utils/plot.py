@@ -25,7 +25,7 @@ from astropy.visualization import LogStretch, ImageNormalize, LinearStretch, Min
 from astropy.stats import sigma_clip
 from photutils import RectangularAperture
 
-from piaa.utils import helpers
+from panoptes.piaa.utils import helpers
 
 
 rc('animation', html='html5')

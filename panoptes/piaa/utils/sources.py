@@ -19,7 +19,7 @@ from panoptes.utils.google.cloudsql import get_cursor
 from panoptes.utils.images import fits as fits_utils
 from panoptes.utils.logger import get_root_logger
 
-from piaa.utils import helpers
+from panoptes.piaa.utils import helpers
 
 import logging
 logger = get_root_logger()

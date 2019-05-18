@@ -19,11 +19,10 @@ from tqdm import tqdm, tqdm_notebook
 from dateutil.parser import parse as date_parse
 
 from panoptes.utils.images import fits as fits_utils
-
 from panoptes.utils.logger import get_root_logger
 
-from piaa.utils import helpers
-from piaa.utils import plot
+from panoptes.piaa.utils import helpers
+from panoptes.piaa.utils import plot
 
 import logging
 logger = get_root_logger()

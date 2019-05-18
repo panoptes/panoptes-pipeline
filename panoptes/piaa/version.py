@@ -3,4 +3,4 @@ major = 0
 minor = 0
 release = 1
 
-version = '{}.{}.{}'.format(major, minor, release)
+__version__ = '{}.{}.{}'.format(major, minor, release)

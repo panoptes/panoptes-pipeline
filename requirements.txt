@@ -1,7 +1,6 @@
 astroplan
 astropy
 astroquery
-exoplanet
 matplotlib
 numpy
 photutils

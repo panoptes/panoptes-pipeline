@@ -24,11 +24,10 @@ from tqdm import tqdm
 
 from astropy.io import fits
 
-from piaa.utils import pipeline
-from piaa.utils import helpers
-
-from pocs.utils import current_time
-from pocs.utils.logger import get_root_logger
+from panoptes.piaa.utils import pipeline
+from panoptes.piaa.utils import helpers
+from panoptes.utils import current_time
+from panoptes.utils.logger import get_root_logger
 
 import logging
 logger = get_root_logger()
@@ -73,7 +72,6 @@ def make_psc(make_params):
                 stamps.append(data[target_slice].flatten())
             except Exception as e:
                 logger.warning(f'Problem getting target stamp slice: {e}')
-
 
         df0 = pd.DataFrame(stamps, index=target_table.index)
         logger.debug(f'{picid} PSC shape {df0.shape}')

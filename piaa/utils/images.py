@@ -4,8 +4,8 @@ from warnings import warn
 
 from astropy.io import fits
 
-from pocs.utils import error
-from pocs.utils.images import fits as fits_utils
+from panoptes.utils import error
+from panoptes.utils.images import fits as fits_utils
 
 
 def improve_wcs(fname, remove_extras=True, replace=True, timeout=30, **kwargs):

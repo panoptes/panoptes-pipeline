@@ -1,4 +1,3 @@
--e git://github.com/panoptes/POCS.git#egg=pocs
 astroplan
 astropy
 astroquery

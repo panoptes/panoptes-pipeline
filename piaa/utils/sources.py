@@ -15,10 +15,10 @@ from astropy.time import Time
 from astropy.stats import sigma_clipped_stats
 from photutils import DAOStarFinder
 
-from pocs.utils.images import fits as fits_utils
-from pocs.utils.logger import get_root_logger
-
 from panoptes.utils.google.cloudsql import get_cursor
+from panoptes.utils.images import fits as fits_utils
+from panoptes.utils.logger import get_root_logger
+
 from piaa.utils import helpers
 
 import logging

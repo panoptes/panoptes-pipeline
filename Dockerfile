@@ -1,12 +1,12 @@
-FROM gcr.io/panoptes-survey/pocs-base:latest
+FROM gcr.io/panoptes-survey/panoptes-utils:latest
 
-ENV PIAA ${PANDIR}/PIAA  
+ENV PIAA ${PANDIR}/PIAA
 
 COPY . ${PIAA}
 
 RUN cd ${PIAA} && \
-	pip3 install -Ur requirements.txt && \
-	pip3 install -e .
+	pip install -r --no-deps requirements.txt && \
+	pip install -e .
 
 WORKDIR ${PIAA}
 

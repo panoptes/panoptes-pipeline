@@ -1,16 +1,14 @@
 import os
 
-from warnings import warn
 import numpy as np
 
 from astropy import units as u
 from astropy.time import Time
-from astropy.table import Column
 
 from collections import namedtuple
 
 import batman
-from pocs.utils import listify
+from panoptes.utils import listify
 
 # Query Exoplanet Orbit Database (exoplanets.org) for planet properties
 # Columns: http://exoplanets.org/help/common/data

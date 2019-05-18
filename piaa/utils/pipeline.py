@@ -18,9 +18,9 @@ from tqdm import tqdm, tqdm_notebook
 
 from dateutil.parser import parse as date_parse
 
-from pocs.utils.images import fits as fits_utils
+from panoptes.utils.images import fits as fits_utils
 
-from pocs.utils.logger import get_root_logger
+from panoptes.utils.logger import get_root_logger
 
 from piaa.utils import helpers
 from piaa.utils import plot

@@ -1,26 +1,17 @@
 import os
-import re
 
 from contextlib import suppress
 
-import h5py
 import numpy as np
 import pandas as pd
 
 from scipy import linalg
-from astropy.io import fits
-from astropy.wcs import WCS
-from astropy.time import Time
 from astropy.stats import sigma_clip
 from scipy.signal import savgol_filter
 
-from tqdm import tqdm, tqdm_notebook
+from tqdm import tqdm
 
-from dateutil.parser import parse as date_parse
-
-from panoptes.utils.images import fits as fits_utils
 from panoptes.utils.logger import get_root_logger
-
 from panoptes.piaa.utils import helpers
 from panoptes.piaa.utils import plot
 
@@ -31,194 +22,6 @@ logger.setLevel(logging.DEBUG)
 
 def normalize(cube):
     return (cube.T / cube.sum(1)).T
-
-
-def create_stamp_slices(
-    save_dir,
-    fits_files,
-    point_sources,
-    stamp_size=(14, 14),
-    force_new=False,
-    verbose=False,
-    *args, **kwargs
-):
-    """Create PANOPTES Stamp Cubes (PSC) for each point source.
-
-    Creates a slice through the cube corresponding to a stamp and stores the
-    subtracted data in the hdf5 table with key `stamp/<picid>`.
-
-    Args:
-        *args (TYPE): Description
-        **kwargs (dict): `ipython_widget=True` can be passed to display progress
-            within a notebook
-
-    """
-
-    errors = dict()
-
-    num_frames = len(fits_files)
-    unit_id, cam_id, seq_time = fits_utils.getval(fits_files[0], 'SEQID').split('_')
-    unit_id = re.match(r'.*(PAN\d\d\d).*', unit_id)[1]
-    sequence = '_'.join([unit_id, cam_id, seq_time])
-
-    logger.info("{} files found for {}".format(num_frames, sequence))
-
-    stamps_fn = os.path.join(
-        save_dir,
-        sequence.replace('/', '_') + '.hdf5'
-    )
-    logger.info("Creating stamps file: {}".format(stamps_fn))
-
-    if force_new is False and os.path.exists(stamps_fn):
-        logger.info("Looking for existing stamps file")
-        try:
-            assert os.path.exists(stamps_fn)
-            stamps = h5py.File(stamps_fn)
-            logger.info("Returning existing stamps file")
-            return stamps_fn
-        except FileNotFoundError:
-            pass
-    else:
-        # Make sure to delete existing
-        with suppress(FileNotFoundError):
-            os.remove(stamps_fn)
-
-    stamps = h5py.File(stamps_fn, 'a')
-
-    # Currently a bug with DATE-OBS so use time from filename.
-    image_times = list()
-    for fn in fits_files:
-        if 'pointing' in fn:
-            continue
-
-        try:
-            fn_imagetime = Time(date_parse(os.path.basename(fn).split('.')[0])).mjd
-            image_times.append(fn_imagetime)
-        except Exception as e:
-            logger.warning('Problem getting image time: {}'.format(e))
-
-    # image_times = np.array(
-    #    [Time(date_parse(fits.getval(fn, 'DATE-OBS'))).mjd for fn in fits_files])
-
-    airmass = np.array([fits_utils.getval(fn, 'AIRMASS') for fn in fits_files])
-
-    stamps.attrs['image_times'] = image_times
-    stamps.attrs['airmass'] = airmass
-
-    file_iterator = enumerate(fits_files)
-
-    if verbose:
-        if kwargs.get('notebook', False):
-            file_iterator = tqdm_notebook(file_iterator, total=num_frames, desc='Looping files')
-        else:
-            file_iterator = tqdm(file_iterator, total=num_frames, desc='Looping files')
-
-    for frame_idx, fn in file_iterator:
-        # Get stamp data.
-        with fits.open(fn) as hdu:
-            hdu_idx = 0
-            if fn.endswith('.fz'):
-                logger.info("Using compressed FITS")
-                hdu_idx = 1
-
-            wcs = WCS(hdu[hdu_idx].header)
-            d0 = hdu[hdu_idx].data
-
-        star_iterator = point_sources.itertuples()
-        if verbose:
-            if kwargs.get('notebook', False):
-                star_iterator = tqdm_notebook(star_iterator, total=len(point_sources),
-                                              leave=False, desc="Point sources")
-            else:
-                star_iterator = tqdm(star_iterator, total=len(point_sources),
-                                     leave=False, desc="Point sources")
-
-        for star_row in star_iterator:
-            star_id = str(star_row.Index)
-
-            try:
-                existing_sum = np.array(stamps[star_id]['data'][frame_idx]).sum()
-                if star_id in stamps and existing_sum:
-                    logger.info("Skipping {}, {} for having data: {}".format(star_id,
-                                                                             frame_idx,
-                                                                             existing_sum))
-                    continue
-            except KeyError:
-                pass
-
-            star_pos = wcs.all_world2pix(star_row.ra, star_row.dec, 1)
-
-            # Get stamp data. If problem, mark for skipping in future.
-            try:
-                # This handles the RGGB pattern
-                slice0 = helpers.get_stamp_slice(star_pos[0], star_pos[1], stamp_size=stamp_size)
-                logger.debug("Slice for {} {}: {}".format(star_pos[0], star_pos[1], slice0))
-                if not slice0:
-                    logger.warning(
-                        "Invalid slice for star_id {} on frame {}".format(star_id, frame_idx))
-                    continue
-                d1 = d0[slice0].flatten()
-
-                if len(d1) == 0:
-                    logger.warning('Bad slice for {}, skipping'.format(star_id))
-                    continue
-            except Exception as e:
-                logger.warning("Problem with slice: {}".format(e))
-
-            # Create group for stamp and add metadata
-            try:
-                psc_group = stamps[star_id]
-            except KeyError:
-                logger.debug("Creating new group for star {}".format(star_id))
-                psc_group = stamps.create_group(star_id)
-                # Stamp metadata
-                try:
-                    for col in point_sources.columns:
-                        psc_group.attrs[col] = str(getattr(star_row, col))
-                except Exception as e:
-                    if str(e) not in errors:
-                        logger.warning(e)
-                        errors[str(e)] = True
-
-            # Set the data for the stamp. Create PSC dataset if needed.
-            try:
-                # Assign stamp values
-                psc_group['data'][frame_idx] = d1
-            except KeyError:
-                logger.debug("Creating new PSC dataset for {}".format(star_id))
-                psc_size = (num_frames, len(d1))
-
-                # Create the dataset
-                stamp_dset = psc_group.create_dataset('data', psc_size, dtype='u2', chunks=True)
-
-                # Assign the data
-                stamp_dset[frame_idx] = d1
-            except TypeError as e:
-                # Sets the metadata. Create metadata dataset if needed.
-                key = str(e) + star_id
-                if key not in errors:
-                    logger.info(e)
-                    errors[key] = True
-
-            try:
-                psc_group['original_position'][frame_idx] = (star_row.x, star_row.y)
-            except KeyError:
-                logger.debug("Creating new metadata dataset for {}".format(star_id))
-                metadata_size = (num_frames, 2)
-
-                # Create the dataset
-                metadata_dset = psc_group.create_dataset(
-                    'original_position', metadata_size, dtype='u2', chunks=True)
-
-                # Assign the data
-                metadata_dset[frame_idx] = (star_row.x, star_row.y)
-
-            stamps.flush()
-
-        if errors:
-            logger.warning(errors)
-
-    return stamps_fn
 
 
 def get_psc(picid, stamps, frame_slice=None):

@@ -2,9 +2,9 @@
 # Licensed under an MIT style license - see LICENSE.txt
 
 try:
-  from setuptools import setup, find_packages
+    from setuptools import setup, find_namespace_packages
 except ImportError:
-  from distutils.core import setup
+    from distutils.core import setup
 
 import itertools
 
@@ -27,6 +27,7 @@ DESCRIPTION = metadata.get('description', '')
 KEYWORDS = metadata.get('keywords', 'Project PANOPTES')
 LICENSE = metadata.get('license', 'unknown')
 LONG_DESCRIPTION = metadata.get('long_description', '')
+NAME = metadata.get('name', 'panoptes-piaa')
 PACKAGENAME = metadata.get('package_name', 'packagename')
 URL = metadata.get('url', 'https://projectpanoptes.org')
 
@@ -50,7 +51,7 @@ modules = {
 }
 
 
-setup(name=PACKAGENAME,
+setup(name=NAME,
       version=__version__,
       description=DESCRIPTION,
       long_description=LONG_DESCRIPTION,
@@ -71,7 +72,7 @@ setup(name=PACKAGENAME,
           'testing': modules['testing'],
           'all': list(set(itertools.chain.from_iterable(modules.values())))
       },
-      packages=find_packages(exclude=['tests', 'test_*']),
+      packages=find_namespace_packages(exclude=['tests', 'test_*']),
       classifiers=[
           'Development Status :: 3 - Alpha',
           'Environment :: Console',

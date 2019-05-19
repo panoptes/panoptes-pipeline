@@ -13,7 +13,6 @@ from astropy import units as u
 from astropy.coordinates import SkyCoord, match_coordinates_sky
 from astropy.time import Time
 from astropy.stats import sigma_clipped_stats
-from photutils import DAOStarFinder
 
 from panoptes.utils.google.cloudsql import get_cursor
 from panoptes.utils.images import fits as fits_utils
@@ -302,6 +301,7 @@ def _lookup_via_tess_catalog(fits_file, wcs=None, *args, **kwargs):
 
 
 def _lookup_via_photutils(fits_file, wcs=None, *args, **kwargs):
+    from photutils import DAOStarFinder
     data = fits.getdata(fits_file) - 2048  # Camera bias
     mean, median, std = sigma_clipped_stats(data)
 

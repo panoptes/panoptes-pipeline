@@ -3,5 +3,6 @@ astropy
 astroquery
 matplotlib
 numpy
-photutils
+pandas
 tqdm
+

@@ -23,7 +23,6 @@ from astropy.modeling import models, fitting
 from astropy import units as u
 from astropy.visualization import LogStretch, ImageNormalize, LinearStretch, MinMaxInterval
 from astropy.stats import sigma_clip
-from photutils import RectangularAperture
 
 from panoptes.piaa.utils import helpers
 
@@ -67,22 +66,12 @@ def get_labelled_style_cycler(cmap='viridis'):
 def show_stamps(pscs,
                 frame_idx=None,
                 stamp_size=11,
-                aperture_position=None,
-                aperture_size=None,
                 show_residual=False,
                 stretch=None,
                 save_name=None,
                 show_max=False,
                 show_pixel_grid=False,
                 **kwargs):
-
-    if aperture_position is None:
-        midpoint = (stamp_size - 1) / 2
-        aperture_position = (midpoint, midpoint)
-
-    if aperture_size:
-        aperture = RectangularAperture(
-            aperture_position, w=aperture_size, h=aperture_size, theta=0)
 
     ncols = len(pscs)
 
@@ -114,10 +103,6 @@ def show_stamps(pscs,
 
     im = ax1.imshow(s0, cmap=get_palette(), norm=norm)
 
-    if aperture_size:
-        aperture.plot(color='r', lw=4, ax=ax1)
-        # annulus.plot(color='c', lw=2, ls='--', ax=ax1)
-
     # create an axes on the right side of ax. The width of cax will be 5%
     # of ax and the padding between cax and ax will be fixed at 0.05 inch.
     # https://stackoverflow.com/questions/18195758/set-matplotlib-colorbar-size-to-match-graph
@@ -129,10 +114,6 @@ def show_stamps(pscs,
     # Comparison
     ax2 = fig.add_subplot(nrows, ncols, 2)
     im = ax2.imshow(s1, cmap=get_palette(), norm=norm)
-
-    if aperture_size:
-        aperture.plot(color='r', lw=4, ax=ax1)
-        # annulus.plot(color='c', lw=2, ls='--', ax=ax1)
 
     divider = make_axes_locatable(ax2)
     cax = divider.append_axes("right", size="5%", pad=0.05)

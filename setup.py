@@ -36,10 +36,7 @@ with open(requirements_fn) as f:
     requirements = f.read().splitlines()
 
 modules = {
-    'google': ['google-cloud', 'google-cloud-storage', 'psycopg2-binary'],
-    'mongo': ['pymongo'],
     'required': requirements,
-    'social': ['requests', 'tweepy'],
     'testing': [
         'codecov',
         'coverage',
@@ -71,9 +68,6 @@ setup(name=PACKAGENAME,
       # $ pip install -e .[dev,test]
       install_requires=modules['required'],
       extras_require={
-          'google': modules['google'],
-          'mongo': modules['mongo'],
-          'social': modules['social'],
           'testing': modules['testing'],
           'all': list(set(itertools.chain.from_iterable(modules.values())))
       },

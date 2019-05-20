@@ -5,6 +5,7 @@ steps:
   args:
   - 'build'
   - '-f=docker/Dockerfile'
+  - '--build-arg=arch=amd64'
   - '--tag=gcr.io/${PROJECT_ID}/panoptes-piaa:latest'
   - '.'
   waitFor: ['-']

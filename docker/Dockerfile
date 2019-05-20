@@ -1,4 +1,6 @@
-FROM gcr.io/panoptes-survey/panoptes-utils:latest
+ARG arch=amd64
+
+FROM gcr.io/panoptes-survey/panoptes-utils:$arch
 
 ENV PIAA ${PANDIR}/PIAA
 

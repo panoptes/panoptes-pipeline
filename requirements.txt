@@ -3,7 +3,6 @@ astropy
 astroquery
 matplotlib
 numpy
-panoptes-utils
+panoptes-utils>=0.0.7
 pandas
 tqdm
-

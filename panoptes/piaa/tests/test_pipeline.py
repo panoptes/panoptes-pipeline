@@ -1,6 +1,6 @@
 import pytest
 
-from panoptes.utils import pipeline
+from panoptes.piaa.utils import pipeline
 
 
 def test_get_imag():

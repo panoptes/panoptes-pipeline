@@ -1,10 +1,7 @@
 #!/usr/bin/env python
 # Licensed under an MIT style license - see LICENSE.txt
 
-try:
-    from setuptools import setup, find_namespace_packages
-except ImportError:
-    from distutils.core import setup
+from setuptools import setup, find_namespace_packages
 
 import itertools
 

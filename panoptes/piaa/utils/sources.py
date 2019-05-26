@@ -6,6 +6,8 @@ from contextlib import suppress
 import pandas as pd
 from tqdm import tqdm
 
+from collections import namedtuple
+
 from astropy.io import fits
 from astropy.table import Table
 from astropy.wcs import WCS
@@ -23,6 +25,131 @@ from panoptes.piaa.utils import helpers
 import logging
 logger = get_root_logger()
 logger.setLevel(logging.DEBUG)
+
+
+def get_stars_from_footprint(wcs_footprint, **kwargs):
+    """Lookup star information from WCS footprint.
+
+    This is just a thin wrapper around `get_stars`.
+
+    Args:
+        wcs_footprint (`astropy.wcs.WCS`): The world coordinate system (WCS) for an image.
+        **kwargs: Optional keywords to pass to `get_stars`.
+
+    Returns:
+        TYPE: Description
+    """
+    ra = wcs_footprint[:, 0]
+    dec = wcs_footprint[:, 1]
+
+    logger.debug(f'WCS footprint: {ra} {dec}')
+
+    return get_stars(ra.min(), ra.max(), dec.min(), dec.max(), **kwargs)
+
+
+def get_stars(
+        ra_min,
+        ra_max,
+        dec_min,
+        dec_max,
+        vmag=13,
+        table='full_catalog',
+        cursor=None,
+        cursor_only=True,
+        verbose=False,
+        **kwargs):
+    """Look star information from the TESS catalog.
+
+    Args:
+        ra_min (float): The minimum RA in degrees.
+        ra_max (float): The maximum RA in degrees.
+        dec_min (float): The minimum Dec in degress.
+        dec_max (float): The maximum Dec in degrees.
+        table (str, optional): TESS catalog table to use, default 'full_catalog'. Can also be 'ctl'
+        cursor_only (bool, optional): Return raw cursor, default False.
+        verbose (bool, optional): Verbose, default False.
+        **kwargs: Additional keyword arrs passed to `get_cursor`.
+
+    Returns:
+        `astropy.table.Table` or `psycopg2.cursor`: Table with star information be default,
+            otherwise the raw cursor if `cursor_only=True`.
+    """
+    if not cursor:
+        logger.info(f'No DB cursor, getting new one')
+        cursor = get_cursor(
+            instance='panoptes-tess-catalog',
+            db_name='v702',
+            db_user='postgres',
+            port=5433,
+            **kwargs)
+
+    logger.debug(f'About to execute SELECT sql')
+    logger.debug('{} {} {} {}'.format(ra_min, ra_max, dec_min, dec_max))
+    cursor.execute("""SELECT id, ra, dec, tmag, vmag, e_tmag, twomass
+        FROM {}
+        WHERE ra >= %s AND ra <= %s AND dec >= %s AND dec <= %s AND vmag < %s;""".format(table),
+                   (ra_min, ra_max, dec_min, dec_max, vmag)
+                   )
+    if cursor_only:
+        logger.debug(f'Returning cursor')
+        return cursor
+
+    logger.debug('Building table of results')
+    d0 = cursor.fetchall()
+    logger.debug(f'Fetched {len(d0)} sources')
+    try:
+        source_table = Table(
+            data=d0,
+            names=['id', 'ra', 'dec', 'tmag', 'vmag', 'e_tmag', 'twomass'],
+            dtype=['i4', 'f8', 'f8', 'f4', 'f4', 'f4', 'U26'])
+    except TypeError:
+        logger.warn(f'Error building star catalog table')
+        return None
+    else:
+        logger.debug(f'Returning source table')
+        return source_table
+
+
+def get_star_info(picid=None,
+                  twomass_id=None,
+                  table='full_catalog',
+                  cursor=None,
+                  raw=False,
+                  verbose=False,
+                  **kwargs):
+    """Lookup catalog information about a given star.
+
+    Args:
+        picid (str, optional): The ID of the star in the TESS catalog, also
+            known as the PANOPTES Input Catalog ID (picid).
+        twomass_id (str, optional): 2Mass ID.
+        table (str, optional): TESS catalog table to use, default 'full_catalog'.
+            Can also be 'ctl'.
+        verbose (bool, optional): Verbose, default False.
+        **kwargs: Description
+
+    Returns:
+        tuple: Values from the database.
+    """
+    if not cursor:
+        cursor = get_cursor(db_name='v6', db_user='postgres', **kwargs)
+
+    if picid:
+        val = picid
+        col = 'id'
+    elif twomass_id:
+        val = twomass_id
+        col = 'twomass'
+
+    cursor.execute('SELECT * FROM {} WHERE {}=%s'.format(table, col), (val,))
+
+    rec = cursor.fetchone()
+
+    if rec and not raw:
+        StarInfo = namedtuple('StarInfo', sorted(rec.keys()))
+        rec = StarInfo(**rec)
+
+    return rec
 
 
 def lookup_sources_for_observation(fits_files=None,

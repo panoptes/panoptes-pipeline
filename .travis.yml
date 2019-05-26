@@ -1,4 +1,5 @@
 sudo: required
+dist: xenial
 language: python
 python:
   - "3.6"
@@ -7,15 +8,15 @@ cache:
 env:
   - POCS=/var/panoptes/POCS PANDIR=/var/panoptes
 before_install:
-    - sudo mkdir /var/panoptes && sudo chmod 777 /var/panoptes
-    - mkdir $PANDIR/POCS
-    - mkdir $PANDIR/logs
+    - mkdir -p /var/panoptes && sudo chmod 777 /var/panoptes
+    - mkdir -p $PANDIR/POCS
+    - mkdir -p $PANDIR/logs
     - pip install coveralls
     - pip install -U pip setuptools
 install:
   - cd $TRAVIS_BUILD_DIR
   - pip install -r requirements.txt
-  - python setup.py install
+  - pip install .
 script:
   - python setup.py test
 after_success:

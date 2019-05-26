@@ -1,14 +1,8 @@
--e git://github.com/panoptes/POCS.git#egg=pocs
 astroplan
 astropy
 astroquery
-exoplanet
-google-cloud-bigquery[pandas,pyarrow]==1.7.0
-h5py
-ipython-autotime
 matplotlib
-numpy>1.13
-photutils
-psycopg2-binary
-PyYAML
+numpy
+panoptes-utils[all]>=0.0.7
+pandas
 tqdm

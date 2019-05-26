@@ -8,7 +8,7 @@ cache:
 env:
   - POCS=/var/panoptes/POCS PANDIR=/var/panoptes
 before_install:
-    - mkdir -p /var/panoptes && sudo chmod 777 /var/panoptes
+    - sudo mkdir -p /var/panoptes && sudo chmod 777 /var/panoptes
     - mkdir -p $PANDIR/POCS
     - mkdir -p $PANDIR/logs
     - pip install coveralls

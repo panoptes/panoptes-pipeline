@@ -16,11 +16,10 @@ from tqdm import tqdm
 
 from astropy.stats import sigma_clip
 
-from piaa.utils import plot
-from piaa.utils import pipeline
-
-from pocs.utils import current_time
-from pocs.utils.logger import get_root_logger
+from panoptes.utils import current_time
+from panoptes.utils.logger import get_root_logger
+from panoptes.piaa.utils import plot
+from panoptes.piaa.utils import pipeline
 
 import logging
 logger = get_root_logger()
@@ -47,7 +46,7 @@ def build_ref(build_params):
     table_filter = params['table_filter']
     make_plots = params['make_plots']
     color_correction = params['color_correction']
-    
+
     # Get working directories.
     psc_dir = os.path.dirname(psc_fn)
     logger.debug(f'PSC dir: {psc_dir}')

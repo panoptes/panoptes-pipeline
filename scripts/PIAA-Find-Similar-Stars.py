@@ -58,10 +58,9 @@ import numpy as np
 
 from tqdm import tqdm
 
-from pocs.utils import current_time
-from pocs.utils.logger import get_root_logger
-
-from piaa.utils import pipeline
+from panoptes.utils import current_time
+from panoptes.utils.logger import get_root_logger
+from panoptes.piaa.utils import pipeline
 
 import logging
 logger = get_root_logger()
@@ -127,12 +126,12 @@ def find_similar(find_params):
 
         logger.debug(
             f'Found similar stars for {picid} by looking at {j} of {len(picid_list)} sources')
-        #vary_series = pd.Series(vary).sort_values()
+        # vary_series = pd.Series(vary).sort_values()
         vary_series = pd.DataFrame(vary, index=target_table.index.get_level_values(0))
 
         # Normalize each sum by the std across the frames
         vary_series = (vary_series.sum() / vary_series.std()).sort_values()
-        #vary_series = vary_series.sum().sort_values()
+        # vary_series = vary_series.sum().sort_values()
 
         vary_series[:SAVE_NUM].to_csv(similar_fn)
 

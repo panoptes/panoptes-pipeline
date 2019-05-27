@@ -1,13 +1,8 @@
 astroplan
 astropy
 astroquery
-exoplanet
-google-cloud-bigquery[pandas,pyarrow]
-h5py
-ipython-autotime
 matplotlib
-numpy>1.13
-photutils
-psycopg2-binary
-PyYAML
+numpy
+panoptes-utils[required,google]>=0.0.7
+pandas
 tqdm

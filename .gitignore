@@ -1,5 +1,7 @@
 # PANOPTES specific files
 config_local.yaml
+examples/notebooks/*.png
+notebooks/**/working/*
 
 # Development support
 sftp-config.json
@@ -11,7 +13,6 @@ sftp-config.json
 # TeX products
 *.aux
 *.log
-*.pdf
 *.toc
 
 # Compiled files
@@ -72,7 +73,9 @@ distribute-*.tar.gz
 
 # Ignore IPython notebook (Jupyter) checkpoints.
 .ipynb_checkpoints
-notebooks/*
+
+.pytest_cache*
 
 .idea
 *.patch
+rgb_masks.npz

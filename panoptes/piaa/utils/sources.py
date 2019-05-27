@@ -13,7 +13,6 @@ from astropy import units as u
 from astropy.coordinates import SkyCoord, match_coordinates_sky
 from astropy.time import Time
 from astropy.stats import sigma_clipped_stats
-from photutils import DAOStarFinder
 
 from panoptes.utils.images import fits as fits_utils
 from panoptes.utils.logger import get_root_logger

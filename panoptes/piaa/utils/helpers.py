@@ -159,7 +159,7 @@ def get_photon_flux_params(filter_name='V'):
     return photon_flux_values.get(filter_name)
 
 
-def get_adaptive_aperture(target_stamp, return_snr=False, cutoff_value=1):
+def get_adaptive_aperture(target_stamp, readout_noise=10.5, return_snr=False, cutoff_value=1):
     aperture_pixels = dict()
     snr = dict()
 
@@ -175,7 +175,7 @@ def get_adaptive_aperture(target_stamp, return_snr=False, cutoff_value=1):
         color_data = color_data - s_med
 
         # Get SNR of each pixel
-        noise0 = np.sqrt(np.abs(color_data) + 10.5**2)
+        noise0 = np.sqrt(np.abs(color_data) + readout_noise**2)
         snr0 = color_data / noise0
 
         # Weight each pixel according to SNR
@@ -188,13 +188,17 @@ def get_adaptive_aperture(target_stamp, return_snr=False, cutoff_value=1):
         # Running sum of SNR
         snr_pixel_sum = np.cumsum(weighted_sort_snr)
 
-        # Snip to first fourth
+        # Snip to first fourth (otherwise it just shows a lot)
         snr_pixel_sum = snr_pixel_sum[:int(len(weighted_sort_snr) / 4)]
+        
+        # Normalize the SNR
+        snr_pixel_sum = snr_pixel_sum / snr_pixel_sum.max()
 
-        # Use gradient to determine cutoff (to zero)
+        # Use gradient of normalized SNR to determine cutoff (to zero)
         snr_pixel_gradient = np.gradient(snr_pixel_sum)
 
         # Get gradient above cutoff value
+        #top_snr_gradient = snr_pixel_gradient[np.gradient(snr_pixel_gradient) < cutoff_value]
         top_snr_gradient = snr_pixel_gradient[snr_pixel_gradient > cutoff_value]
 
         # Get the positions for the matching pixels

@@ -166,6 +166,7 @@ def get_aperture_sums(psc0,
                       separate_green=False,
                       plot_apertures=False,
                       aperture_plot_path=None,
+                      aperture_cutoff=2e-1,
                       picid=None,
                       ):
     """Perform differential aperture photometry on the given PSCs.
@@ -212,7 +213,7 @@ def get_aperture_sums(psc0,
         i0 = psc1[frame_idx].reshape(stamp_side, stamp_side)
 
         logger.debug(f'Using adaptive apertures')
-        pixel_locations = helpers.get_adaptive_aperture(t0, cutoff_value=2e-1)
+        pixel_locations = helpers.get_adaptive_aperture(i0, cutoff_value=aperture_cutoff)
         logger.debug(f'Frame {frame_idx} pixel locations: {pixel_locations}')
 
         for color, pixel_loc in pixel_locations.items():
@@ -228,6 +229,8 @@ def get_aperture_sums(psc0,
             ideal_photon_noise = np.sqrt(i_sum)
 
             readout = readout_noise * len(pixel_loc)
+            
+            # TODO Scintillation noise?
 
             target_total_noise = np.sqrt(target_photon_noise**2 + readout**2)
             ideal_total_noise = np.sqrt(ideal_photon_noise**2 + readout**2)
@@ -240,6 +243,7 @@ def get_aperture_sums(psc0,
                 'reference': i_sum,
                 'reference_err': ideal_total_noise,
                 'obstime': image_time,
+                'aperture_pixels': pixel_loc,
             })
 
     # Light-curve dataframe

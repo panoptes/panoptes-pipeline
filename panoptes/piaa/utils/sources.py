@@ -185,6 +185,16 @@ def get_catalog_match(point_sources, wcs, table='full_catalog', **kwargs):
     # point_sources['twomass'] = catalog_stars[idx]['twomass']
     point_sources['tmag'] = catalog_stars[idx]['tmag']
     point_sources['vmag'] = catalog_stars[idx]['vmag']
+    point_sources['teff'] = catalog_stars[idx]['teff']
+    point_sources['lumclass'] = catalog_stars[idx]['lumclass']
+    point_sources['lum'] = catalog_stars[idx]['lum']
+    point_sources['lum_err'] = catalog_stars[idx]['e_lum']
+    point_sources['distance'] = catalog_stars[idx]['d']
+    point_sources['distance_err'] = catalog_stars[idx]['e_d']
+    # Contamination ratio
+    point_sources['contratio'] = catalog_stars[idx]['contratio']
+    # Number of sources in TESS aperture
+    point_sources['numcont'] = catalog_stars[idx]['numcont']
     point_sources['catalog_sep_arcsec'] = d2d.to(u.arcsec).value
 
     return point_sources

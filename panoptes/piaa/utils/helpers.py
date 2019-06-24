@@ -1,9 +1,9 @@
 import numpy as np
+import pandas as pd
 
 from astropy.time import Time
 from astropy.wcs import WCS
 from astropy.stats import sigma_clipped_stats, sigma_clip
-from astropy.table import Table
 
 from panoptes.utils.images import fits as fits_utils
 from panoptes.utils.logger import get_root_logger
@@ -64,21 +64,27 @@ def get_stars(
         if not cursor:
             cursor = get_cursor(port=5433, db_name='v702', db_user='panoptes')
 
-    cursor.execute("""SELECT id, ra, dec, tmag, vmag, e_tmag, twomass
-        FROM {}
-        WHERE tmag < 13 AND ra >= %s AND ra <= %s AND dec >= %s AND dec <= %s;""".format(table),
-                   (ra_min, ra_max, dec_min, dec_max)
-                   )
+    fetch_sql = f"""
+        SELECT
+            id,
+            ra, dec,
+            tmag, e_tmag, vmag, e_vmag,
+            lumclass, lum, e_lum,
+            contratio, numcont
+        FROM {table}
+        WHERE
+            vmag < 13 AND
+            ra >= %s AND ra <= %s AND
+            dec >= %s AND dec <= %s;
+    """
+
+    cursor.execute(fetch_sql, (ra_min, ra_max, dec_min, dec_max))
+
     if cursor_only:
         return cursor
 
-    d0 = cursor.fetchall()
-    if verbose:
-        print(d0)
-    return Table(
-        data=d0,
-        names=['id', 'ra', 'dec', 'tmag', 'vmag', 'e_tmag', 'twomass'],
-        dtype=['i4', 'f8', 'f8', 'f4', 'f4', 'f4', 'U26'])
+    rows = cursor.fetchall()
+    return pd.DataFrame(rows)
 
 
 def moving_average(data_set, periods=3):

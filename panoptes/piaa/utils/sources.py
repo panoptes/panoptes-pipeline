@@ -184,13 +184,12 @@ def get_catalog_match(point_sources, wcs, table='full_catalog', **kwargs):
     point_sources['id'] = catalog_stars[idx]['id']
     # point_sources['twomass'] = catalog_stars[idx]['twomass']
     point_sources['tmag'] = catalog_stars[idx]['tmag']
+    point_sources['tmag_err'] = catalog_stars[idx]['e_tmag']
     point_sources['vmag'] = catalog_stars[idx]['vmag']
-    point_sources['teff'] = catalog_stars[idx]['teff']
+    point_sources['vmag_err'] = catalog_stars[idx]['e_vmag']
     point_sources['lumclass'] = catalog_stars[idx]['lumclass']
     point_sources['lum'] = catalog_stars[idx]['lum']
     point_sources['lum_err'] = catalog_stars[idx]['e_lum']
-    point_sources['distance'] = catalog_stars[idx]['d']
-    point_sources['distance_err'] = catalog_stars[idx]['e_d']
     # Contamination ratio
     point_sources['contratio'] = catalog_stars[idx]['contratio']
     # Number of sources in TESS aperture

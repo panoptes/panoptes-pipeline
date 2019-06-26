@@ -6,14 +6,10 @@ from astropy.wcs import WCS
 from astropy.stats import sigma_clipped_stats, sigma_clip
 
 from panoptes.utils.images import fits as fits_utils
-from panoptes.utils.logger import get_root_logger
 from panoptes.utils.bayer import get_rgb_data
 from panoptes.utils.google.cloudsql import get_cursor
 
-
 import logging
-logger = get_root_logger()
-logger.setLevel(logging.DEBUG)
 
 
 def get_stars_from_footprint(wcs_footprint, **kwargs):
@@ -83,8 +79,11 @@ def get_stars(
     if cursor_only:
         return cursor
 
+    # Get column names
+    column_names = [desc.name for desc in cursor.description]
+
     rows = cursor.fetchall()
-    return pd.DataFrame(rows)
+    return pd.DataFrame(rows, columns=column_names)
 
 
 def moving_average(data_set, periods=3):
@@ -113,7 +112,7 @@ def get_pixel_drift(coords, files):
             N=len(files)
     """
     # Get target positions for each frame
-    logger.info("Getting pixel drift for {}".format(coords))
+    logging.info("Getting pixel drift for {}".format(coords))
     target_pos = list()
     for fn in files:
         h0 = fits_utils.getheader(fn)

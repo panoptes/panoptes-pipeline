@@ -15,13 +15,10 @@ from astropy.time import Time
 from astropy.stats import sigma_clipped_stats
 
 from panoptes.utils.images import fits as fits_utils
-from panoptes.utils.logger import get_root_logger
 from panoptes.utils.google.cloudsql import get_cursor
 from panoptes.piaa.utils import helpers
 
 import logging
-logger = get_root_logger()
-logger.setLevel(logging.DEBUG)
 
 
 def lookup_sources_for_observation(fits_files=None,
@@ -33,12 +30,12 @@ def lookup_sources_for_observation(fits_files=None,
                                    ):
 
     if force_new:
-        logger.info(f'Forcing a new source file')
+        print(f'Forcing a new source file')
         with suppress(FileNotFoundError):
             os.remove(filename)
 
     try:
-        logger.info(f'Using existing source file: {filename}')
+        print(f'Using existing source file: {filename}')
         observation_sources = pd.read_csv(filename, parse_dates=True)
         observation_sources['obstime'] = pd.to_datetime(observation_sources.obstime)
 
@@ -46,7 +43,7 @@ def lookup_sources_for_observation(fits_files=None,
         if not cursor:
             cursor = get_cursor(port=5433, db_name='v702', db_user='panoptes')
 
-        logger.info(f'Looking up sources in {len(fits_files)} files')
+        print(f'Looking up sources in {len(fits_files)} files')
         observation_sources = None
 
         # Lookup the point sources for all frames
@@ -69,13 +66,13 @@ def lookup_sources_for_observation(fits_files=None,
             point_sources['file'] = os.path.basename(fn)
             point_sources['picid'] = point_sources.index
 
-            logger.info(f'Combining sources with previous observations')
+            print(f'Combining sources with previous observations')
             if observation_sources is not None:
                 if use_intersection:
-                    logger.info(f'Getting intersection of sources')
+                    print(f'Getting intersection of sources')
 
                     idx_intersection = observation_sources.index.intersection(point_sources.index)
-                    logger.info(f'Num sources in intersection: {len(idx_intersection)}')
+                    print(f'Num sources in intersection: {len(idx_intersection)}')
                     observation_sources = pd.concat([observation_sources.loc[idx_intersection],
                                                      point_sources.loc[idx_intersection]],
                                                     join='inner')
@@ -84,7 +81,7 @@ def lookup_sources_for_observation(fits_files=None,
             else:
                 observation_sources = point_sources
 
-        logger.info(f'Writing sources out to file')
+        print(f'Writing sources out to file')
         observation_sources.to_csv(filename)
 
     observation_sources.set_index(['obstime'], inplace=True)
@@ -110,9 +107,9 @@ def lookup_point_sources(fits_file,
     if catalog_match or method == 'tess_catalog':
         fits_header = fits_utils.getheader(fits_file)
         wcs = WCS(fits_header)
-        assert wcs is not None and wcs.is_celestial, logger.warning("Need a valid WCS")
+        assert wcs is not None and wcs.is_celestial, logging.warning("Need a valid WCS")
 
-    logger.info("Looking up sources for {}".format(fits_file))
+    print("Looking up sources for {}".format(fits_file))
 
     lookup_function = {
         'sextractor': _lookup_via_sextractor,
@@ -122,20 +119,23 @@ def lookup_point_sources(fits_file,
 
     # Lookup our appropriate method and call it with the fits file and kwargs
     try:
-        logger.debug("Using {} method {}".format(method, lookup_function[method]))
+        print("Using {} method {}".format(method, lookup_function[method]))
         point_sources = lookup_function[method](fits_file, force_new=force_new, **kwargs)
     except Exception as e:
-        logger.error("Problem looking up sources: {}".format(e))
-        raise Exception("Problem lookup up sources: {}".format(e))
+        print("Problem looking up sources: {}".format(e))
+        raise Exception("Problem looking up sources: {}".format(e))
 
     if catalog_match:
-        logger.debug(f'Doing catalog match against stars')
-        point_sources = get_catalog_match(point_sources, wcs, **kwargs)
-        logger.debug(f'Done with catalog match')
+        print(f'Doing catalog match against stars')
+        try:
+            point_sources = get_catalog_match(point_sources, wcs, **kwargs)
+        except Exception as e:
+            print(f'Error in catalog match: {e!r}')
+        print(f'Done with catalog match')
 
     # Change the index to the picid
-    point_sources.set_index('id', inplace=True)
-    point_sources.index.rename('picid', inplace=True)
+    # print(f'point_sources columns: {point_sources.columns}')
+    point_sources.set_index('picid', inplace=True)
 
     # Remove those with more than one entry
     counts = point_sources.x.groupby('picid').count()
@@ -156,7 +156,7 @@ def get_catalog_match(point_sources, wcs, table='full_catalog', **kwargs):
     )
 
     # Lookup stars in catalog
-    logger.debug(f'Getting catalog stars')
+    print(f'Getting catalog stars')
     catalog_stars = helpers.get_stars_from_footprint(
         wcs.calc_footprint(),
         cursor_only=False,
@@ -164,10 +164,10 @@ def get_catalog_match(point_sources, wcs, table='full_catalog', **kwargs):
         **kwargs
     )
     if catalog_stars is None:
-        logger.warn('No catalog matches, returning table without ids')
+        print('No catalog matches, returning table without ids')
         return point_sources
 
-    logger.debug(f'Matched {len(catalog_stars)} sources to catalog')
+    print(f'Found {len(catalog_stars)} catalog sources in WCS footprint')
 
     # Get coords for catalog stars
     catalog_coords = SkyCoord(
@@ -176,25 +176,29 @@ def get_catalog_match(point_sources, wcs, table='full_catalog', **kwargs):
     )
 
     # Do catalog matching
-    logger.debug(f'Doing actual match')
+    print(f'Matching catalog')
     idx, d2d, d3d = match_coordinates_sky(stars_coords, catalog_coords)
-    logger.debug(f'Got matched sources')
+    print(f'Got {len(idx)} matched sources')
+
+    # print(f'Adding catalog_stars columns: {catalog_stars.columns}')
 
     # Get some properties from the catalog
-    point_sources['id'] = catalog_stars[idx]['id']
+    point_sources['picid'] = catalog_stars.iloc[idx]['id'].values
     # point_sources['twomass'] = catalog_stars[idx]['twomass']
-    point_sources['tmag'] = catalog_stars[idx]['tmag']
-    point_sources['tmag_err'] = catalog_stars[idx]['e_tmag']
-    point_sources['vmag'] = catalog_stars[idx]['vmag']
-    point_sources['vmag_err'] = catalog_stars[idx]['e_vmag']
-    point_sources['lumclass'] = catalog_stars[idx]['lumclass']
-    point_sources['lum'] = catalog_stars[idx]['lum']
-    point_sources['lum_err'] = catalog_stars[idx]['e_lum']
+    point_sources['tmag'] = catalog_stars.iloc[idx]['tmag'].values
+    point_sources['tmag_err'] = catalog_stars.iloc[idx]['e_tmag'].values
+    point_sources['vmag'] = catalog_stars.iloc[idx]['vmag'].values
+    point_sources['vmag_err'] = catalog_stars.iloc[idx]['e_vmag'].values
+    point_sources['lumclass'] = catalog_stars.iloc[idx]['lumclass'].values
+    point_sources['lum'] = catalog_stars.iloc[idx]['lum'].values
+    point_sources['lum_err'] = catalog_stars.iloc[idx]['e_lum'].values
     # Contamination ratio
-    point_sources['contratio'] = catalog_stars[idx]['contratio']
+    point_sources['contratio'] = catalog_stars.iloc[idx]['contratio'].values
     # Number of sources in TESS aperture
-    point_sources['numcont'] = catalog_stars[idx]['numcont']
+    point_sources['numcont'] = catalog_stars.iloc[idx]['numcont'].values
     point_sources['catalog_sep_arcsec'] = d2d.to(u.arcsec).value
+
+    # print(f'point_sources.columns: {point_sources.columns}')
 
     return point_sources
 
@@ -213,10 +217,10 @@ def _lookup_via_sextractor(fits_file, sextractor_params=None, *args, **kwargs):
     if fits_file.endswith('.fz'):
         fits_file = fits_utils.funpack(fits_file)
 
-    logger.info("Point source catalog: {}".format(source_file))
+    print("Point source catalog: {}".format(source_file))
 
     if not os.path.exists(source_file) or kwargs.get('force_new', False):
-        logger.info("No catalog found, building from sextractor")
+        print("No catalog found, building from sextractor")
         # Build catalog of point sources
         sextractor = shutil.which('sextractor')
         if sextractor is None:
@@ -231,9 +235,9 @@ def _lookup_via_sextractor(fits_file, sextractor_params=None, *args, **kwargs):
                 '-CATALOG_NAME', source_file,
             ]
 
-        logger.info("Running sextractor...")
+        print("Running sextractor...")
         cmd = [sextractor, *sextractor_params, fits_file]
-        logger.info(cmd)
+        print(cmd)
 
         try:
             subprocess.run(cmd,
@@ -245,7 +249,7 @@ def _lookup_via_sextractor(fits_file, sextractor_params=None, *args, **kwargs):
             raise Exception("Problem running sextractor: {}".format(e))
 
     # Read catalog
-    logger.info('Building detected source table')
+    print('Building detected source table')
     point_sources = Table.read(source_file, format='ascii.sextractor')
 
     # Remove the point sources that sextractor has flagged
@@ -263,7 +267,7 @@ def _lookup_via_sextractor(fits_file, sextractor_params=None, *args, **kwargs):
 
     stamp_size = 60
 
-    logger.info('Trimming sources near edge')
+    print('Trimming sources near edge')
     top = point_sources['y'] > stamp_size
     bottom = point_sources['y'] < w - stamp_size
     left = point_sources['x'] > stamp_size
@@ -274,7 +278,6 @@ def _lookup_via_sextractor(fits_file, sextractor_params=None, *args, **kwargs):
         'ra', 'dec',
         'x', 'y',
         'x_image', 'y_image',
-        'background',
         'flux_best', 'fluxerr_best',
         'mag_best', 'magerr_best',
         'flux_max',
@@ -282,13 +285,13 @@ def _lookup_via_sextractor(fits_file, sextractor_params=None, *args, **kwargs):
         'flags',
     ]
 
-    logger.info(f'Returning {len(point_sources)} sources')
+    print(f'Returning {len(point_sources)} sources from sextractor')
     return point_sources
 
 
 def _lookup_via_tess_catalog(fits_file, wcs=None, *args, **kwargs):
     wcs_footprint = wcs.calc_footprint()
-    logger.info("WCS footprint: {}".format(wcs_footprint))
+    print("WCS footprint: {}".format(wcs_footprint))
 
     # Get stars from TESS catalog
     point_sources = helpers.get_stars_from_footprint(

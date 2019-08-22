@@ -14,6 +14,7 @@ import matplotlib.animation as animation
 from matplotlib import rc
 from matplotlib import pyplot as plt
 from matplotlib import gridspec
+from matplotlib import ticker
 from cycler import cycler as cy
 from matplotlib.ticker import PercentFormatter
 from matplotlib.gridspec import GridSpec
@@ -75,6 +76,7 @@ def show_stamps(psc0, psc1,
                 show_max=False,
                 show_pixel_grid=False,
                 cmap='viridis',
+                bias_level=2048,
                 fig=None,
                 **kwargs):
 
@@ -93,6 +95,7 @@ def show_stamps(psc0, psc1,
     else:
         axes = fig.axes
 
+    # Get our stamp index
     s0 = psc0[frame_idx]
     s1 = psc1[frame_idx]
 
@@ -102,11 +105,12 @@ def show_stamps(psc0, psc1,
         aperture_idx = aperture_info.index.levels[0][frame_idx]
         frame_aperture = aperture_info.loc[aperture_idx]
 
-    stretch = LinearStretch()
+    # Control the stretch
+    stretch_method = LinearStretch()
     if stretch == 'log':
-        stretch = LogStretch()
+        stretch_method = LogStretch()
 
-    norm = ImageNormalize(s0, interval=MinMaxInterval(), stretch=stretch)
+    norm = ImageNormalize(s1, vmin=bias_level, vmax=s1.max(), stretch=stretch_method)
 
     # Get axes
     ax1 = axes[0]
@@ -120,54 +124,50 @@ def show_stamps(psc0, psc1,
     # Target Colorbar
     # https://stackoverflow.com/questions/13310594/positioning-the-colorbar
     divider = make_axes_locatable(ax1)
-    cax = divider.new_vertical(size="5%", pad=0.1, pack_start=True)
+    cax = divider.new_horizontal(size="5%", pad=0.05, pack_start=False)
     fig.add_axes(cax)
-    cbar = fig.colorbar(im, cax=cax, orientation="horizontal", ticks=[s0.min(), s0.max()])    
-    cbar.ax.tick_params(labelsize=10)
-    cbar.ax.set_xticklabels([f'{s0.min():.0f}', f'{s0.max():.0f}'])
-
+    cbar = fig.colorbar(im, cax=cax, orientation="vertical")    
+    tick_locator = ticker.MaxNLocator(nbins=3)
+    cbar.locator = tick_locator
+    cbar.update_ticks()    
+    
     # Comparison
-    im = ax2.imshow(s1, cmap=get_palette(cmap=cmap))
+    im = ax2.imshow(s1, cmap=get_palette(cmap=cmap), norm=norm)
     ax2.set_title('Comparison', fontsize=16)
     
     # Comparison Colorbar
     divider = make_axes_locatable(ax2)
-    cax = divider.new_vertical(size="5%", pad=0.1, pack_start=True)
+    cax = divider.new_horizontal(size="5%", pad=0.05, pack_start=False)
     fig.add_axes(cax)
-    cbar = fig.colorbar(im, cax=cax, orientation="horizontal", ticks=[s1.min(), s1.max()])    
-    cbar.ax.tick_params(labelsize=10)
-    cbar.ax.set_xticklabels([f'{s1.min():.0f}', f'{s1.max():.0f}'])
+    cbar = fig.colorbar(im, cax=cax, orientation="vertical")    
+
+    tick_locator = ticker.MaxNLocator(nbins=3)
+    cbar.locator = tick_locator
+    cbar.update_ticks()    
 
     # Residual
-    residual = (s0 - s1) # / s0.max()
+    residual = (s0 - s1) / s1
     im = ax3.imshow(residual, cmap=get_palette(cmap=cmap), norm=ImageNormalize(
         residual, interval=MinMaxInterval(), stretch=LinearStretch()))
-    ax3.set_title(f'Residual', fontsize=16)
+    ax3.set_title(f'Residual', fontsize=16)  # Replaced below with aperture residual
 
     # Residual Colorbar
     divider = make_axes_locatable(ax3)
-    cax = divider.new_vertical(size="5%", pad=0.1, pack_start=True)
+    cax = divider.new_horizontal(size="5%", pad=0.05, pack_start=False)
     fig.add_axes(cax)
     cbar = fig.colorbar(im, 
                         cax=cax, 
-                        orientation="horizontal", 
-                        ticks=[residual.min(), 0, residual.max()]
+                        orientation="vertical", 
+                        #ticks=[residual.min(), 0, residual.max()]
                        )    
-    cbar.ax.tick_params(labelsize=10)
-    res_min = residual.min() / residual.sum()
-    res_max = residual.max() / residual.sum()
-    cbar.ax.set_xticklabels([f'{res_min:.02f}%', 0, f'{res_max:.02f}%'])
-
-    if show_pixel_grid:
-        add_pixel_grid(ax1, stamp_size, stamp_size, show_superpixel=True)
-        add_pixel_grid(ax2, stamp_size, stamp_size, show_superpixel=True)
-        add_pixel_grid(ax3, stamp_size, stamp_size, show_superpixel=True)
+    tick_locator = ticker.MaxNLocator(nbins=5)
+    cbar.locator = tick_locator
+    cbar.update_ticks()    
     
     # Show apertures
     if frame_aperture is not None:
         # Make the shapely-based aperture
         aperture_pixels = make_shapely_aperture(aperture_info, aperture_idx)
-        # Combine the aperture into one shape
         # TODO: Sometimes holes are appearing.
         full_aperture = cascaded_union([x for x in chain(*aperture_pixels.values())])
         
@@ -195,7 +195,7 @@ def show_stamps(psc0, psc1,
         aperture_mask = make_aperture_mask(aperture_info, frame_idx)
         residual_aperture = np.ma.array(data=residual, mask=aperture_mask)
         
-        residual_std = residual_aperture.std() / residual_aperture.mean()
+        residual_std = residual_aperture.std()
         ax3.set_title(f'Residual {residual_std:.02f}%', fontsize=16)
             
         if show_rgb_aperture:
@@ -208,8 +208,6 @@ def show_stamps(psc0, psc1,
             bayer[0::2, 0::2] = 1 # Green
             bayer[0::2, 1::2] = 0.1 # Blue
             im = ax4.imshow(bayer, alpha=0.17, cmap='Greys')
-            ax4.set_yticklabels([])
-            ax4.set_xticklabels([])
             
             # We want the facecolor to be transparent but not the edge
             # so we add transparency directly to facecolor rather than
@@ -227,20 +225,25 @@ def show_stamps(psc0, psc1,
                     xs, ys = b0.exterior.xy
                     bayer = np.ones((10, 10))
                     ax4.fill(xs, ys, fc=color_lookup[color], ec='k', lw=3)
-                    
+            
+            add_pixel_grid(ax4, stamp_size, stamp_size, show_superpixel=True)
+            
+            ax4.set_title(f'RGB Pattern', fontsize=16)
+            ax4.set_yticklabels([])
+            ax4.set_xticklabels([])
+            ax4.grid(False)
+            
             # Aperture colorbar
             # Add a blank colorbar so formatting is same
             # Todo keep sizes but get rid of colorbar
             divider = make_axes_locatable(ax4)
-            cax = divider.new_vertical(size="5%", pad=0.1, pack_start=True)
+            cax = divider.new_horizontal(size="5%", pad=0.05, pack_start=False)
             fig.add_axes(cax)
-            cbar = fig.colorbar(im, cax=cax, orientation="horizontal")    
-            cbar.ax.tick_params(labelsize=10)
+            cbar = fig.colorbar(im, cax=cax, orientation="vertical")    
             cbar.ax.set_xticklabels([])
             cbar.ax.set_yticklabels([])
-    
-            ax4.grid(False)
-
+            
+ 
     # Turn off tick labels
     ax1.set_yticklabels([])
     ax1.set_xticklabels([])
@@ -248,9 +251,13 @@ def show_stamps(psc0, psc1,
     ax2.set_xticklabels([])
     ax3.set_yticklabels([])
     ax3.set_xticklabels([])
+    
+    # Turn off grids
     ax1.grid(False)
     ax2.grid(False)
     ax3.grid(False)
+    
+    fig.subplots_adjust(wspace=0.3)
 
     if save_name:
         try:

@@ -3,6 +3,8 @@ astropy
 astroquery
 matplotlib
 numpy
-panoptes-utils[google]>=0.0.7
+google-cloud-storage
+psycopg2-binary
+-e git+git://github.com/panoptes/panoptes-utils.git@develop#egg=panoptes-utils
 pandas
 tqdm

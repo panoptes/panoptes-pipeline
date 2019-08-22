@@ -64,11 +64,11 @@ setup(name=NAME,
       # dependencies). You can install these using the following syntax,
       # for example:
       # $ pip install -e .[dev,test]
-      install_requires=modules['required'],
-      extras_require={
-          'testing': modules['testing'],
-          'all': list(set(itertools.chain.from_iterable(modules.values())))
-      },
+      # install_requires=modules['required'],
+      # extras_require={
+      #     'testing': modules['testing'],
+      #     # 'all': list(set(itertools.chain.from_iterable(modules.values())))
+      # },
       packages=find_namespace_packages(exclude=['tests', 'test_*']),
       classifiers=[
           'Development Status :: 3 - Alpha',

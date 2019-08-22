@@ -92,6 +92,7 @@ def lookup_point_sources(fits_file,
                          catalog_match=True,
                          method='sextractor',
                          force_new=False,
+                         max_catalog_separation=25,  # arcsecs
                          **kwargs
                          ):
     """ Extract point sources from image
@@ -137,13 +138,10 @@ def lookup_point_sources(fits_file,
     # print(f'point_sources columns: {point_sources.columns}')
     point_sources.set_index('picid', inplace=True)
 
-    # Remove those with more than one entry
-    counts = point_sources.x.groupby('picid').count()
-    single_entry = counts == 1
-    single_index = single_entry.loc[single_entry].index
-    unique_sources = point_sources.loc[single_index]
+    # Remove catalog matches that are too large
+    point_sources = point_sources.loc[point_sources.catalog_sep_arcsec < max_catalog_separation]
 
-    return unique_sources
+    return point_sources
 
 
 def get_catalog_match(point_sources, wcs, table='full_catalog', **kwargs):

@@ -112,7 +112,7 @@ def lookup_point_sources(fits_file,
         wcs = WCS(fits_header)
         assert wcs is not None and wcs.is_celestial, logger.warning("Need a valid WCS")
 
-    logger.info("Looking up sources for {}".format(fits_file))
+    print(f"Looking up sources for {fits_file}")
 
     lookup_function = {
         'sextractor': _lookup_via_sextractor,
@@ -122,16 +122,19 @@ def lookup_point_sources(fits_file,
 
     # Lookup our appropriate method and call it with the fits file and kwargs
     try:
-        logger.debug("Using {} method {}".format(method, lookup_function[method]))
+        print(f"Using {method} method for {fits_file}")
         point_sources = lookup_function[method](fits_file, force_new=force_new, **kwargs)
     except Exception as e:
-        logger.error("Problem looking up sources: {}".format(e))
-        raise Exception("Problem lookup up sources: {}".format(e))
+        print(f"Problem looking up sources: {e!r} {fits_file}")
+        raise Exception(f"Problem looking up sources: {e!r} {fits_file}")
 
     if catalog_match:
-        logger.debug(f'Doing catalog match against stars')
-        point_sources = get_catalog_match(point_sources, wcs, **kwargs)
-        logger.debug(f'Done with catalog match')
+        print(f'Doing catalog match against stars {fits_file}')
+        try:
+            point_sources = get_catalog_match(point_sources, wcs, **kwargs)
+        except Exception as e:
+            print(f'Error in catalog match: {e!r} {fits_file}')
+        print(f'Done with catalog match {fits_file}')
 
     # Change the index to the picid
     point_sources.set_index('id', inplace=True)

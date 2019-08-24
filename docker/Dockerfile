@@ -12,7 +12,17 @@ ENV CONDA_ENV $env_name
 
 USER ${USER}
 
+ARG user=root
+ARG pan_dir=/var/panoptes
+ARG env_name=panoptes-env
+
+ENV PANDIR $pan_dir
 ENV PIAA ${PANDIR}/PIAA
+
+ENV USER $user
+ENV CONDA_ENV $env_name
+
+USER ${USER}
 
 COPY . ${PIAA}
 WORKDIR ${PIAA}

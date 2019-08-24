@@ -6,19 +6,18 @@ from contextlib import suppress
 import pandas as pd
 from tqdm import tqdm
 
-from astropy.io import fits
 from astropy.table import Table
 from astropy.wcs import WCS
 from astropy import units as u
 from astropy.coordinates import SkyCoord, match_coordinates_sky
 from astropy.time import Time
-from astropy.stats import sigma_clipped_stats
 
 from panoptes.utils.images import fits as fits_utils
 from panoptes.utils.google.cloudsql import get_cursor
 from panoptes.piaa.utils import helpers
 
 import logging
+logger = logging.getLogger(__name__)
 
 
 def lookup_sources_for_observation(fits_files=None,
@@ -110,29 +109,28 @@ def lookup_point_sources(fits_file,
         wcs = WCS(fits_header)
         assert wcs is not None and wcs.is_celestial, logging.warning("Need a valid WCS")
 
-    print("Looking up sources for {}".format(fits_file))
+    print(f"Looking up sources for {fits_file}")
 
     lookup_function = {
         'sextractor': _lookup_via_sextractor,
         'tess_catalog': _lookup_via_tess_catalog,
-        'photutils': _lookup_via_photutils,
     }
 
     # Lookup our appropriate method and call it with the fits file and kwargs
     try:
-        print("Using {} method {}".format(method, lookup_function[method]))
+        print(f"Using {method} method for {fits_file}")
         point_sources = lookup_function[method](fits_file, force_new=force_new, **kwargs)
     except Exception as e:
-        print("Problem looking up sources: {}".format(e))
-        raise Exception("Problem looking up sources: {}".format(e))
+        print(f"Problem looking up sources: {e!r} {fits_file}")
+        raise Exception(f"Problem looking up sources: {e!r} {fits_file}")
 
     if catalog_match:
-        print(f'Doing catalog match against stars')
+        print(f'Doing catalog match against stars {fits_file}')
         try:
             point_sources = get_catalog_match(point_sources, wcs, **kwargs)
         except Exception as e:
-            print(f'Error in catalog match: {e!r}')
-        print(f'Done with catalog match')
+            print(f'Error in catalog match: {e!r} {fits_file}')
+        print(f'Done with catalog match {fits_file}')
 
     # Change the index to the picid
     # print(f'point_sources columns: {point_sources.columns}')
@@ -309,30 +307,3 @@ def _lookup_via_tess_catalog(fits_file, wcs=None, *args, **kwargs):
     point_sources = point_sources.to_pandas()
 
     return point_sources
-
-
-def _lookup_via_photutils(fits_file, wcs=None, *args, **kwargs):
-    data = fits.getdata(fits_file) - 2048  # Camera bias
-    mean, median, std = sigma_clipped_stats(data)
-
-    fwhm = kwargs.get('fwhm', 3.0)
-    threshold = kwargs.get('threshold', 3.0)
-
-    daofind = DAOStarFinder(fwhm=fwhm, threshold=threshold * std)
-    sources = daofind(data - median).to_pandas()
-
-    sources.rename(columns={
-        'xcentroid': 'x',
-        'ycentroid': 'y',
-    }, inplace=True)
-
-    if wcs is None:
-        header = fits_utils.getheader(fits_file)
-        wcs = WCS(header)
-
-    coords = wcs.all_pix2world(sources['x'], sources['y'], 1)
-
-    sources['ra'] = coords[0]
-    sources['dec'] = coords[1]
-
-    return sources

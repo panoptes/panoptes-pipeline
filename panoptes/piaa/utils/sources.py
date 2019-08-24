@@ -139,13 +139,16 @@ def lookup_point_sources(fits_file,
     point_sources.set_index('picid', inplace=True)
 
     # Remove catalog matches that are too large
+    print(f'Removing matches that are greater than {max_catalog_separation} arcsec from catalog.')
     point_sources = point_sources.loc[point_sources.catalog_sep_arcsec < max_catalog_separation]
+    print(f'Point sources: {len(point_sources)} {fits_file}')
 
     return point_sources
 
 
 def get_catalog_match(point_sources, wcs, table='full_catalog', **kwargs):
     assert point_sources is not None
+    print(f'Getting catalog stars')
 
     # Get coords from detected point sources
     stars_coords = SkyCoord(
@@ -154,7 +157,6 @@ def get_catalog_match(point_sources, wcs, table='full_catalog', **kwargs):
     )
 
     # Lookup stars in catalog
-    print(f'Getting catalog stars')
     catalog_stars = helpers.get_stars_from_footprint(
         wcs.calc_footprint(),
         cursor_only=False,
@@ -176,7 +178,7 @@ def get_catalog_match(point_sources, wcs, table='full_catalog', **kwargs):
     # Do catalog matching
     print(f'Matching catalog')
     idx, d2d, d3d = match_coordinates_sky(stars_coords, catalog_coords)
-    print(f'Got {len(idx)} matched sources')
+    print(f'Got {len(idx)} matched sources (includes duplicates)')
 
     # print(f'Adding catalog_stars columns: {catalog_stars.columns}')
 

@@ -11,12 +11,26 @@ from scipy.signal import savgol_filter
 
 from tqdm import tqdm
 
-from panoptes.utils.logger import get_root_logger
+import csv
+from dateutil.parser import parse as parse_date
+from astropy.io import fits
+from astropy.stats import SigmaClip
+
+from photutils import Background2D
+from photutils import MeanBackground
+from photutils import MMMBackground
+from photutils import MedianBackground
+from photutils import SExtractorBackground
+from photutils import BkgZoomInterpolator
+
+from panoptes.utils.images import fits as fits_utils
+from panoptes.utils import bayer
+
 from panoptes.piaa.utils import helpers
 from panoptes.piaa.utils import plot
 
 import logging
-logger = get_root_logger()
+logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
 
@@ -107,7 +121,7 @@ def find_similar_stars(
             if snr < snr_limit:
                 logger.info("Skipping PICID {}, low snr {:.02f}".format(source_index, snr))
                 continue
-        except KeyError as e:
+        except KeyError:
             logger.debug("No source in table: {}".format(picid))
             pass
 
@@ -230,6 +244,8 @@ def get_aperture_sums(psc0,
 
             readout = readout_noise * len(pixel_loc)
             
+            # TODO Scintillation noise?
+
             # TODO Scintillation noise?
 
             target_total_noise = np.sqrt(target_photon_noise**2 + readout**2)
@@ -378,3 +394,232 @@ def get_diff_flux(lc0,
         lc1.loc[lc1.color == color, ('flux_err')] = flux_err.filled(np.nan)
 
     return lc1, flux.mask
+
+
+def subtract_color_background(fits_fn,
+                              bucket_path=None,
+                              box_size=(84, 84),
+                              filter_size=(3, 3),
+                              camera_bias=2048,
+                              estimator='median',
+                              interpolator='zoom',
+                              sigma=5,
+                              iters=5,
+                              exclude_percentile=100
+                              ):
+    """Get the background for each color channel.
+
+    Most of the options are described in the `photutils.Background2D` page:
+
+    https://photutils.readthedocs.io/en/stable/background.html#d-background-and-noise-estimation
+
+    Args:
+        fits_fn (str): The filename of the FITS image.
+        bucket_path (None, optional): Bucket path for upload, no upload if None (default).
+        box_size (tuple, optional): The box size over which to compute the
+            2D-Background, default (84, 84).
+        filter_size (tuple, optional): The filter size for determining the median,
+            default (3, 3).
+        camera_bias (int, optional): The built-in camera bias, default 2048.
+        estimator (str, optional): The estimator object to use, default 'median'.
+        interpolator (str, optional): The interpolater object to user, default 'zoom'.
+        sigma (int, optional): The sigma on which to filter values, default 5.
+        iters (int, optional): The number of iterations to sigma filter, default 5.
+        exclude_percentile (int, optional): The percentage of the data (per channel)
+            that can be masked, default 100 (i.e. all).
+
+    Returns:
+        list: A list containing a `photutils.Background2D` for each color channel, in RGB order.
+    """
+    estimators = {
+        'sexb': SExtractorBackground,
+        'median': MedianBackground,
+        'mean': MeanBackground,
+        'mmm': MMMBackground
+    }
+    interpolators = {
+        'zoom': BkgZoomInterpolator(),
+    }
+
+    print(f"Performing background subtraction for {fits_fn}")
+    print(f"Est: {estimator} Interp: {interpolator} Box: {box_size} Sigma: {sigma} Iters: {iters}")
+
+    data = fits.getdata(fits_fn) - camera_bias
+    header = fits_utils.getheader(fits_fn)
+
+    # Got the data per color channel.
+    rgb_data = get_color_data(data)
+
+    bkg_estimator = estimators[estimator]()
+    interp = interpolators[interpolator]
+    sigma_clip = SigmaClip(sigma=sigma, maxiters=iters)
+
+    backgrounds = list()
+    for color, color_data in zip(['R', 'G', 'B'], rgb_data):
+        print(f'Performing background {color} for {fits_fn}')
+
+        bkg = Background2D(color_data, box_size, filter_size=filter_size,
+                           sigma_clip=sigma_clip, bkg_estimator=bkg_estimator,
+                           exclude_percentile=exclude_percentile,
+                           mask=color_data.mask,
+                           interpolator=interp)
+
+        # Create a masked array for the background
+        backgrounds.append(np.ma.array(data=bkg.background, mask=color_data.mask))
+        print(f"{color} Value: {bkg.background_median:.02f} RMS: {bkg.background_rms_median:.02f}")
+
+    # Create one array for the backgrounds, where any holes are filled with zeros.
+    # Add bias back to data so we can save with unsigned.
+    full_background = np.ma.array(backgrounds).sum(0).filled(0)
+
+    # Upload background file
+    if bucket_path is not None:
+        try:
+            back_fn = fits_fn.replace('.fits', '-background.fits')
+            bucket_path = bucket_path.replace('.fits', '-background.fits')
+
+            # Make FITS file with background substracted version
+            save_back_data = (full_background + camera_bias).astype(np.uint16)
+            hdu = fits.PrimaryHDU(data=save_back_data, header=header)
+            hdu.writeto(back_fn, overwrite=True)
+
+            # Pack the background
+            back_fz_fn = fits_utils.fpack(back_fn)
+            print(f'Background file saved to {back_fz_fn}')
+
+        except Exception as e:
+            print(f'Error uploading background file for {fits_fn}: {e}')
+
+    # Subtract the background
+    subtacted_data = data - full_background
+
+    # Replace FITS file with subtracted version
+    try:
+        header['BKGSUB'] = True
+        hdu = fits.PrimaryHDU(data=subtacted_data.astype(np.int16), header=header)
+        hdu.writeto(fits_fn, overwrite=True)
+    except Exception as e:
+        print(f'Error writing substracted FITS: {e}')
+
+    return fits_fn
+
+
+def get_color_data(data):
+    """Split the data according to the RGB Bayer pattern.
+
+    Args:
+        data (`numpy.array`): The image data.
+
+    Returns:
+        list: A list contained an `numpy.ma.array` for each color channel.
+    """
+    red_pixels_mask = np.ones_like(data)
+    green_pixels_mask = np.ones_like(data)
+    blue_pixels_mask = np.ones_like(data)
+
+    red_pixels_mask[1::2, 0::2] = False  # Red
+    green_pixels_mask[1::2, 1::2] = False  # Green
+    green_pixels_mask[0::2, 0::2] = False  # Green
+    blue_pixels_mask[0::2, 1::2] = False  # Blue
+
+    red_data = np.ma.array(data, mask=red_pixels_mask)
+    green_data = np.ma.array(data, mask=green_pixels_mask)
+    blue_data = np.ma.array(data, mask=blue_pixels_mask)
+
+    rgb_data = [
+        red_data,
+        green_data,
+        blue_data
+    ]
+
+    return rgb_data
+
+
+def get_postage_stamps(point_sources, fits_fn, stamp_size=10, tmp_dir='/tmp'):
+    """Extract postage stamps for each PICID in the given file.
+
+    Args:
+        point_sources (`pandas.DataFrame`): A DataFrame containing the results from `sextractor`.
+        fits_fn (str): The name of the FITS file to extract stamps from.
+        stamp_size (int, optional): The size of the stamp to extract, default 10 pixels.
+    """
+    data = fits.getdata(fits_fn)
+    header = fits.getheader(fits_fn)
+
+    print(f'Extracting {len(point_sources)} point sources from {fits_fn}')
+
+    row = point_sources.iloc[0]
+    sources_csv_fn = os.path.join(
+        tmp_dir, f'{row.unit_id}-{row.camera_id}-{row.seq_time}-{row.img_time}.csv')
+    print(f'Sources metadata will be extracted to {sources_csv_fn}')
+
+    print(f'Starting source extraction for {fits_fn}')
+    with open(sources_csv_fn, 'w') as metadata_fn:
+        writer = csv.writer(metadata_fn, quoting=csv.QUOTE_MINIMAL)
+
+        # Write out headers.
+        csv_headers = [
+            'picid',
+            'unit_id',
+            'camera_id',
+            'sequence_time',
+            'image_time',
+            'x', 'y',
+            'ra', 'dec',
+            'tmag', 'tmag_err',
+            'vmag', 'vmag_err',
+            'lumclass', 'lum', 'lum_err',
+            'contratio', 'numcont',
+            'catalog_sep_arcsec',
+            'sextractor_flags',
+            # 'sextractor_background',
+            'slice_y',
+            'slice_x',
+            'exptime',
+            'field',
+            'bucket_path',
+        ]
+        csv_headers.extend([f'pixel_{i:02d}' for i in range(stamp_size**2)])
+        writer.writerow(csv_headers)
+
+        for picid, row in point_sources.iterrows():
+            # Get the stamp for the target
+            target_slice = bayer.get_stamp_slice(
+                row.x, row.y,
+                stamp_size=(stamp_size, stamp_size),
+                ignore_superpixel=False,
+                verbose=False
+            )
+
+            # Add the target slice to metadata to preserve original location.
+            row['target_slice'] = target_slice
+            stamp = data[target_slice].flatten().tolist()
+
+            row_values = [
+                int(picid),
+                str(row.unit_id),
+                str(row.camera_id),
+                parse_date(row.seq_time),
+                parse_date(row.img_time),
+                int(row.x), int(row.y),
+                row.ra, row.dec,
+                row.tmag, row.tmag_err,
+                row.vmag, row.vmag_err,
+                row.lumclass, row.lum, row.lum_err,
+                row.contratio, row.numcont,
+                row.catalog_sep_arcsec,
+                int(row['flags']),
+                # row.background,
+                target_slice[0],
+                target_slice[1],
+                header.get('EXPTIME', -1),
+                header.get('FIELD', 'UNKNOWN'),
+                row.bucket_path,
+                *stamp
+            ]
+
+            # Write out stamp data
+            writer.writerow(row_values)
+
+    print(f'PSC file saved to {sources_csv_fn}')
+    return sources_csv_fn

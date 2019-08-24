@@ -107,7 +107,7 @@ def find_similar_stars(
             if snr < snr_limit:
                 logger.info("Skipping PICID {}, low snr {:.02f}".format(source_index, snr))
                 continue
-        except KeyError as e:
+        except KeyError:
             logger.debug("No source in table: {}".format(picid))
             pass
 
@@ -229,7 +229,7 @@ def get_aperture_sums(psc0,
             ideal_photon_noise = np.sqrt(i_sum)
 
             readout = readout_noise * len(pixel_loc)
-            
+
             # TODO Scintillation noise?
 
             target_total_noise = np.sqrt(target_photon_noise**2 + readout**2)

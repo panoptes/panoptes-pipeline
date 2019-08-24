@@ -1,10 +1,9 @@
-astroplan
 astropy
-astroquery
+google-cloud-storage
 matplotlib
 numpy
-google-cloud-storage
-psycopg2-binary
--e git+git://github.com/panoptes/panoptes-utils.git@develop#egg=panoptes-utils
 pandas
+psycopg2-binary
+shapely
 tqdm
+-e git+git://github.com/panoptes/panoptes-utils.git@develop#egg=panoptes-utils

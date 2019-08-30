@@ -133,8 +133,8 @@ def lookup_point_sources(fits_file,
         print(f'Done with catalog match {fits_file}')
 
     # Change the index to the picid
-    # print(f'point_sources columns: {point_sources.columns}')
     point_sources.set_index('picid', inplace=True)
+    print(f'Point sources: {len(point_sources)}')
 
     # Remove catalog matches that are too large
     print(f'Removing matches that are greater than {max_catalog_separation} arcsec from catalog.')

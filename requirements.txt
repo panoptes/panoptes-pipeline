@@ -3,7 +3,9 @@ google-cloud-storage
 matplotlib
 numpy
 pandas
+panoptes-utils
+photutils
 psycopg2-binary
+scipy
 shapely
 tqdm
--e git+git://github.com/panoptes/panoptes-utils.git@develop#egg=panoptes-utils

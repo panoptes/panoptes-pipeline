@@ -25,12 +25,14 @@ from photutils import BkgZoomInterpolator
 
 from panoptes.utils.images import fits as fits_utils
 from panoptes.utils import bayer
+from panoptes.utils.logger import get_root_logger
 
 from panoptes.piaa.utils import helpers
 from panoptes.piaa.utils import plot
 
 import logging
-logger = logging.getLogger(__name__)
+# logger = logging.getLogger(__name__)
+logger = get_root_logger()
 logger.setLevel(logging.DEBUG)
 
 
@@ -243,6 +245,8 @@ def get_aperture_sums(psc0,
             ideal_photon_noise = np.sqrt(i_sum)
 
             readout = readout_noise * len(pixel_loc)
+            
+            # TODO Scintillation noise?
 
             # TODO Scintillation noise?
 
@@ -439,8 +443,8 @@ def subtract_color_background(fits_fn,
         'zoom': BkgZoomInterpolator(),
     }
 
-    print(f"Performing background subtraction for {fits_fn}")
-    print(f"Est: {estimator} Interp: {interpolator} Box: {box_size} Sigma: {sigma} Iters: {iters}")
+    logger.info(f"Performing background subtraction for {fits_fn}")
+    logger.info(f"Est: {estimator} Interp: {interpolator} Box: {box_size} Sigma: {sigma} Iters: {iters}")
 
     data = fits.getdata(fits_fn) - camera_bias
     header = fits_utils.getheader(fits_fn)
@@ -454,7 +458,7 @@ def subtract_color_background(fits_fn,
 
     backgrounds = list()
     for color, color_data in zip(['R', 'G', 'B'], rgb_data):
-        print(f'Performing background {color} for {fits_fn}')
+        logger.debug(f'Performing background {color} for {fits_fn}')
 
         bkg = Background2D(color_data, box_size, filter_size=filter_size,
                            sigma_clip=sigma_clip, bkg_estimator=bkg_estimator,
@@ -464,7 +468,7 @@ def subtract_color_background(fits_fn,
 
         # Create a masked array for the background
         backgrounds.append(np.ma.array(data=bkg.background, mask=color_data.mask))
-        print(f"{color} Value: {bkg.background_median:.02f} RMS: {bkg.background_rms_median:.02f}")
+        logger.debug(f"{color} Value: {bkg.background_median:.02f} RMS: {bkg.background_rms_median:.02f}")
 
     # Create one array for the backgrounds, where any holes are filled with zeros.
     # Add bias back to data so we can save with unsigned.
@@ -483,10 +487,10 @@ def subtract_color_background(fits_fn,
 
             # Pack the background
             back_fz_fn = fits_utils.fpack(back_fn)
-            print(f'Background file saved to {back_fz_fn}')
+            logger.debug(f'Background file saved to {back_fz_fn}')
 
         except Exception as e:
-            print(f'Error uploading background file for {fits_fn}: {e}')
+            logger.debug(f'Error uploading background file for {fits_fn}: {e}')
 
     # Subtract the background
     subtacted_data = data - full_background
@@ -497,7 +501,7 @@ def subtract_color_background(fits_fn,
         hdu = fits.PrimaryHDU(data=subtacted_data.astype(np.int16), header=header)
         hdu.writeto(fits_fn, overwrite=True)
     except Exception as e:
-        print(f'Error writing substracted FITS: {e}')
+        logger.debug(f'Error writing substracted FITS: {e}')
 
     return fits_fn
 
@@ -533,7 +537,7 @@ def get_color_data(data):
     return rgb_data
 
 
-def get_postage_stamps(point_sources, fits_fn, stamp_size=10, tmp_dir='/tmp'):
+def get_postage_stamps(point_sources, fits_fn, stamp_size=10, tmp_dir=None, force=False):
     """Extract postage stamps for each PICID in the given file.
 
     Args:
@@ -541,17 +545,24 @@ def get_postage_stamps(point_sources, fits_fn, stamp_size=10, tmp_dir='/tmp'):
         fits_fn (str): The name of the FITS file to extract stamps from.
         stamp_size (int, optional): The size of the stamp to extract, default 10 pixels.
     """
+    
+    if tmp_dir is None:
+        tmp_dir = '/tmp'
+    
+    row = point_sources.iloc[0]
+    sources_csv_fn = os.path.join(tmp_dir, f'{row.unit_id}-{row.camera_id}-{row.seq_time}-{row.img_time}.csv')
+    if os.path.exists(sources_csv_fn) and force is False:
+        logger.info(f'{sources_csv_fn} already exists and force=False, returning')
+        return sources_csv_fn
+    
+    logger.debug(f'Sources metadata will be extracted to {sources_csv_fn}')
+    
     data = fits.getdata(fits_fn)
     header = fits.getheader(fits_fn)
 
-    print(f'Extracting {len(point_sources)} point sources from {fits_fn}')
+    logger.debug(f'Extracting {len(point_sources)} point sources from {fits_fn}')
 
-    row = point_sources.iloc[0]
-    sources_csv_fn = os.path.join(
-        tmp_dir, f'{row.unit_id}-{row.camera_id}-{row.seq_time}-{row.img_time}.csv')
-    print(f'Sources metadata will be extracted to {sources_csv_fn}')
-
-    print(f'Starting source extraction for {fits_fn}')
+    logger.debug(f'Starting source extraction for {fits_fn}')
     with open(sources_csv_fn, 'w') as metadata_fn:
         writer = csv.writer(metadata_fn, quoting=csv.QUOTE_MINIMAL)
 
@@ -570,6 +581,7 @@ def get_postage_stamps(point_sources, fits_fn, stamp_size=10, tmp_dir='/tmp'):
             'contratio', 'numcont',
             'catalog_sep_arcsec',
             'sextractor_flags',
+            'snr',
             # 'sextractor_background',
             'slice_y',
             'slice_x',
@@ -598,7 +610,7 @@ def get_postage_stamps(point_sources, fits_fn, stamp_size=10, tmp_dir='/tmp'):
                 str(row.unit_id),
                 str(row.camera_id),
                 parse_date(row.seq_time),
-                parse_date(row.img_time),
+                row.img_time,
                 int(row.x), int(row.y),
                 row.ra, row.dec,
                 row.tmag, row.tmag_err,
@@ -607,6 +619,7 @@ def get_postage_stamps(point_sources, fits_fn, stamp_size=10, tmp_dir='/tmp'):
                 row.contratio, row.numcont,
                 row.catalog_sep_arcsec,
                 int(row['flags']),
+                row['snr'],
                 # row.background,
                 target_slice[0],
                 target_slice[1],
@@ -619,5 +632,5 @@ def get_postage_stamps(point_sources, fits_fn, stamp_size=10, tmp_dir='/tmp'):
             # Write out stamp data
             writer.writerow(row_values)
 
-    print(f'PSC file saved to {sources_csv_fn}')
+    logger.debug(f'PSC file saved to {sources_csv_fn}')
     return sources_csv_fn

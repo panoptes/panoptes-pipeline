@@ -3,6 +3,7 @@ google-cloud-storage
 matplotlib
 numpy
 pandas
+panoptes-utils
 photutils
 psycopg2-binary
 scipy

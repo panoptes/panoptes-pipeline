@@ -4,5 +4,6 @@ matplotlib
 numpy
 pandas
 psycopg2-binary
+scipy
 shapely
 tqdm

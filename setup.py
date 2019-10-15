@@ -3,15 +3,8 @@
 
 from setuptools import setup, find_namespace_packages
 
-import itertools
-
 from configparser import ConfigParser
 from distutils.command.build_py import build_py
-
-import builtins
-builtins._PANOPTES_SETUP_ = True
-
-from panoptes.piaa.version import __version__
 
 # Get some values from the setup.cfg
 conf = ConfigParser()
@@ -28,13 +21,22 @@ NAME = metadata.get('name', 'panoptes-piaa')
 PACKAGENAME = metadata.get('package_name', 'packagename')
 URL = metadata.get('url', 'https://projectpanoptes.org')
 
-requirements = list()
-requirements_fn = 'requirements.txt'
-with open(requirements_fn) as f:
-    requirements = f.read().splitlines()
+__version__ = '0.0.3'
 
 modules = {
-    'required': requirements,
+    'required': [
+        'astropy',
+        'google-cloud-storage',
+        'matplotlib',
+        'numpy',
+        'pandas',
+        'panoptes-utils',
+        'photutils',
+        'psycopg2-binary',
+        'scipy',
+        'shapely',
+        'tqdm',
+    ],
     'testing': [
         'codecov',
         'coverage',
@@ -46,7 +48,6 @@ modules = {
         'pytest-remotedata>=0.3.1'
     ],
 }
-
 
 setup(name=NAME,
       version=__version__,
@@ -60,15 +61,7 @@ setup(name=NAME,
       python_requires='>=3.6',
       setup_requires=['pytest-runner'],
       tests_require=modules['testing'],
-      # List additional groups of dependencies here (e.g. development
-      # dependencies). You can install these using the following syntax,
-      # for example:
-      # $ pip install -e .[dev,test]
-      # install_requires=modules['required'],
-      # extras_require={
-      #     'testing': modules['testing'],
-      #     # 'all': list(set(itertools.chain.from_iterable(modules.values())))
-      # },
+      install_requires=modules['required'],
       packages=find_namespace_packages(exclude=['tests', 'test_*']),
       classifiers=[
           'Development Status :: 3 - Alpha',

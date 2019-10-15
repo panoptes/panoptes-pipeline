@@ -66,6 +66,7 @@ def get_labelled_style_cycler(cmap='viridis'):
 
     return styles
 
+
 def show_stamps(psc0, psc1,
                 frame_idx=0,
                 aperture_info=None,
@@ -81,10 +82,10 @@ def show_stamps(psc0, psc1,
                 **kwargs):
 
     nrows = 1
-    
+
     # Two stamps and residual
     ncols = 3
-    
+
     if show_rgb_aperture:
         ncols += 1
 
@@ -116,7 +117,7 @@ def show_stamps(psc0, psc1,
     ax1 = axes[0]
     ax2 = axes[1]
     ax3 = axes[2]
-    
+
     # Target stamp
     im = ax1.imshow(s0, cmap=get_palette(cmap=cmap), norm=norm)
     ax1.set_title('Target', fontsize=16)
@@ -126,24 +127,24 @@ def show_stamps(psc0, psc1,
     divider = make_axes_locatable(ax1)
     cax = divider.new_horizontal(size="5%", pad=0.05, pack_start=False)
     fig.add_axes(cax)
-    cbar = fig.colorbar(im, cax=cax, orientation="vertical")    
+    cbar = fig.colorbar(im, cax=cax, orientation="vertical")
     tick_locator = ticker.MaxNLocator(nbins=3)
     cbar.locator = tick_locator
-    cbar.update_ticks()    
-    
+    cbar.update_ticks()
+
     # Comparison
     im = ax2.imshow(s1, cmap=get_palette(cmap=cmap), norm=norm)
     ax2.set_title('Comparison', fontsize=16)
-    
+
     # Comparison Colorbar
     divider = make_axes_locatable(ax2)
     cax = divider.new_horizontal(size="5%", pad=0.05, pack_start=False)
     fig.add_axes(cax)
-    cbar = fig.colorbar(im, cax=cax, orientation="vertical")    
+    cbar = fig.colorbar(im, cax=cax, orientation="vertical")
 
     tick_locator = ticker.MaxNLocator(nbins=3)
     cbar.locator = tick_locator
-    cbar.update_ticks()    
+    cbar.update_ticks()
 
     # Residual
     residual = (s0 - s1) / s1
@@ -155,22 +156,22 @@ def show_stamps(psc0, psc1,
     divider = make_axes_locatable(ax3)
     cax = divider.new_horizontal(size="5%", pad=0.05, pack_start=False)
     fig.add_axes(cax)
-    cbar = fig.colorbar(im, 
-                        cax=cax, 
-                        orientation="vertical", 
+    cbar = fig.colorbar(im,
+                        cax=cax,
+                        orientation="vertical",
                         #ticks=[residual.min(), 0, residual.max()]
-                       )    
+                        )
     tick_locator = ticker.MaxNLocator(nbins=5)
     cbar.locator = tick_locator
-    cbar.update_ticks()    
-    
+    cbar.update_ticks()
+
     # Show apertures
     if frame_aperture is not None:
         # Make the shapely-based aperture
         aperture_pixels = make_shapely_aperture(aperture_info, aperture_idx)
         # TODO: Sometimes holes are appearing.
         full_aperture = cascaded_union([x for x in chain(*aperture_pixels.values())])
-        
+
         # Get the plotting positions.
         # If there are holes in aperture we get a MultiPolygon
         # and need to handle with a loop. Need to figure out how
@@ -194,21 +195,21 @@ def show_stamps(psc0, psc1,
         # Set the residual title with the std inside the aperture.
         aperture_mask = make_aperture_mask(aperture_info, frame_idx)
         residual_aperture = np.ma.array(data=residual, mask=aperture_mask)
-        
+
         residual_std = residual_aperture.std()
         ax3.set_title(f'Residual {residual_std:.02f}%', fontsize=16)
-            
+
         if show_rgb_aperture:
             ax4 = axes[3]
-            
+
             # Show a checkerboard for bayer (just greyscale)
             bayer = np.ones_like(s0)
-            bayer[1::2, 0::2] = 0.1 # Red
-            bayer[1::2, 1::2] = 1 # Green
-            bayer[0::2, 0::2] = 1 # Green
-            bayer[0::2, 1::2] = 0.1 # Blue
+            bayer[1::2, 0::2] = 0.1  # Red
+            bayer[1::2, 1::2] = 1  # Green
+            bayer[0::2, 0::2] = 1  # Green
+            bayer[0::2, 1::2] = 0.1  # Blue
             im = ax4.imshow(bayer, alpha=0.17, cmap='Greys')
-            
+
             # We want the facecolor to be transparent but not the edge
             # so we add transparency directly to facecolor rather than
             # using the normal `alpha` option.
@@ -217,7 +218,7 @@ def show_stamps(psc0, psc1,
                 'r': (1, 0, 0, alpha_value),
                 'g': (0, 1, 0, alpha_value),
                 'b': (0, 0, 1, alpha_value),
-            }            
+            }
 
             # Plot individual pixels of the aperture in their appropriate color.
             for color, box_list in aperture_pixels.items():
@@ -225,25 +226,24 @@ def show_stamps(psc0, psc1,
                     xs, ys = b0.exterior.xy
                     bayer = np.ones((10, 10))
                     ax4.fill(xs, ys, fc=color_lookup[color], ec='k', lw=3)
-            
+
             add_pixel_grid(ax4, stamp_size, stamp_size, show_superpixel=True)
-            
+
             ax4.set_title(f'RGB Pattern', fontsize=16)
             ax4.set_yticklabels([])
             ax4.set_xticklabels([])
             ax4.grid(False)
-            
+
             # Aperture colorbar
             # Add a blank colorbar so formatting is same
             # Todo keep sizes but get rid of colorbar
             divider = make_axes_locatable(ax4)
             cax = divider.new_horizontal(size="5%", pad=0.05, pack_start=False)
             fig.add_axes(cax)
-            cbar = fig.colorbar(im, cax=cax, orientation="vertical")    
+            cbar = fig.colorbar(im, cax=cax, orientation="vertical")
             cbar.ax.set_xticklabels([])
             cbar.ax.set_yticklabels([])
-            
- 
+
     # Turn off tick labels
     ax1.set_yticklabels([])
     ax1.set_xticklabels([])
@@ -251,12 +251,12 @@ def show_stamps(psc0, psc1,
     ax2.set_xticklabels([])
     ax3.set_yticklabels([])
     ax3.set_xticklabels([])
-    
+
     # Turn off grids
     ax1.grid(False)
     ax2.grid(False)
     ax3.grid(False)
-    
+
     fig.subplots_adjust(wspace=0.3)
 
     if save_name:
@@ -272,13 +272,12 @@ def make_aperture_mask(aperture_info, frame_idx=0, stamp_side=10):
     aperture_idx = aperture_info.index.levels[0][frame_idx]
     mask = np.ones((stamp_side, stamp_side)).astype(bool)
 
-    pixel_boxes = defaultdict(list)
     for color, i in zip('rgb', range(3)):
         for coords in aperture_info.loc[aperture_idx, color].aperture_pixels:
             x = coords[0]
             y = coords[1]
             mask[x, y] = False
-            
+
     return mask
 
 
@@ -289,9 +288,9 @@ def make_shapely_aperture(aperture_info, aperture_idx):
         for coords in aperture_info.loc[aperture_idx, color].aperture_pixels:
             x = coords[1]
             y = coords[0]
-            b0 = box(x-0.5, y-0.5, x+0.5, y+0.5)
-            pixel_boxes[color].append(b0)    
-    
+            b0 = box(x - 0.5, y - 0.5, x + 0.5, y + 0.5)
+            pixel_boxes[color].append(b0)
+
     return pixel_boxes
 
 

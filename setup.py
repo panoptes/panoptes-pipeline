@@ -6,11 +6,6 @@ from setuptools import setup, find_namespace_packages
 from configparser import ConfigParser
 from distutils.command.build_py import build_py
 
-import builtins
-builtins._PANOPTES_SETUP_ = True
-
-from panoptes.piaa.version import __version__
-
 # Get some values from the setup.cfg
 conf = ConfigParser()
 conf.read(['setup.cfg'])

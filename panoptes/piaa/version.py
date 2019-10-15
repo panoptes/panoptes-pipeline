@@ -1,6 +1,6 @@
 # this file was automatically generated
 major = 0
 minor = 0
-release = 2
+release = 3
 
-__version__ = '{}.{}.{}'.format(major, minor, release)
+__version__ = '{major}.{minor}.{release}'

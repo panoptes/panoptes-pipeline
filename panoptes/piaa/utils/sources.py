@@ -6,9 +6,6 @@ from contextlib import suppress
 import pandas as pd
 from tqdm import tqdm
 
-from collections import namedtuple
-
-from astropy.io import fits
 from astropy.table import Table
 from astropy.wcs import WCS
 from astropy import units as u
@@ -123,7 +120,6 @@ def lookup_point_sources(fits_file,
     lookup_function = {
         'sextractor': _lookup_via_sextractor,
         'tess_catalog': _lookup_via_tess_catalog,
-        'photutils': _lookup_via_photutils,
     }
 
     # Lookup our appropriate method and call it with the fits file and kwargs
@@ -313,7 +309,6 @@ def _lookup_via_sextractor(fits_file, sextractor_params=None, *args, **kwargs):
 
 def _lookup_via_tess_catalog(fits_file, wcs=None, *args, **kwargs):
     wcs_footprint = wcs.calc_footprint()
-    _print("WCS footprint: {}".format(wcs_footprint))
 
     # Get stars from TESS catalog
     point_sources = helpers.get_stars_from_footprint(

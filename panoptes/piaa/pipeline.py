@@ -245,7 +245,7 @@ def get_aperture_sums(psc0,
             ideal_photon_noise = np.sqrt(i_sum)
 
             readout = readout_noise * len(pixel_loc)
-            
+
             # TODO Scintillation noise?
 
             # TODO Scintillation noise?
@@ -398,17 +398,16 @@ def get_diff_flux(lc0,
     return lc1, flux.mask
 
 
-def subtract_color_background(fits_fn,
-                              bucket_path=None,
-                              box_size=(84, 84),
-                              filter_size=(3, 3),
-                              camera_bias=2048,
-                              estimator='median',
-                              interpolator='zoom',
-                              sigma=5,
-                              iters=5,
-                              exclude_percentile=100
-                              ):
+def get_rgb_background(fits_fn,
+                       box_size=(84, 84),
+                       filter_size=(3, 3),
+                       camera_bias=0,
+                       estimator='mean',
+                       interpolator='zoom',
+                       sigma=5,
+                       iters=5,
+                       exclude_percentile=100
+                       ):
     """Get the background for each color channel.
 
     Most of the options are described in the `photutils.Background2D` page:
@@ -417,12 +416,12 @@ def subtract_color_background(fits_fn,
 
     Args:
         fits_fn (str): The filename of the FITS image.
-        bucket_path (None, optional): Bucket path for upload, no upload if None (default).
         box_size (tuple, optional): The box size over which to compute the
             2D-Background, default (84, 84).
         filter_size (tuple, optional): The filter size for determining the median,
             default (3, 3).
-        camera_bias (int, optional): The built-in camera bias, default 2048.
+        camera_bias (int, optional): The built-in camera bias, default 0. A zero camera
+            bias means the bias will be considered as part of the background.
         estimator (str, optional): The estimator object to use, default 'median'.
         interpolator (str, optional): The interpolater object to user, default 'zoom'.
         sigma (int, optional): The sigma on which to filter values, default 5.
@@ -433,6 +432,9 @@ def subtract_color_background(fits_fn,
     Returns:
         list: A list containing a `photutils.Background2D` for each color channel, in RGB order.
     """
+    print(f"Getting background for {fits_fn}")
+    print(f"{estimator} {interpolator} {box_size} Sigma: {sigma} Iter: {iters}")
+
     estimators = {
         'sexb': SExtractorBackground,
         'median': MedianBackground,
@@ -440,70 +442,38 @@ def subtract_color_background(fits_fn,
         'mmm': MMMBackground
     }
     interpolators = {
-        'zoom': BkgZoomInterpolator(),
+        'zoom': BkgZoomInterpolator,
     }
 
-    logger.info(f"Performing background subtraction for {fits_fn}")
-    logger.info(f"Est: {estimator} Interp: {interpolator} Box: {box_size} Sigma: {sigma} Iters: {iters}")
+    bkg_estimator = estimators[estimator]()
+    interp = interpolators[interpolator]()
 
     data = fits.getdata(fits_fn) - camera_bias
-    header = fits_utils.getheader(fits_fn)
 
-    # Got the data per color channel.
+    # Get the data per color channel.
     rgb_data = get_color_data(data)
-
-    bkg_estimator = estimators[estimator]()
-    interp = interpolators[interpolator]
-    sigma_clip = SigmaClip(sigma=sigma, maxiters=iters)
 
     backgrounds = list()
     for color, color_data in zip(['R', 'G', 'B'], rgb_data):
-        logger.debug(f'Performing background {color} for {fits_fn}')
+        print(f'Performing background {color} for {fits_fn}')
 
-        bkg = Background2D(color_data, box_size, filter_size=filter_size,
-                           sigma_clip=sigma_clip, bkg_estimator=bkg_estimator,
+        bkg = Background2D(color_data,
+                           box_size,
+                           filter_size=filter_size,
+                           sigma_clip=SigmaClip(sigma=sigma, maxiters=iters),
+                           bkg_estimator=bkg_estimator,
                            exclude_percentile=exclude_percentile,
                            mask=color_data.mask,
                            interpolator=interp)
 
         # Create a masked array for the background
         backgrounds.append(np.ma.array(data=bkg.background, mask=color_data.mask))
-        logger.debug(f"{color} Value: {bkg.background_median:.02f} RMS: {bkg.background_rms_median:.02f}")
+        print(f"{color} Value: {bkg.background_median:.02f} RMS: {bkg.background_rms_median:.02f}")
 
     # Create one array for the backgrounds, where any holes are filled with zeros.
-    # Add bias back to data so we can save with unsigned.
     full_background = np.ma.array(backgrounds).sum(0).filled(0)
 
-    # Upload background file
-    if bucket_path is not None:
-        try:
-            back_fn = fits_fn.replace('.fits', '-background.fits')
-            bucket_path = bucket_path.replace('.fits', '-background.fits')
-
-            # Make FITS file with background substracted version
-            save_back_data = (full_background + camera_bias).astype(np.uint16)
-            hdu = fits.PrimaryHDU(data=save_back_data, header=header)
-            hdu.writeto(back_fn, overwrite=True)
-
-            # Pack the background
-            back_fz_fn = fits_utils.fpack(back_fn)
-            logger.debug(f'Background file saved to {back_fz_fn}')
-
-        except Exception as e:
-            logger.debug(f'Error uploading background file for {fits_fn}: {e}')
-
-    # Subtract the background
-    subtacted_data = data - full_background
-
-    # Replace FITS file with subtracted version
-    try:
-        header['BKGSUB'] = True
-        hdu = fits.PrimaryHDU(data=subtacted_data.astype(np.int16), header=header)
-        hdu.writeto(fits_fn, overwrite=True)
-    except Exception as e:
-        logger.debug(f'Error writing substracted FITS: {e}')
-
-    return fits_fn
+    return full_background
 
 
 def get_color_data(data):
@@ -545,18 +515,18 @@ def get_postage_stamps(point_sources, fits_fn, stamp_size=10, tmp_dir=None, forc
         fits_fn (str): The name of the FITS file to extract stamps from.
         stamp_size (int, optional): The size of the stamp to extract, default 10 pixels.
     """
-    
+
     if tmp_dir is None:
         tmp_dir = '/tmp'
-    
+
     row = point_sources.iloc[0]
     sources_csv_fn = os.path.join(tmp_dir, f'{row.unit_id}-{row.camera_id}-{row.seq_time}-{row.img_time}.csv')
     if os.path.exists(sources_csv_fn) and force is False:
         logger.info(f'{sources_csv_fn} already exists and force=False, returning')
         return sources_csv_fn
-    
+
     logger.debug(f'Sources metadata will be extracted to {sources_csv_fn}')
-    
+
     data = fits.getdata(fits_fn)
     header = fits.getheader(fits_fn)
 

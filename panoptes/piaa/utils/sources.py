@@ -214,7 +214,7 @@ def get_catalog_match(point_sources, wcs, table='full_catalog', **kwargs):
     return point_sources
 
 
-def _lookup_via_sextractor(fits_file, sextractor_params=None, *args, **kwargs):
+def _lookup_via_sextractor(fits_file, sextractor_params=None, trim_size=10, *args, **kwargs):
 
     def _print(msg):
         if 'logger' in kwargs:
@@ -283,19 +283,18 @@ def _lookup_via_sextractor(fits_file, sextractor_params=None, *args, **kwargs):
     # w, h = data[0].shape
     w, h = (3476, 5208)
 
-    stamp_size = 60
-
     _print('Trimming sources near edge')
-    top = point_sources['y'] > stamp_size
-    bottom = point_sources['y'] < w - stamp_size
-    left = point_sources['x'] > stamp_size
-    right = point_sources['x'] < h - stamp_size
+    top = point_sources['y'] > trim_size
+    bottom = point_sources['y'] < w - trim_size
+    left = point_sources['x'] > trim_size
+    right = point_sources['x'] < h - trim_size
 
     point_sources = point_sources[top & bottom & right & left].to_pandas()
     point_sources.columns = [
         'ra', 'dec',
         'x', 'y',
         'x_image', 'y_image',
+        'ellipticity', 'theta',
         'flux_best', 'fluxerr_best',
         'mag_best', 'magerr_best',
         'flux_max',

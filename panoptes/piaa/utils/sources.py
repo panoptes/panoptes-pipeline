@@ -178,7 +178,7 @@ def get_catalog_match(point_sources, wcs, table='full_catalog', **kwargs):
         _print('No catalog matches, returning table without ids')
         return point_sources
 
-    _print(f'Found {len(catalog_stars)} catalog sources in WCS footprint')
+    _print(f'Found {len(catalog_stars)} catalog sources in WCS footprint: {wcs.calc_footprint()}')
 
     # Get coords for catalog stars
     catalog_coords = SkyCoord(
@@ -267,7 +267,7 @@ def _lookup_via_sextractor(fits_file, sextractor_params=None, trim_size=10, *arg
             raise Exception("Problem running sextractor: {}".format(e))
 
     # Read catalog
-    _print('Building detected source table')
+    _print('Building detected source table {source_file}')
     point_sources = Table.read(source_file, format='ascii.sextractor')
 
     # Remove the point sources that sextractor has flagged
@@ -294,7 +294,7 @@ def _lookup_via_sextractor(fits_file, sextractor_params=None, trim_size=10, *arg
         'ra', 'dec',
         'x', 'y',
         'x_image', 'y_image',
-        'ellipticity', 'theta',
+        'ellipticity', 'theta_image',
         'flux_best', 'fluxerr_best',
         'mag_best', 'magerr_best',
         'flux_max',

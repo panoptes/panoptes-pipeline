@@ -21,7 +21,7 @@ NAME = metadata.get('name', 'panoptes-piaa')
 PACKAGENAME = metadata.get('package_name', 'packagename')
 URL = metadata.get('url', 'https://projectpanoptes.org')
 
-__version__ = '0.0.3'
+__version__ = '0.0.4'
 
 modules = {
     'required': [

@@ -23,7 +23,6 @@ from photutils import MedianBackground
 from photutils import SExtractorBackground
 from photutils import BkgZoomInterpolator
 
-from panoptes.utils.images import fits as fits_utils
 from panoptes.utils import bayer
 from panoptes.utils.logger import get_root_logger
 
@@ -544,12 +543,14 @@ def get_postage_stamps(point_sources, fits_fn, stamp_size=10, tmp_dir=None, forc
             'sequence_time',
             'image_time',
             'x', 'y',
+            'ellipticity', 'theta_image',
             'ra', 'dec',
             'tmag', 'tmag_err',
             'vmag', 'vmag_err',
             'lumclass', 'lum', 'lum_err',
             'contratio', 'numcont',
             'catalog_sep_arcsec',
+            'fwhm',
             'sextractor_flags',
             'snr',
             # 'sextractor_background',
@@ -582,12 +583,14 @@ def get_postage_stamps(point_sources, fits_fn, stamp_size=10, tmp_dir=None, forc
                 parse_date(row.seq_time),
                 row.img_time,
                 int(row.x), int(row.y),
+                row.ellipticity, row.theta_image,
                 row.ra, row.dec,
                 row.tmag, row.tmag_err,
                 row.vmag, row.vmag_err,
                 row.lumclass, row.lum, row.lum_err,
                 row.contratio, row.numcont,
                 row.catalog_sep_arcsec,
+                row.fwhm_image,
                 int(row['flags']),
                 row['snr'],
                 # row.background,

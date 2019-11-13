@@ -92,6 +92,7 @@ def lookup_point_sources(fits_file,
                          method='sextractor',
                          force_new=False,
                          max_catalog_separation=25,  # arcsecs
+                         verbose=False,
                          **kwargs
                          ):
     """ Extract point sources from image
@@ -107,7 +108,7 @@ def lookup_point_sources(fits_file,
     def _print(msg):
         if 'logger' in kwargs:
             logger.debug(msg)
-        else:
+        elif verbose:
             print(msg)
 
     if catalog_match or method == 'tess_catalog':

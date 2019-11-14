@@ -537,8 +537,8 @@ def get_stamp_size(df0, superpixel_padding=1):
                 rgxxxxxxxxrg
 
     Args:
-        df0 (`pandas.DataFrame`): A DataFrame that includes the `x_range` and
-            `y_range` columns
+        df0 (`pandas.DataFrame`): A DataFrame that includes the `x_max/x_min` and
+            `y_max/y_min` columns
         superpixel_padding (int, optional): The number of superpixels to place
             around the area the star traverses.
 
@@ -546,8 +546,8 @@ def get_stamp_size(df0, superpixel_padding=1):
         int: The length of one side of a square postage stamp.
     """
     # Get the movement stats
-    x_range_mean, x_range_med, x_range_std = sigma_clipped_stats(df0.x_range)
-    y_range_mean, y_range_med, y_range_std = sigma_clipped_stats(df0.y_range)
+    x_range_mean, x_range_med, x_range_std = sigma_clipped_stats(df0.x_max - df0.x_min)
+    y_range_mean, y_range_med, y_range_std = sigma_clipped_stats(df0.y_max - df0.y_min)
 
     # Get the larger of the two movements
     stamp_size = max(int(x_range_med + round(x_range_std)), int(y_range_med + round(y_range_std)))

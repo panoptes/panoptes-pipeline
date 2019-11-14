@@ -30,7 +30,6 @@ from panoptes.piaa.utils import helpers
 from panoptes.piaa.utils import plot
 
 import logging
-# logger = logging.getLogger(__name__)
 logger = get_root_logger()
 logger.setLevel(logging.DEBUG)
 
@@ -431,8 +430,8 @@ def get_rgb_background(fits_fn,
     Returns:
         list: A list containing a `photutils.Background2D` for each color channel, in RGB order.
     """
-    print(f"Getting background for {fits_fn}")
-    print(f"{estimator} {interpolator} {box_size} Sigma: {sigma} Iter: {iters}")
+    logger.info(f"Getting background for {fits_fn}")
+    logger.debug(f"{estimator} {interpolator} {box_size} Sigma: {sigma} Iter: {iters}")
 
     estimators = {
         'sexb': SExtractorBackground,
@@ -454,7 +453,7 @@ def get_rgb_background(fits_fn,
 
     backgrounds = list()
     for color, color_data in zip(['R', 'G', 'B'], rgb_data):
-        print(f'Performing background {color} for {fits_fn}')
+        logger.debug(f'Performing background {color} for {fits_fn}')
 
         bkg = Background2D(color_data,
                            box_size,
@@ -467,7 +466,7 @@ def get_rgb_background(fits_fn,
 
         # Create a masked array for the background
         backgrounds.append(np.ma.array(data=bkg.background, mask=color_data.mask))
-        print(f"{color} Value: {bkg.background_median:.02f} RMS: {bkg.background_rms_median:.02f}")
+        logger.debug(f"{color} Value: {bkg.background_median:.02f} RMS: {bkg.background_rms_median:.02f}")
 
     # Create one array for the backgrounds, where any holes are filled with zeros.
     full_background = np.ma.array(backgrounds).sum(0).filled(0)

@@ -159,6 +159,60 @@ def get_pixel_drift(coords, files):
     return x_pos, y_pos
 
 
+def get_stamp_size(df0, superpixel_padding=1):
+    """Get the stamp size for given pixel drifts
+
+    This will find the median drift length in both coordinate axes and append
+    a padding of superpixels. The returned length is for an assumed square postage
+    stamp.
+
+    Example:
+
+        Here the star coords (given by `.`) drift an average of 2 pixels in the
+        x-direction and 7 pixels in the y-direction. Since 7 is the larger of
+        the two it is used as the base, which is rounded up to the nearest number
+        of superpixels, so a stamp that is 8x8 pixels (represented by `o`). We
+        then add a default of one superpixel padding (`x`) around the stamp to
+        give 8+(2+2)=12
+
+                gbxxxxxxxxgb
+                rgxxxxxxxxrg
+                xxooo..oooxx
+                xxooo..oooxx
+                xxoo..ooooxx
+                xxooo..oooxx
+                xxooo..oooxx
+                xxooo..oooxx
+                xxooo..oooxx
+                xxooooooooxx
+                gbxxxxxxxxgb
+                rgxxxxxxxxrg
+
+    Args:
+        df0 (`pandas.DataFrame`): A DataFrame that includes the `x_range` and
+            `y_range` columns
+        superpixel_padding (int, optional): The number of superpixels to place
+            around the area the star traverses.
+
+    Returns:
+        int: The length of one side of a square postage stamp.
+    """
+    # Get the movement stats
+    x_range_mean, x_range_med, x_range_std = sigma_clipped_stats(df0.x_range)
+    y_range_mean, y_range_med, y_range_std = sigma_clipped_stats(df0.y_range)
+
+    # Get the larger of the two movements
+    stamp_size = max(int(x_range_med + round(x_range_std)), int(y_range_med + round(y_range_std)))
+
+    # Round to nearest superpixel integer
+    stamp_size = 2 * round(stamp_size / 2)
+
+    # Add padding for our superpixels (i.e. number of superpixels * pixel width of superpixel)
+    stamp_size += (superpixel_padding * 4)
+
+    return stamp_size
+
+
 def get_planet_phase(period, midpoint, obs_time):
     """Get planet phase from period and midpoint.
 

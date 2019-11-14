@@ -153,7 +153,7 @@ def lookup_point_sources(fits_file,
 
 def get_catalog_match(point_sources, wcs, table='full_catalog', verbose=False, **kwargs):
     assert point_sources is not None
-    
+
     def _print(msg):
         if 'logger' in kwargs:
             logger.debug(msg)
@@ -213,7 +213,6 @@ def get_catalog_match(point_sources, wcs, table='full_catalog', verbose=False, *
     # _print(f'point_sources.columns: {point_sources.columns}')
 
     return point_sources
-
 
 
 def _lookup_via_sextractor(fits_file, sextractor_params=None, trim_size=10, verbose=False, *args, **kwargs):

@@ -139,13 +139,15 @@ def lookup_point_sources(fits_file,
             _print(f'Error in catalog match: {e!r} {fits_file}')
         _print(f'Done with catalog match {fits_file}')
 
-    # Change the index to the picid
-    point_sources.set_index('picid', inplace=True)
-    _print(f'Point sources: {len(point_sources)}')
+        # Change the index to the picid
+        point_sources.set_index('picid', inplace=True)
+        
+        _print(f'Point sources: {len(point_sources)}')
 
-    # Remove catalog matches that are too large
-    _print(f'Removing matches that are greater than {max_catalog_separation} arcsec from catalog.')
-    point_sources = point_sources.loc[point_sources.catalog_sep_arcsec < max_catalog_separation]
+        # Remove catalog matches that are too large
+        _print(f'Removing matches that are greater than {max_catalog_separation} arcsec from catalog.')
+        point_sources = point_sources.loc[point_sources.catalog_sep_arcsec < max_catalog_separation]
+        
     _print(f'Point sources: {len(point_sources)} {fits_file}')
 
     return point_sources
@@ -215,6 +217,7 @@ def get_catalog_match(point_sources, wcs, table='full_catalog', verbose=False, *
     return point_sources
 
 
+
 def _lookup_via_sextractor(fits_file, sextractor_params=None, trim_size=10, verbose=False, *args, **kwargs):
 
     def _print(msg):
@@ -268,7 +271,7 @@ def _lookup_via_sextractor(fits_file, sextractor_params=None, trim_size=10, verb
             raise Exception("Problem running sextractor: {}".format(e))
 
     # Read catalog
-    _print('Building detected source table {source_file}')
+    _print('Building detected source table with {source_file}')
     point_sources = Table.read(source_file, format='ascii.sextractor')
 
     # Remove the point sources that sextractor has flagged

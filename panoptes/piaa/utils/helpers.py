@@ -69,6 +69,18 @@ def get_stars(
     if not cursor:
         if not cursor:
             cursor = get_cursor(port=5433, db_name='v702', db_user='panoptes')
+            
+    ra_selector = None
+    if np.abs(ra_max - ra_min) > 340:
+        ra_selector = f'(ra >= {ra_max} OR ra <= {ra_min})'
+    else:
+        ra_selector = f'(ra >= {ra_min} AND ra <= {ra_max})'
+
+    dec_selector = None
+    if np.abs(dec_max - dec_min) > 70:
+        dec_selector = f'(dec >= {dec_max} OR dec <= {dec_min})'
+    else:
+        dec_selector = f'(dec >= {dec_min} AND dec <= {dec_max})'
 
     ra_selector = None
     if np.abs(ra_max - ra_min) > 340:
@@ -98,7 +110,7 @@ def get_stars(
             {dec_selector}
         ;
     """
-
+    
     if verbose:
         print(fetch_sql)
 

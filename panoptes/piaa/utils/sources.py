@@ -92,6 +92,7 @@ def lookup_point_sources(fits_file,
                          method='sextractor',
                          force_new=False,
                          max_catalog_separation=25,  # arcsecs
+                         verbose=False,
                          **kwargs
                          ):
     """ Extract point sources from image
@@ -107,7 +108,7 @@ def lookup_point_sources(fits_file,
     def _print(msg):
         if 'logger' in kwargs:
             logger.debug(msg)
-        else:
+        elif verbose:
             print(msg)
 
     if catalog_match or method == 'tess_catalog':
@@ -125,7 +126,7 @@ def lookup_point_sources(fits_file,
     # Lookup our appropriate method and call it with the fits file and kwargs
     try:
         _print(f"Using {method} method for {fits_file}")
-        point_sources = lookup_function[method](fits_file, force_new=force_new, **kwargs)
+        point_sources = lookup_function[method](fits_file, force_new=force_new, verbose=verbose, **kwargs)
     except Exception as e:
         _print(f"Problem looking up sources: {e!r} {fits_file}")
         raise Exception(f"Problem looking up sources: {e!r} {fits_file}")
@@ -152,13 +153,13 @@ def lookup_point_sources(fits_file,
     return point_sources
 
 
-def get_catalog_match(point_sources, wcs, table='full_catalog', **kwargs):
+def get_catalog_match(point_sources, wcs, table='full_catalog', verbose=False, **kwargs):
     assert point_sources is not None
 
     def _print(msg):
         if 'logger' in kwargs:
             logger.debug(msg)
-        else:
+        elif verbose:
             print(msg)
 
     _print(f'Getting catalog stars')
@@ -216,12 +217,13 @@ def get_catalog_match(point_sources, wcs, table='full_catalog', **kwargs):
     return point_sources
 
 
-def _lookup_via_sextractor(fits_file, sextractor_params=None, trim_size=10, *args, **kwargs):
+
+def _lookup_via_sextractor(fits_file, sextractor_params=None, trim_size=10, verbose=False, *args, **kwargs):
 
     def _print(msg):
         if 'logger' in kwargs:
             logger.debug(msg)
-        else:
+        elif verbose:
             print(msg)
 
     # Write the sextractor catalog to a file

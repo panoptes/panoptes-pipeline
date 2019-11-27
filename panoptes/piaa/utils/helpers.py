@@ -26,6 +26,7 @@ def get_stars_from_footprint(wcs_footprint, **kwargs):
     """
     ra = wcs_footprint[:, 0]
     dec = wcs_footprint[:, 1]
+
     ra_min = ra.min()
     ra_max = ra.max()
     dec_min = dec.min()
@@ -81,6 +82,18 @@ def get_stars(
     else:
         dec_selector = f'(dec >= {dec_min} AND dec <= {dec_max})'
 
+    ra_selector = None
+    if np.abs(ra_max - ra_min) > 340:
+        ra_selector = f'(ra >= {ra_max} OR ra <= {ra_min})'
+    else:
+        ra_selector = f'(ra >= {ra_min} AND ra <= {ra_max})'
+
+    dec_selector = None
+    if np.abs(dec_max - dec_min) > 340:
+        dec_selector = f'(dec >= {dec_max} OR dec <= {dec_min})'
+    else:
+        dec_selector = f'(dec >= {dec_min} AND dec <= {dec_max})'
+
     fetch_sql = f"""
         SELECT
             id,
@@ -92,12 +105,15 @@ def get_stars(
         WHERE
             vmag < 13
         AND
-            {ra_selector} 
-        AND 
+            {ra_selector}
+        AND
             {dec_selector}
         ;
     """
     
+    if verbose:
+        print(fetch_sql)
+
     if verbose:
         print(fetch_sql)
 

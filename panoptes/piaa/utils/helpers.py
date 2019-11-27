@@ -114,9 +114,6 @@ def get_stars(
     if verbose:
         print(fetch_sql)
 
-    if verbose:
-        print(fetch_sql)
-
     cursor.execute(fetch_sql, (ra_min, ra_max, dec_min, dec_max))
 
     if cursor_only:

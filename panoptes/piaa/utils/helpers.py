@@ -74,21 +74,9 @@ def get_stars(
         ra_selector = f'(ra >= {ra_max} OR ra <= {ra_min})'
     else:
         ra_selector = f'(ra >= {ra_min} AND ra <= {ra_max})'
-        
-    dec_selector = None
-    if np.abs(dec_max - dec_min) > 340:
-        dec_selector = f'(dec >= {dec_max} OR dec <= {dec_min})'
-    else:
-        dec_selector = f'(dec >= {dec_min} AND dec <= {dec_max})'
-
-    ra_selector = None
-    if np.abs(ra_max - ra_min) > 340:
-        ra_selector = f'(ra >= {ra_max} OR ra <= {ra_min})'
-    else:
-        ra_selector = f'(ra >= {ra_min} AND ra <= {ra_max})'
 
     dec_selector = None
-    if np.abs(dec_max - dec_min) > 340:
+    if np.abs(dec_max - dec_min) > 70:
         dec_selector = f'(dec >= {dec_max} OR dec <= {dec_min})'
     else:
         dec_selector = f'(dec >= {dec_min} AND dec <= {dec_max})'
@@ -110,9 +98,6 @@ def get_stars(
         ;
     """
     
-    if verbose:
-        print(fetch_sql)
-
     if verbose:
         print(fetch_sql)
 

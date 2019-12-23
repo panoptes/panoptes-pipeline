@@ -15,6 +15,8 @@ import csv
 from dateutil.parser import parse as parse_date
 from astropy.io import fits
 from astropy.stats import SigmaClip
+from astropy.stats import sigma_clipped_stats
+
 
 from photutils import Background2D
 from photutils import MeanBackground
@@ -30,7 +32,6 @@ from panoptes.piaa.utils import helpers
 from panoptes.piaa.utils import plot
 
 import logging
-# logger = logging.getLogger(__name__)
 logger = get_root_logger()
 logger.setLevel(logging.DEBUG)
 
@@ -431,8 +432,8 @@ def get_rgb_background(fits_fn,
     Returns:
         list: A list containing a `photutils.Background2D` for each color channel, in RGB order.
     """
-    print(f"Getting background for {fits_fn}")
-    print(f"{estimator} {interpolator} {box_size} Sigma: {sigma} Iter: {iters}")
+    logger.info(f"Getting background for {fits_fn}")
+    logger.debug(f"{estimator} {interpolator} {box_size} Sigma: {sigma} Iter: {iters}")
 
     estimators = {
         'sexb': SExtractorBackground,
@@ -454,7 +455,7 @@ def get_rgb_background(fits_fn,
 
     backgrounds = list()
     for color, color_data in zip(['R', 'G', 'B'], rgb_data):
-        print(f'Performing background {color} for {fits_fn}')
+        logger.debug(f'Performing background {color} for {fits_fn}')
 
         bkg = Background2D(color_data,
                            box_size,
@@ -467,7 +468,7 @@ def get_rgb_background(fits_fn,
 
         # Create a masked array for the background
         backgrounds.append(np.ma.array(data=bkg.background, mask=color_data.mask))
-        print(f"{color} Value: {bkg.background_median:.02f} RMS: {bkg.background_rms_median:.02f}")
+        logger.debug(f"{color} Value: {bkg.background_median:.02f} RMS: {bkg.background_rms_median:.02f}")
 
     # Create one array for the backgrounds, where any holes are filled with zeros.
     full_background = np.ma.array(backgrounds).sum(0).filled(0)
@@ -504,6 +505,60 @@ def get_color_data(data):
     ]
 
     return rgb_data
+
+
+def get_stamp_size(df0, superpixel_padding=1):
+    """Get the stamp size for given pixel drifts
+
+    This will find the median drift length in both coordinate axes and append
+    a padding of superpixels. The returned length is for an assumed square postage
+    stamp.
+
+    Example:
+
+        Here the star coords (given by `.`) drift an average of 2 pixels in the
+        x-direction and 7 pixels in the y-direction. Since 7 is the larger of
+        the two it is used as the base, which is rounded up to the nearest number
+        of superpixels, so a stamp that is 8x8 pixels (represented by `o`). We
+        then add a default of one superpixel padding (`x`) around the stamp to
+        give 8+(2+2)=12
+
+                gbxxxxxxxxgb
+                rgxxxxxxxxrg
+                xxooo..oooxx
+                xxooo..oooxx
+                xxoo..ooooxx
+                xxooo..oooxx
+                xxooo..oooxx
+                xxooo..oooxx
+                xxooo..oooxx
+                xxooooooooxx
+                gbxxxxxxxxgb
+                rgxxxxxxxxrg
+
+    Args:
+        df0 (`pandas.DataFrame`): A DataFrame that includes the `x_max/x_min` and
+            `y_max/y_min` columns
+        superpixel_padding (int, optional): The number of superpixels to place
+            around the area the star traverses.
+
+    Returns:
+        int: The length of one side of a square postage stamp.
+    """
+    # Get the movement stats
+    x_range_mean, x_range_med, x_range_std = sigma_clipped_stats(df0.x_max - df0.x_min)
+    y_range_mean, y_range_med, y_range_std = sigma_clipped_stats(df0.y_max - df0.y_min)
+
+    # Get the larger of the two movements
+    stamp_size = max(int(x_range_med + round(x_range_std)), int(y_range_med + round(y_range_std)))
+
+    # Round to nearest superpixel integer
+    stamp_size = 2 * round(stamp_size / 2)
+
+    # Add padding for our superpixels (i.e. number of superpixels * pixel width of superpixel)
+    stamp_size += (superpixel_padding * 4)
+
+    return stamp_size
 
 
 def get_postage_stamps(point_sources, fits_fn, stamp_size=10, tmp_dir=None, force=False):

@@ -433,7 +433,7 @@ def get_rgb_background(fits_fn,
         list: A list containing a `photutils.Background2D` for each color channel, in RGB order.
     """
     logger.info(f"Getting background for {fits_fn}")
-    logger.debug(f"{estimator} {interpolator} {box_size} Sigma: {sigma} Iter: {iters}")
+    logger.debug(f"{estimator} {interpolator} {box_size} {filter_size} {camera_bias} σ={sigma} n={iters}")
 
     estimators = {
         'sexb': SExtractorBackground,

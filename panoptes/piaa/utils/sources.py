@@ -52,6 +52,11 @@ def get_stars(
         **kwargs):
     """Look star information from the TESS catalog.
 
+    NOTE:
+
+        The `get_cursor` function below has been removed. This part will need to be
+        redone with our new setup.
+
     Args:
         ra_min (float): The minimum RA in degrees.
         ra_max (float): The maximum RA in degrees.

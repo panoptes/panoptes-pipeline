@@ -14,10 +14,88 @@ from astropy.time import Time
 
 from panoptes.utils.images import fits as fits_utils
 from panoptes.utils.google.cloudsql import get_cursor
-from panoptes.piaa.utils import helpers
 
 import logging
 logger = logging.getLogger(__name__)
+
+
+def get_stars_from_footprint(wcs_footprint, **kwargs):
+    """Lookup star information from WCS footprint.
+
+    This is just a thin wrapper around `get_stars`.
+
+    Args:
+        wcs_footprint (`astropy.wcs.WCS`): The world coordinate system (WCS) for an image.
+        **kwargs: Optional keywords to pass to `get_stars`.
+
+    Returns:
+        TYPE: Description
+    """
+    ra = wcs_footprint[:, 0]
+    dec = wcs_footprint[:, 1]
+
+    return get_stars(ra.min(), ra.max(), dec.min(), dec.max(), **kwargs)
+
+
+def get_stars(
+        ra_min,
+        ra_max,
+        dec_min,
+        dec_max,
+        table='full_catalog',
+        cursor=None,
+        cursor_only=True,
+        verbose=False,
+        **kwargs):
+    """Look star information from the TESS catalog.
+
+    NOTE:
+
+        The `get_cursor` function below has been removed. This part will need to be
+        redone with our new setup.
+
+    Args:
+        ra_min (float): The minimum RA in degrees.
+        ra_max (float): The maximum RA in degrees.
+        dec_min (float): The minimum Dec in degress.
+        dec_max (float): The maximum Dec in degrees.
+        table (str, optional): TESS catalog table to use, default 'full_catalog'. Can also be 'ctl'
+        cursor_only (bool, optional): Return raw cursor, default False.
+        verbose (bool, optional): Verbose, default False.
+        **kwargs: Additional keyword arrs passed to `get_cursor`.
+
+    Returns:
+        `astropy.table.Table` or `psycopg2.cursor`: Table with star information be default,
+            otherwise the raw cursor if `cursor_only=True`.
+    """
+    if not cursor:
+        if not cursor:
+            cursor = get_cursor(port=5433, db_name='v702', db_user='panoptes')
+
+    fetch_sql = f"""
+        SELECT
+            id,
+            ra, dec,
+            tmag, e_tmag, vmag, e_vmag,
+            lumclass, lum, e_lum,
+            contratio, numcont
+        FROM {table}
+        WHERE
+            vmag < 13 AND
+            ra >= %s AND ra <= %s AND
+            dec >= %s AND dec <= %s;
+    """
+
+    cursor.execute(fetch_sql, (ra_min, ra_max, dec_min, dec_max))
+
+    if cursor_only:
+        return cursor
+
+    # Get column names
+    column_names = [desc.name for desc in cursor.description]
+
+    rows = cursor.fetchall()
+    return pd.DataFrame(rows, columns=column_names)
 
 
 def lookup_sources_for_observation(fits_files=None,
@@ -126,7 +204,8 @@ def lookup_point_sources(fits_file,
     # Lookup our appropriate method and call it with the fits file and kwargs
     try:
         _print(f"Using {method} method for {fits_file}")
-        point_sources = lookup_function[method](fits_file, force_new=force_new, verbose=verbose, **kwargs)
+        point_sources = lookup_function[method](
+            fits_file, force_new=force_new, verbose=verbose, **kwargs)
     except Exception as e:
         _print(f"Problem looking up sources: {e!r} {fits_file}")
         raise Exception(f"Problem looking up sources: {e!r} {fits_file}")
@@ -145,8 +224,10 @@ def lookup_point_sources(fits_file,
         _print(f'Point sources: {len(point_sources)}')
 
         # Remove catalog matches that are too large
-        _print(f'Removing matches that are greater than {max_catalog_separation} arcsec from catalog.')
-        point_sources = point_sources.loc[point_sources.catalog_sep_arcsec < max_catalog_separation]
+        _print(
+            f'Removing matches that are greater than {max_catalog_separation} arcsec from catalog.')
+        point_sources = point_sources.loc[point_sources.catalog_sep_arcsec <
+                                          max_catalog_separation]
 
     _print(f'Point sources: {len(point_sources)} {fits_file}')
 
@@ -171,7 +252,7 @@ def get_catalog_match(point_sources, wcs, table='full_catalog', verbose=False, *
     )
 
     # Lookup stars in catalog
-    catalog_stars = helpers.get_stars_from_footprint(
+    catalog_stars = get_stars_from_footprint(
         wcs.calc_footprint(),
         cursor_only=False,
         table=table,
@@ -217,7 +298,11 @@ def get_catalog_match(point_sources, wcs, table='full_catalog', verbose=False, *
     return point_sources
 
 
-def _lookup_via_sextractor(fits_file, sextractor_params=None, trim_size=10, verbose=False, *args, **kwargs):
+def _lookup_via_sextractor(fits_file,
+                           sextractor_params=None,
+                           trim_size=10,
+                           verbose=False,
+                           *args, **kwargs):
 
     def _print(msg):
         if 'logger' in kwargs:
@@ -313,14 +398,15 @@ def _lookup_via_tess_catalog(fits_file, wcs=None, *args, **kwargs):
     wcs_footprint = wcs.calc_footprint()
 
     # Get stars from TESS catalog
-    point_sources = helpers.get_stars_from_footprint(
+    point_sources = get_stars_from_footprint(
         wcs_footprint,
         cursor_only=False,
         table=kwargs.get('table', 'full_catalog')
     )
 
     # Get x,y coordinates
-    star_pixels = wcs.all_world2pix(point_sources['ra'], point_sources['dec'], 0)
+    star_pixels = wcs.all_world2pix(
+        point_sources['ra'], point_sources['dec'], 0)
     point_sources['x'] = star_pixels[0]
     point_sources['y'] = star_pixels[1]
 

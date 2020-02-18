@@ -26,7 +26,6 @@ from panoptes.utils import bayer
 from panoptes.utils.logger import get_root_logger
 
 import logging
-# logger = logging.getLogger(__name__)
 logger = get_root_logger()
 logger.setLevel(logging.DEBUG)
 
@@ -81,14 +80,12 @@ def find_similar_stars(
         try:
             if psc0[frame_index].sum() > 0.:
                 # Normalize and store frame
-                normalized_psc0[frame_index] = psc0[frame_index] / \
-                    psc0[frame_index].sum()
+                normalized_psc0[frame_index] = psc0[frame_index] / psc0[frame_index].sum()
 
                 # Save frame index
                 good_frames.append(frame_index)
             else:
-                logger.warning(
-                    "Sum for target frame {} is 0".format(frame_index))
+                logger.warning("Sum for target frame {} is 0".format(frame_index))
         except RuntimeWarning:
             logger.warning("Skipping frame {}".format(frame_index))
 
@@ -106,8 +103,7 @@ def find_similar_stars(
         try:
             snr = float(stamps[source_index].attrs['snr'])
             if snr < snr_limit:
-                logger.info("Skipping PICID {}, low snr {:.02f}".format(
-                    source_index, snr))
+                logger.info("Skipping PICID {}, low snr {:.02f}".format(source_index, snr))
                 continue
         except KeyError:
             logger.debug("No source in table: {}".format(picid))
@@ -123,16 +119,14 @@ def find_similar_stars(
         # Normalize
         for frame_index in good_frames:
             if psc1[frame_index].sum() > 0.:
-                normalized_psc1[frame_index] = psc1[frame_index] / \
-                    psc1[frame_index].sum()
+                normalized_psc1[frame_index] = psc1[frame_index] / psc1[frame_index].sum()
 
         # Store in the grid
         try:
             v = ((normalized_psc0 - normalized_psc1) ** 2).sum()
             data[source_index] = v
         except ValueError as e:
-            logger.info(
-                "Skipping invalid stamp for source {}: {}".format(source_index, e))
+            logger.info("Skipping invalid stamp for source {}: {}".format(source_index, e))
 
     df0 = pd.DataFrame(
         {'v': list(data.values())},
@@ -241,8 +235,7 @@ def get_rgb_background(fits_fn,
                            interpolator=interp)
 
         # Create a masked array for the background
-        backgrounds.append(np.ma.array(
-            data=bkg.background, mask=color_data.mask))
+        backgrounds.append(np.ma.array(data=bkg.background, mask=color_data.mask))
         logger.debug(
             f"{color} Value: {bkg.background_median:.02f} RMS: {bkg.background_rms_median:.02f}")
 
@@ -260,12 +253,14 @@ def get_stamp_size(df0, superpixel_padding=1):
     stamp.
 
     Example:
+
         Here the star coords (given by `.`) drift an average of 2 pixels in the
         x-direction and 7 pixels in the y-direction. Since 7 is the larger of
         the two it is used as the base, which is rounded up to the nearest number
         of superpixels, so a stamp that is 8x8 pixels (represented by `o`). We
         then add a default of one superpixel padding (`x`) around the stamp to
         give 8+(2+2)=12
+
                 gbxxxxxxxxgb
                 rgxxxxxxxxrg
                 xxooo..oooxx
@@ -278,11 +273,13 @@ def get_stamp_size(df0, superpixel_padding=1):
                 xxooooooooxx
                 gbxxxxxxxxgb
                 rgxxxxxxxxrg
+
     Args:
         df0 (`pandas.DataFrame`): A DataFrame that includes the `x_max/x_min` and
             `y_max/y_min` columns
         superpixel_padding (int, optional): The number of superpixels to place
             around the area the star traverses.
+
     Returns:
         int: The length of one side of a square postage stamp.
     """
@@ -291,8 +288,7 @@ def get_stamp_size(df0, superpixel_padding=1):
     y_range_mean, y_range_med, y_range_std = sigma_clipped_stats(df0.y_max - df0.y_min)
 
     # Get the larger of the two movements
-    stamp_size = max(int(x_range_med + round(x_range_std)),
-                     int(y_range_med + round(y_range_std)))
+    stamp_size = max(int(x_range_med + round(x_range_std)), int(y_range_med + round(y_range_std)))
 
     # Round to nearest superpixel integer
     stamp_size = 2 * round(stamp_size / 2)
@@ -311,15 +307,15 @@ def get_postage_stamps(point_sources, fits_fn, stamp_size=10, tmp_dir=None, forc
         fits_fn (str): The name of the FITS file to extract stamps from.
         stamp_size (int, optional): The size of the stamp to extract, default 10 pixels.
     """
+
     if tmp_dir is None:
         tmp_dir = '/tmp'
 
     row = point_sources.iloc[0]
-    sources_csv_fn = os.path.join(
-        tmp_dir, f'{row.unit_id}-{row.camera_id}-{row.seq_time}-{row.img_time}.csv')
+    csv_fn = f'{row.unit_id}-{row.camera_id}-{row.seq_time}-{row.img_time}.csv'
+    sources_csv_fn = os.path.join(tmp_dir, csv_fn)
     if os.path.exists(sources_csv_fn) and force is False:
-        logger.info(
-            f'{sources_csv_fn} already exists and force=False, returning')
+        logger.info(f'{sources_csv_fn} already exists and force=False, returning')
         return sources_csv_fn
 
     logger.debug(f'Sources metadata will be extracted to {sources_csv_fn}')
@@ -327,8 +323,7 @@ def get_postage_stamps(point_sources, fits_fn, stamp_size=10, tmp_dir=None, forc
     data = fits.getdata(fits_fn)
     header = fits.getheader(fits_fn)
 
-    logger.debug(
-        f'Extracting {len(point_sources)} point sources from {fits_fn}')
+    logger.debug(f'Extracting {len(point_sources)} point sources from {fits_fn}')
 
     logger.debug(f'Starting source extraction for {fits_fn}')
     with open(sources_csv_fn, 'w') as metadata_fn:

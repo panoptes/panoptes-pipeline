@@ -114,8 +114,7 @@ def lookup_sources_for_observation(fits_files=None,
     try:
         print(f'Using existing source file: {filename}')
         observation_sources = pd.read_csv(filename, parse_dates=True)
-        observation_sources['obstime'] = pd.to_datetime(
-            observation_sources.obstime)
+        observation_sources['obstime'] = pd.to_datetime(observation_sources.obstime)
 
     except FileNotFoundError:
         if not cursor:
@@ -149,16 +148,13 @@ def lookup_sources_for_observation(fits_files=None,
                 if use_intersection:
                     print(f'Getting intersection of sources')
 
-                    idx_intersection = observation_sources.index.intersection(
-                        point_sources.index)
-                    print(
-                        f'Num sources in intersection: {len(idx_intersection)}')
+                    idx_intersection = observation_sources.index.intersection(point_sources.index)
+                    print(f'Num sources in intersection: {len(idx_intersection)}')
                     observation_sources = pd.concat([observation_sources.loc[idx_intersection],
                                                      point_sources.loc[idx_intersection]],
                                                     join='inner')
                 else:
-                    observation_sources = pd.concat(
-                        [observation_sources, point_sources])
+                    observation_sources = pd.concat([observation_sources, point_sources])
             else:
                 observation_sources = point_sources
 
@@ -174,6 +170,7 @@ def lookup_point_sources(fits_file,
                          method='sextractor',
                          force_new=False,
                          max_catalog_separation=25,  # arcsecs
+                         verbose=False,
                          **kwargs
                          ):
     """ Extract point sources from image
@@ -189,14 +186,13 @@ def lookup_point_sources(fits_file,
     def _print(msg):
         if 'logger' in kwargs:
             logger.debug(msg)
-        else:
+        elif verbose:
             print(msg)
 
     if catalog_match or method == 'tess_catalog':
         fits_header = fits_utils.getheader(fits_file)
         wcs = WCS(fits_header)
-        assert wcs is not None and wcs.is_celestial, logging.warning(
-            "Need a valid WCS")
+        assert wcs is not None and wcs.is_celestial, logging.warning("Need a valid WCS")
 
     _print(f"Looking up sources for {fits_file}")
 
@@ -209,7 +205,7 @@ def lookup_point_sources(fits_file,
     try:
         _print(f"Using {method} method for {fits_file}")
         point_sources = lookup_function[method](
-            fits_file, force_new=force_new, **kwargs)
+            fits_file, force_new=force_new, verbose=verbose, **kwargs)
     except Exception as e:
         _print(f"Problem looking up sources: {e!r} {fits_file}")
         raise Exception(f"Problem looking up sources: {e!r} {fits_file}")
@@ -222,27 +218,29 @@ def lookup_point_sources(fits_file,
             _print(f'Error in catalog match: {e!r} {fits_file}')
         _print(f'Done with catalog match {fits_file}')
 
-    # Change the index to the picid
-    point_sources.set_index('picid', inplace=True)
-    _print(f'Point sources: {len(point_sources)}')
+        # Change the index to the picid
+        point_sources.set_index('picid', inplace=True)
 
-    # Remove catalog matches that are too large
-    _print(
-        f'Removing matches that are greater than {max_catalog_separation} arcsec from catalog.')
-    point_sources = point_sources.loc[point_sources.catalog_sep_arcsec <
-                                      max_catalog_separation]
+        _print(f'Point sources: {len(point_sources)}')
+
+        # Remove catalog matches that are too large
+        _print(
+            f'Removing matches that are greater than {max_catalog_separation} arcsec from catalog.')
+        point_sources = point_sources.loc[point_sources.catalog_sep_arcsec <
+                                          max_catalog_separation]
+
     _print(f'Point sources: {len(point_sources)} {fits_file}')
 
     return point_sources
 
 
-def get_catalog_match(point_sources, wcs, table='full_catalog', **kwargs):
+def get_catalog_match(point_sources, wcs, table='full_catalog', verbose=False, **kwargs):
     assert point_sources is not None
 
     def _print(msg):
         if 'logger' in kwargs:
             logger.debug(msg)
-        else:
+        elif verbose:
             print(msg)
 
     _print(f'Getting catalog stars')
@@ -264,7 +262,7 @@ def get_catalog_match(point_sources, wcs, table='full_catalog', **kwargs):
         _print('No catalog matches, returning table without ids')
         return point_sources
 
-    _print(f'Found {len(catalog_stars)} catalog sources in WCS footprint')
+    _print(f'Found {len(catalog_stars)} catalog sources in WCS footprint: {wcs.calc_footprint()}')
 
     # Get coords for catalog stars
     catalog_coords = SkyCoord(
@@ -300,12 +298,16 @@ def get_catalog_match(point_sources, wcs, table='full_catalog', **kwargs):
     return point_sources
 
 
-def _lookup_via_sextractor(fits_file, sextractor_params=None, *args, **kwargs):
+def _lookup_via_sextractor(fits_file,
+                           sextractor_params=None,
+                           trim_size=10,
+                           verbose=False,
+                           *args, **kwargs):
 
     def _print(msg):
         if 'logger' in kwargs:
             logger.debug(msg)
-        else:
+        elif verbose:
             print(msg)
 
     # Write the sextractor catalog to a file
@@ -353,7 +355,7 @@ def _lookup_via_sextractor(fits_file, sextractor_params=None, *args, **kwargs):
             raise Exception("Problem running sextractor: {}".format(e))
 
     # Read catalog
-    _print('Building detected source table')
+    _print(f'Building detected source table with {source_file}')
     point_sources = Table.read(source_file, format='ascii.sextractor')
 
     # Remove the point sources that sextractor has flagged
@@ -369,19 +371,18 @@ def _lookup_via_sextractor(fits_file, sextractor_params=None, *args, **kwargs):
     # w, h = data[0].shape
     w, h = (3476, 5208)
 
-    stamp_size = 60
-
     _print('Trimming sources near edge')
-    top = point_sources['y'] > stamp_size
-    bottom = point_sources['y'] < w - stamp_size
-    left = point_sources['x'] > stamp_size
-    right = point_sources['x'] < h - stamp_size
+    top = point_sources['y'] > trim_size
+    bottom = point_sources['y'] < w - trim_size
+    left = point_sources['x'] > trim_size
+    right = point_sources['x'] < h - trim_size
 
     point_sources = point_sources[top & bottom & right & left].to_pandas()
     point_sources.columns = [
         'ra', 'dec',
         'x', 'y',
         'x_image', 'y_image',
+        'ellipticity', 'theta_image',
         'flux_best', 'fluxerr_best',
         'mag_best', 'magerr_best',
         'flux_max',

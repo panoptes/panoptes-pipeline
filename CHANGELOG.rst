@@ -2,9 +2,11 @@
 Changelog
 =========
 
-Version 0.1
-===========
+v0.2.0
+======
 
-- Feature A added
-- FIX: nasty bug #1729 fixed
-- add your changes here!
+Changed
+^^^^^^^
+
+- Cleaning out all old PIAA items.
+- Adding back basic utils.

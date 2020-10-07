@@ -1,0 +1,8 @@
+astropy
+google-cloud-bigquery
+numpy
+pandas
+panoptes-utils>=0.2.28
+photutils
+scipy
+tqdm

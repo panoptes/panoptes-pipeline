@@ -12,17 +12,9 @@ from tqdm import tqdm
 import csv
 from dateutil.parser import parse as parse_date
 from astropy.io import fits
-from astropy.stats import SigmaClip
 from astropy.stats import sigma_clipped_stats
 
-from photutils import Background2D
-from photutils import MeanBackground
-from photutils import MMMBackground
-from photutils import MedianBackground
-from photutils import SExtractorBackground
-from photutils import BkgZoomInterpolator
-
-from panoptes.utils import bayer
+from panoptes.utils.images import bayer
 from panoptes.utils.logger import get_root_logger
 
 import logging

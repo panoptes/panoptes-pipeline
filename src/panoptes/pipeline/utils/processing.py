@@ -15,11 +15,7 @@ from astropy.io import fits
 from astropy.stats import sigma_clipped_stats
 
 from panoptes.utils.images import bayer
-from panoptes.utils.logger import get_root_logger
-
-import logging
-logger = get_root_logger()
-logger.setLevel(logging.DEBUG)
+from panoptes.utils.logging import logger
 
 
 def normalize(cube):
@@ -143,7 +139,6 @@ def get_psc(picid, stamps, frame_slice=None):
 
 
 def get_ideal_full_coeffs(stamp_collection):
-
     num_frames = stamp_collection.shape[1]
     num_pixels = stamp_collection.shape[2]
 
@@ -159,9 +154,6 @@ def get_ideal_full_psc(stamp_collection, coeffs):
     refs = stamp_collection[1:]
     created_frame = (refs.T * coeffs).sum(2).T
     return created_frame
-
-
-
 
 
 def get_stamp_size(df0, superpixel_padding=1):
@@ -273,7 +265,7 @@ def get_postage_stamps(point_sources, fits_fn, stamp_size=10, tmp_dir=None, forc
             'field',
             'bucket_path',
         ]
-        csv_headers.extend([f'pixel_{i:02d}' for i in range(stamp_size**2)])
+        csv_headers.extend([f'pixel_{i:02d}' for i in range(stamp_size ** 2)])
         writer.writerow(csv_headers)
 
         for picid, row in point_sources.iterrows():

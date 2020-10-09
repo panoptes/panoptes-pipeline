@@ -36,31 +36,29 @@ def find_similar_stars(
 
     Args:
         stamps(np.array): Collection of stamps with axes: frame, PIC, pixels
-        i(int): Index of target PIC
+        (int): Index of target PIC
     """
     logger.info("Finding similar stars for PICID {}".format(picid))
 
-    if force_new and csv_file and os.path.exist(csv_file):
+    if force_new and csv_file and os.path.exists(csv_file):
         logger.info("Forcing new file for {}".format(picid))
         with suppress(FileNotFoundError):
             os.remove(csv_file)
 
-    try:
+    with suppress(FileNotFoundError):
         df0 = pd.read_csv(csv_file, index_col=[0])
-        logger.info("Found existing csv file: {}".format(df0))
+        logger.info(f"Found existing csv file: {df0}")
         return df0
-    except Exception:
-        pass
 
     data = dict()
 
     logger.info("Getting Target PSC and subtracting bias")
     psc0 = get_psc(picid, stamps, **kwargs) - camera_bias
-    logger.info("Target PSC shape: {}".format(psc0.shape))
+    logger.info(f"Target PSC shape: {psc0.shape}")
     num_frames = psc0.shape[0]
 
     # Normalize
-    logger.info("Normalizing target for {} frames".format(num_frames))
+    logger.info(f"Normalizing target for {num_frames} frames")
     normalized_psc0 = np.zeros_like(psc0, dtype='f4')
 
     good_frames = []
@@ -214,7 +212,7 @@ def get_postage_stamps(point_sources, fits_fn, stamp_size=10, tmp_dir=None, forc
     """Extract postage stamps for each PICID in the given file.
 
     Args:
-        point_sources (`pandas.DataFrame`): A DataFrame containing the results from `sextractor`.
+        point_sources (`pandas.DataFrame`): A DataFrame containing the results from `source-extractor`.
         fits_fn (str): The name of the FITS file to extract stamps from.
         stamp_size (int, optional): The size of the stamp to extract, default 10 pixels.
     """
@@ -256,9 +254,9 @@ def get_postage_stamps(point_sources, fits_fn, stamp_size=10, tmp_dir=None, forc
             'contratio', 'numcont',
             'catalog_sep_arcsec',
             'fwhm',
-            'sextractor_flags',
+            'measured_flags',
             'snr',
-            # 'sextractor_background',
+            # 'measured_background',
             'slice_y',
             'slice_x',
             'exptime',
@@ -273,8 +271,7 @@ def get_postage_stamps(point_sources, fits_fn, stamp_size=10, tmp_dir=None, forc
             target_slice = bayer.get_stamp_slice(
                 row.x, row.y,
                 stamp_size=(stamp_size, stamp_size),
-                ignore_superpixel=False,
-                verbose=False
+                ignore_superpixel=False
             )
 
             # Add the target slice to metadata to preserve original location.

@@ -96,7 +96,7 @@ def get_stars(
 
 def lookup_point_sources(fits_file,
                          catalog_match=False,
-                         method='sextractor',
+                         method='source-extractor',
                          force_new=False,
                          wcs=None,
                          **kwargs
@@ -104,30 +104,30 @@ def lookup_point_sources(fits_file,
     """Extract point sources from image.
 
     This function will extract the sources from the image using the given method
-    (currently only `sextractor`). This is returned as a `pandas.DataFrame`. If
+    (currently only `source-extractor`). This is returned as a `pandas.DataFrame`. If
     `catalog_match=True` then the resulting sources will be matched against the
     PANOPTES catalog, which is a filtered version of the TESS Input Catalog. See
     `get_catalog_match` for details and column list.
 
     Sextractor will return the following columns:
 
-    * ALPHA_J2000   ->  sextractor_ra
-    * DELTA_J2000   ->  sextractor_dec
-    * XPEAK_IMAGE   ->  sextractor_x
-    * YPEAK_IMAGE   ->  sextractor_y
-    * X_IMAGE       ->  sextractor_x_image
-    * Y_IMAGE       ->  sextractor_y_image
-    * ELLIPTICITY   ->  sextractor_ellipticity
-    * THETA_IMAGE   ->  sextractor_theta_image
-    * FLUX_BEST     ->  sextractor_flux_best
-    * FLUXERR_BEST  ->  sextractor_fluxerr_best
-    * FLUX_MAX      ->  sextractor_flux_max
-    * FLUX_GROWTH   ->  sextractor_flux_growth
-    * MAG_BEST      ->  sextractor_mag_best
-    * MAGERR_BEST   ->  sextractor_magerr_best
-    * FWHM_IMAGE    ->  sextractor_fwhm_image
-    * BACKGROUND    ->  sextractor_background
-    * FLAGS         ->  sextractor_flags
+    * ALPHA_J2000   ->  measured_ra
+    * DELTA_J2000   ->  measured_dec
+    * XPEAK_IMAGE   ->  measured_x
+    * YPEAK_IMAGE   ->  measured_y
+    * X_IMAGE       ->  measured_x_image
+    * Y_IMAGE       ->  measured_y_image
+    * ELLIPTICITY   ->  measured_ellipticity
+    * THETA_IMAGE   ->  measured_theta_image
+    * FLUX_BEST     ->  measured_flux_best
+    * FLUXERR_BEST  ->  measured_fluxerr_best
+    * FLUX_MAX      ->  measured_flux_max
+    * FLUX_GROWTH   ->  measured_flux_growth
+    * MAG_BEST      ->  measured_mag_best
+    * MAGERR_BEST   ->  measured_magerr_best
+    * FWHM_IMAGE    ->  measured_fwhm_image
+    * BACKGROUND    ->  measured_background
+    * FLAGS         ->  measured_flags
 
     .. note::
 
@@ -138,7 +138,7 @@ def lookup_point_sources(fits_file,
 
     >>> point_sources = lookup_point_sources(fits_fn)
     >>> point_sources.describe()
-           sextractor_ra  sextractor_dec  ...  sextractor_background  sextractor_flags
+             measured_ra    measured_dec  ...    measured_background    measured_flags
     count     473.000000      473.000000  ...             473.000000        473.000000
     mean      303.284052       46.011116  ...            2218.525156          1.143763
     std         0.810261        0.582264  ...               4.545206          3.130030
@@ -157,7 +157,7 @@ def lookup_point_sources(fits_file,
             looking up sources. Default False. If True, the `args` and `kwargs` will
             be passed to `get_catalog_match`.
         method (str, optional): Method for looking up sources, default (and currently
-            only) is `sextractor`.
+            only) is `source-extractor`.
         wcs (`astropy.wcs.WCS`|None): A WCS file to use. Default is `None`, in which
             the WCS comes from the `fits_file`.
         force_new (bool, optional): Force a new catalog to be created,
@@ -180,7 +180,7 @@ def lookup_point_sources(fits_file,
 
     # Only one supported method for now.
     lookup_function = {
-        'sextractor': _lookup_via_sextractor,
+        'source-extractor': extract_sources,
     }
 
     # Lookup our appropriate method and call it with the fits file and kwargs
@@ -207,8 +207,8 @@ def get_catalog_match(point_sources,
                       catalog_stars=None,
                       max_separation_arcsec=None,
                       return_unmatched=False,
-                      ra_column='sextractor_ra',
-                      dec_column='sextractor_dec',
+                      ra_column='measured_ra',
+                      dec_column='measured_dec',
                       origin=1,
                       **kwargs):
     """Match the point source positions to the catalog.
@@ -218,7 +218,7 @@ def get_catalog_match(point_sources,
     [v8](https://heasarc.gsfc.nasa.gov/docs/tess/tess-input-catalog-version-8-tic-8-is-now-available-at-mast.html).
 
     The catalog is stored in a BigQuery dataset. This function will match the
-    `sextractor_ra` and `sextractor_dec` columns (as output from `lookup_point_sources`)
+    `measured_ra` and `measured_dec` columns (as output from `lookup_point_sources`)
     to the `ra` and `dec` colums of the catalog.  The actual lookup is done via
     the `get_stars_from_footprint` function.
 
@@ -232,10 +232,10 @@ def get_catalog_match(point_sources,
         * catalog_dec
         * catalog_ra
         * catalog_sep_arcsec
-        * catalog_sextractor_diff_arcsec_dec
-        * catalog_sextractor_diff_arcsec_ra
-        * catalog_sextractor_diff_x
-        * catalog_sextractor_diff_y
+        * catalog_measured_diff_arcsec_dec
+        * catalog_measured_diff_arcsec_ra
+        * catalog_measured_diff_x
+        * catalog_measured_diff_y
         * catalog_vmag
         * catalog_vmag_err
         * catalog_x
@@ -247,7 +247,7 @@ def get_catalog_match(point_sources,
 
         Note all fields are expected to have values. In particular, the `gaia`
         and `twomass` fields are often mutually exclusive.  If `return_unmatched=True`
-        (see below) then all values related to matching will be `NA` for all `sextractor`
+        (see below) then all values related to matching will be `NA` for all `source-extractor`
         related columns.
 
     By default only the sources that are successfully matched by the catalog are returned.
@@ -264,7 +264,7 @@ def get_catalog_match(point_sources,
         resulting dataframe can be saved locally with `point_sources.to_csv(path_name)`.
 
     If a `max_separation_arcsec` is given then results will be filtered if their
-    match with `sextractor` was larger than the number given. Typical values would
+    match with `source-extractor` was larger than the number given. Typical values would
     be in the range of 20-30 arcsecs, which corresponds to 2-3 pixels.
 
     Returns:
@@ -279,8 +279,8 @@ def get_catalog_match(point_sources,
             Either the `wcs` or the `catalog_stars` must be supplied.
         catalog_stars (`pandas.DataFrame`, optional): If provided, the catalog match
             will be performed against this set of stars rather than performing a lookup.
-        ra_column (str): The column name to use for the RA coordinates, default `sextractor_ra`.
-        dec_column (str): The column name to use for the Dec coordinates, default `sextractor_dec`.
+        ra_column (str): The column name to use for the RA coordinates, default `measured_ra`.
+        dec_column (str): The column name to use for the Dec coordinates, default `measured_dec`.
         origin (int, optional): The origin for catalog matching, either 0 or 1 (default).
         max_separation_arcsec (float|None, optional): If not None, sources more
             than this many arcsecs from catalog will be filtered.
@@ -361,43 +361,43 @@ def get_catalog_match(point_sources,
     return point_sources
 
 
-def _lookup_via_sextractor(fits_file,
-                           sextractor_params=None,
-                           trim_size=10,
-                           force_new=False,
-                           img_dimensions=(3476, 5208),
-                           *args, **kwargs):
-    # Write the sextractor catalog to a file
+def extract_sources(fits_file,
+                    measured_params=None,
+                    trim_size=10,
+                    force_new=False,
+                    img_dimensions=(3476, 5208),
+                    *args, **kwargs):
+    # Write the source-extractor catalog to a file
     base_dir = os.path.dirname(fits_file)
-    source_dir = os.path.join(base_dir, 'sextractor')
+    source_dir = os.path.join(base_dir, 'source-extractor')
     os.makedirs(source_dir, exist_ok=True)
 
     img_id = os.path.splitext(os.path.basename(fits_file))[0]
 
     source_file = os.path.join(source_dir, f'point_sources_{img_id}.cat')
 
-    # sextractor can't handle compressed data
-    if fits_file.endswith('.fz'):
-        fits_file = fits_utils.funpack(fits_file)
-
     logger.debug(f"Point source catalog: {source_file}")
 
     if not os.path.exists(source_file) or force_new:
-        logger.debug("No catalog found, building from sextractor")
+        logger.debug("No catalog found, building from source-extractor")
         # Build catalog of point sources
-        sextractor = shutil.which('sextractor') or shutil.which('source-extractor')
+        source_extractor = shutil.which('sextractor') or shutil.which('source-extractor')
 
-        assert sextractor is not None, 'sextractor not found'
+        assert source_extractor is not None, 'source-extractor not found'
 
-        if sextractor_params is None:
-            resources_dir = os.path.expandvars('$PANDIR/panoptes-utils/resources/sextractor')
-            sextractor_params = [
+        if measured_params is None:
+            resources_dir = os.path.expandvars('$PANDIR/panoptes-utils/resources/source-extractor')
+            measured_params = [
                 '-c', os.path.join(resources_dir, 'panoptes.sex'),
                 '-CATALOG_NAME', source_file,
             ]
 
-        logger.debug("Running sextractor...")
-        cmd = [sextractor, *sextractor_params, fits_file]
+        # source-extractor can't handle compressed data.
+        if fits_file.endswith('.fz'):
+            fits_file = fits_utils.funpack(fits_file)
+
+        logger.debug("Running source-extractor...")
+        cmd = [source_extractor, *measured_params, fits_file]
         logger.debug(cmd)
 
         try:
@@ -407,7 +407,7 @@ def _lookup_via_sextractor(fits_file,
                            timeout=60,
                            check=True)
         except subprocess.CalledProcessError as e:
-            raise Exception(f"Problem running sextractor: {e.stderr}\n\n{e.stdout}")
+            raise Exception(f"Problem running source-extractor: {e.stderr}\n\n{e.stdout}")
 
     # Read catalog
     logger.debug(f'Building detected source table with {source_file}')
@@ -431,24 +431,24 @@ def _lookup_via_sextractor(fits_file,
 
     # Add column names.
     point_sources.columns = [
-        'sextractor_ra',
-        'sextractor_dec',
-        'sextractor_x_int',
-        'sextractor_y_int',
-        'sextractor_x',
-        'sextractor_y',
-        'sextractor_ellipticity',
-        'sextractor_theta_image',
-        'sextractor_flux_best',
-        'sextractor_fluxerr_best',
-        'sextractor_flux_max',
-        'sextractor_flux_growth',
-        'sextractor_mag_best',
-        'sextractor_magerr_best',
-        'sextractor_fwhm_image',
-        'sextractor_background',
-        'sextractor_flags',
+        'measured_ra',
+        'measured_dec',
+        'measured_x_int',
+        'measured_y_int',
+        'measured_x',
+        'measured_y',
+        'measured_ellipticity',
+        'measured_theta_image',
+        'measured_flux_best',
+        'measured_fluxerr_best',
+        'measured_flux_max',
+        'measured_flux_growth',
+        'measured_mag_best',
+        'measured_magerr_best',
+        'measured_fwhm_image',
+        'measured_background',
+        'measured_flags',
     ]
 
-    logger.debug(f'Returning {len(point_sources)} sources from sextractor')
+    logger.debug(f'Returning {len(point_sources)} sources from source-extractor')
     return point_sources.convert_dtypes()

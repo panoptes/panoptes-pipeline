@@ -250,13 +250,15 @@ def get_postage_stamps(point_sources,
             'unit_id',
             'camera_id',
             'time',
-            'slice_y',
-            'slice_x',
+            'slice_y_start',
+            'slice_y_stop',
+            'slice_x_start',
+            'slice_x_stop',
         ]
         csv_headers.extend([f'pixel_{i:02d}' for i in range(stamp_size ** 2)])
         writer.writerow(csv_headers)
 
-        for picid, row in point_sources.iterrows():
+        for idx, row in point_sources.iterrows():
             # Get the stamp for the target
             target_slice = bayer.get_stamp_slice(
                 row[x_column], row[y_column],
@@ -269,12 +271,14 @@ def get_postage_stamps(point_sources,
             stamp = data[target_slice].flatten().tolist()
 
             row_values = [
-                int(picid),
+                int(row.picid),
                 str(row.unit_id),
                 str(row.camera_id),
-                parse_date(row.time),
-                target_slice[0],
-                target_slice[1],
+                row.time,
+                target_slice[0].start,
+                target_slice[0].stop,
+                target_slice[1].start,
+                target_slice[1].stop,
                 *stamp
             ]
 

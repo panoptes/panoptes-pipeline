@@ -5,17 +5,10 @@ import subprocess
 from astropy import units as u
 from astropy.coordinates import SkyCoord, match_coordinates_sky
 from astropy.table import Table
-from google.auth.credentials import AnonymousCredentials
 from google.cloud import bigquery
+
 from panoptes.utils.images import fits as fits_utils
 from panoptes.utils.logging import logger
-
-
-def _get_bq_client(project_id='panoptes-exp', credentials=AnonymousCredentials()):
-    logger.debug(f'Getting new bigquery client')
-
-    bq_client = bigquery.Client(project=project_id, credentials=credentials)
-    return bq_client
 
 
 def get_stars_from_wcs(wcs, **kwargs):
@@ -47,6 +40,7 @@ def get_stars(
         vmag_min=4,
         vmag_max=17,
         bq_client=None,
+        return_dataframe=True,
         **kwargs):
     """Look star information from the TESS catalog.
 
@@ -81,17 +75,18 @@ def get_stars(
     """
 
     if bq_client is None:
-        bq_client = _get_bq_client()
+        bq_client = bigquery.Client()
 
+    results = None
     try:
-        df = bq_client.query(sql).to_dataframe()
-        logger.debug(f'Found {len(df)} in Vmag=[{vmag_min}, {vmag_max}) and bounds=[{shape}]')
-
+        results = bq_client.query(sql)
+        if return_dataframe:
+            results = results.to_dataframe()
+            logger.debug(f'Found {len(results)} in Vmag=[{vmag_min}, {vmag_max}) and bounds=[{shape}]')
     except Exception as e:
         logger.warning(e)
-        df = None
 
-    return df
+    return results
 
 
 def lookup_point_sources(fits_file,
@@ -109,7 +104,7 @@ def lookup_point_sources(fits_file,
     PANOPTES catalog, which is a filtered version of the TESS Input Catalog. See
     `get_catalog_match` for details and column list.
 
-    Sextractor will return the following columns:
+    `source-extractor` will return the following columns:
 
     * ALPHA_J2000   ->  measured_ra
     * DELTA_J2000   ->  measured_dec
@@ -191,7 +186,7 @@ def lookup_point_sources(fits_file,
         raise Exception(f"Problem looking up sources: {e!r} {fits_file}")
 
     if catalog_match:
-        logger.debug(f'Doing catalog match against stars {fits_file}')
+        logger.debug(f'Doing catalog match against stars for {fits_file=}')
         try:
             point_sources = get_catalog_match(point_sources, wcs=wcs, **kwargs)
             logger.debug(f'Done with catalog match for {fits_file}')
@@ -219,7 +214,7 @@ def get_catalog_match(point_sources,
 
     The catalog is stored in a BigQuery dataset. This function will match the
     `measured_ra` and `measured_dec` columns (as output from `lookup_point_sources`)
-    to the `ra` and `dec` colums of the catalog.  The actual lookup is done via
+    to the `ra` and `dec` columns of the catalog.  The actual lookup is done via
     the `get_stars_from_footprint` function.
 
     The columns are added to `point_sources`, which is then returned to the user.
@@ -334,7 +329,7 @@ def get_catalog_match(point_sources,
 
     # Reorder columns so id cols are first then alpha.
     new_column_order = sorted(list(point_sources.columns))
-    id_cols = ['picid', 'gaia', 'twomass', 'status']
+    id_cols = ['picid', 'unit_id', 'camera_id', 'time', 'gaia', 'twomass', 'status']
     for i, col in enumerate(id_cols):
         new_column_order.remove(col)
         new_column_order.insert(i, col)
@@ -366,15 +361,16 @@ def extract_sources(fits_file,
                     trim_size=10,
                     force_new=False,
                     img_dimensions=(3476, 5208),
+                    extractor_config='resources/source-extractor/panoptes.conf',
                     *args, **kwargs):
     # Write the source-extractor catalog to a file
     base_dir = os.path.dirname(fits_file)
     source_dir = os.path.join(base_dir, 'source-extractor')
     os.makedirs(source_dir, exist_ok=True)
 
-    img_id = os.path.splitext(os.path.basename(fits_file))[0]
+    image_time = os.path.splitext(os.path.basename(fits_file))[0]
 
-    source_file = os.path.join(source_dir, f'point_sources_{img_id}.cat')
+    source_file = os.path.join(source_dir, f'point_sources_{image_time}.cat')
 
     logger.debug(f"Point source catalog: {source_file}")
 
@@ -386,9 +382,12 @@ def extract_sources(fits_file,
         assert source_extractor is not None, 'source-extractor not found'
 
         if measured_params is None:
-            resources_dir = os.path.expandvars('$PANDIR/panoptes-utils/resources/source-extractor')
+            # If relative path, assume from project root.
+            if not extractor_config.startswith('/'):
+                extractor_config = os.path.expandvars(f'$PANDIR/panoptes-pipeline/{extractor_config}')
+
             measured_params = [
-                '-c', os.path.join(resources_dir, 'panoptes.sex'),
+                '-c', extractor_config,
                 '-CATALOG_NAME', source_file,
             ]
 
@@ -429,7 +428,7 @@ def extract_sources(fits_file,
     # Do the trim an convert to pandas.
     point_sources = point_sources[top & bottom & right & left].to_pandas()
 
-    # Add column names.
+    # Rename all the columns at once.
     point_sources.columns = [
         'measured_ra',
         'measured_dec',
@@ -449,6 +448,12 @@ def extract_sources(fits_file,
         'measured_background',
         'measured_flags',
     ]
+
+    # Add the image id to the front
+    unit_id, camera_id, obstime = fits_utils.getval(fits_file, 'IMAGEID').split('_')
+    point_sources['unit_id'] = unit_id
+    point_sources['camera_id'] = camera_id
+    point_sources['time'] = obstime
 
     logger.debug(f'Returning {len(point_sources)} sources from source-extractor')
     return point_sources.convert_dtypes()

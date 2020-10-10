@@ -38,27 +38,27 @@ def find_similar_stars(
         stamps(np.array): Collection of stamps with axes: frame, PIC, pixels
         (int): Index of target PIC
     """
-    logger.info("Finding similar stars for PICID {}".format(picid))
+    logger.info(f"Finding similar stars for PICID {picid}")
 
     if force_new and csv_file and os.path.exists(csv_file):
-        logger.info("Forcing new file for {}".format(picid))
+        logger.debug(f"Forcing new file for {picid}")
         with suppress(FileNotFoundError):
             os.remove(csv_file)
 
     with suppress(FileNotFoundError):
         df0 = pd.read_csv(csv_file, index_col=[0])
-        logger.info(f"Found existing csv file: {df0}")
+        logger.debug(f"Found existing csv file: {df0}")
         return df0
 
     data = dict()
 
-    logger.info("Getting Target PSC and subtracting bias")
+    logger.debug("Getting Target PSC and subtracting bias")
     psc0 = get_psc(picid, stamps, **kwargs) - camera_bias
-    logger.info(f"Target PSC shape: {psc0.shape}")
+    logger.debug(f"Target PSC shape: {psc0.shape}")
     num_frames = psc0.shape[0]
 
     # Normalize
-    logger.info(f"Normalizing target for {num_frames} frames")
+    logger.debug(f"Normalizing target for {num_frames} frames")
     normalized_psc0 = np.zeros_like(psc0, dtype='f4')
 
     good_frames = []
@@ -71,7 +71,7 @@ def find_similar_stars(
                 # Save frame index
                 good_frames.append(frame_index)
             else:
-                logger.warning("Sum for target frame {} is 0".format(frame_index))
+                logger.warning(f"Sum for target frame {frame_index} is 0")
         except RuntimeWarning:
             logger.warning("Skipping frame {}".format(frame_index))
 
@@ -89,7 +89,7 @@ def find_similar_stars(
         try:
             snr = float(stamps[source_index].attrs['snr'])
             if snr < snr_limit:
-                logger.info("Skipping PICID {}, low snr {:.02f}".format(source_index, snr))
+                logger.debug("Skipping PICID {}, low snr {:.02f}".format(source_index, snr))
                 continue
         except KeyError:
             logger.debug("No source in table: {}".format(picid))
@@ -112,7 +112,7 @@ def find_similar_stars(
             v = ((normalized_psc0 - normalized_psc1) ** 2).sum()
             data[source_index] = v
         except ValueError as e:
-            logger.info("Skipping invalid stamp for source {}: {}".format(source_index, e))
+            logger.debug("Skipping invalid stamp for source {}: {}".format(source_index, e))
 
     df0 = pd.DataFrame(
         {'v': list(data.values())},
@@ -224,7 +224,7 @@ def get_postage_stamps(point_sources, fits_fn, stamp_size=10, tmp_dir=None, forc
     csv_fn = f'{row.unit_id}-{row.camera_id}-{row.seq_time}-{row.img_time}.csv'
     sources_csv_fn = os.path.join(tmp_dir, csv_fn)
     if os.path.exists(sources_csv_fn) and force is False:
-        logger.info(f'{sources_csv_fn} already exists and force=False, returning')
+        logger.debug(f'{sources_csv_fn} already exists and force=False, returning')
         return sources_csv_fn
 
     logger.debug(f'Sources metadata will be extracted to {sources_csv_fn}')

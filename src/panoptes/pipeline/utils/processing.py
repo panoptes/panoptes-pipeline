@@ -208,34 +208,40 @@ def get_stamp_size(df0, superpixel_padding=1):
     return stamp_size
 
 
-def get_postage_stamps(point_sources, fits_fn, stamp_size=10, tmp_dir=None, force=False):
+def get_postage_stamps(point_sources,
+                       fits_fn,
+                       output_fn=None,
+                       stamp_size=10,
+                       x_column='measured_x',
+                       y_column='measured_y',
+                       force=False):
     """Extract postage stamps for each PICID in the given file.
 
     Args:
         point_sources (`pandas.DataFrame`): A DataFrame containing the results from `source-extractor`.
         fits_fn (str): The name of the FITS file to extract stamps from.
+        output_fn (str, optional): Path for output csv file.
         stamp_size (int, optional): The size of the stamp to extract, default 10 pixels.
+        x_column (str): The name of the column to use for the x position.
+        y_column (str): The name of the column to use for the y position.
+        force (bool): If should create new file if old exists, default False.
+    Returns:
+        str: The path to the csv file with
     """
 
-    if tmp_dir is None:
-        tmp_dir = '/tmp'
-
     row = point_sources.iloc[0]
-    csv_fn = f'{row.unit_id}-{row.camera_id}-{row.seq_time}-{row.img_time}.csv'
-    sources_csv_fn = os.path.join(tmp_dir, csv_fn)
-    if os.path.exists(sources_csv_fn) and force is False:
-        logger.debug(f'{sources_csv_fn} already exists and force=False, returning')
-        return sources_csv_fn
-
-    logger.debug(f'Sources metadata will be extracted to {sources_csv_fn}')
+    output_fn = output_fn or f'{row.unit_id}-{row.camera_id}-{row.seq_time}-{row.img_time}.csv'
+    logger.debug(f'Looking for {output_fn=}')
+    if os.path.exists(output_fn) and force is False:
+        logger.info(f'{output_fn} already exists and force=False, returning')
+        return output_fn
 
     data = fits.getdata(fits_fn)
-    header = fits.getheader(fits_fn)
 
     logger.debug(f'Extracting {len(point_sources)} point sources from {fits_fn}')
 
     logger.debug(f'Starting source extraction for {fits_fn}')
-    with open(sources_csv_fn, 'w') as metadata_fn:
+    with open(output_fn, 'w') as metadata_fn:
         writer = csv.writer(metadata_fn, quoting=csv.QUOTE_MINIMAL)
 
         # Write out headers.
@@ -243,25 +249,9 @@ def get_postage_stamps(point_sources, fits_fn, stamp_size=10, tmp_dir=None, forc
             'picid',
             'unit_id',
             'camera_id',
-            'sequence_time',
-            'image_time',
-            'x', 'y',
-            'ellipticity', 'theta_image',
-            'ra', 'dec',
-            'tmag', 'tmag_err',
-            'vmag', 'vmag_err',
-            'lumclass', 'lum', 'lum_err',
-            'contratio', 'numcont',
-            'catalog_sep_arcsec',
-            'fwhm',
-            'measured_flags',
-            'snr',
-            # 'measured_background',
+            'time',
             'slice_y',
             'slice_x',
-            'exptime',
-            'field',
-            'bucket_path',
         ]
         csv_headers.extend([f'pixel_{i:02d}' for i in range(stamp_size ** 2)])
         writer.writerow(csv_headers)
@@ -269,7 +259,7 @@ def get_postage_stamps(point_sources, fits_fn, stamp_size=10, tmp_dir=None, forc
         for picid, row in point_sources.iterrows():
             # Get the stamp for the target
             target_slice = bayer.get_stamp_slice(
-                row.x, row.y,
+                row[x_column], row[y_column],
                 stamp_size=(stamp_size, stamp_size),
                 ignore_superpixel=False
             )
@@ -282,30 +272,14 @@ def get_postage_stamps(point_sources, fits_fn, stamp_size=10, tmp_dir=None, forc
                 int(picid),
                 str(row.unit_id),
                 str(row.camera_id),
-                parse_date(row.seq_time),
-                row.img_time,
-                int(row.x), int(row.y),
-                row.ellipticity, row.theta_image,
-                row.ra, row.dec,
-                row.tmag, row.tmag_err,
-                row.vmag, row.vmag_err,
-                row.lumclass, row.lum, row.lum_err,
-                row.contratio, row.numcont,
-                row.catalog_sep_arcsec,
-                row.fwhm_image,
-                int(row['flags']),
-                row['snr'],
-                # row.background,
+                parse_date(row.time),
                 target_slice[0],
                 target_slice[1],
-                header.get('EXPTIME', -1),
-                header.get('FIELD', 'UNKNOWN'),
-                row.bucket_path,
                 *stamp
             ]
 
             # Write out stamp data
             writer.writerow(row_values)
 
-    logger.debug(f'PSC file saved to {sources_csv_fn}')
-    return sources_csv_fn
+    logger.debug(f'PSC file saved to {output_fn}')
+    return output_fn

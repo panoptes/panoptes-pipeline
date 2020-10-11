@@ -16,9 +16,9 @@ from panoptes.pipeline.pipes.main import PanoptesPipeline
 
 
 @click.command(help='PANOPTES PIPELINE Runner')
-@click.option('--config-file', help="Configuration file for pipeline", default='config/panoptes.cfg')
-@click.option('--framework-config-file', help="Configuration file for framework", default='config/framework.cfg')
-@click.option('--framework-logger-file', help="Configuration file for framework logger", default='config/logger.cfg')
+@click.option('--config-file', help="Configuration file for pipeline", default='panoptes.cfg')
+@click.option('--framework-config-file', help="Configuration file for framework", default='framework.cfg')
+@click.option('--framework-logger-file', help="Configuration file for framework logger", default='logger.cfg')
 @click.option('--input-file', help='Input image file (full path, list ok)')
 @click.option('--fits-files', help="Input FITS files")
 @click.option('--image-directory', help="Input image directory containing FITS images.")
@@ -39,13 +39,13 @@ def run(config_file=None,
         monitor=False,
         keep_running=True
         ):
-    pkg = 'panoptes.pipeline'
+    config_namespace = 'panoptes.pipeline.config'
 
-    framework_config_fullpath = pkg_resources.resource_filename(pkg, framework_config_file)
-    framework_logcfg_fullpath = pkg_resources.resource_filename(pkg, framework_logger_file)
+    framework_config_fullpath = pkg_resources.resource_filename(config_namespace, framework_config_file)
+    framework_logcfg_fullpath = pkg_resources.resource_filename(config_namespace, framework_logger_file)
 
     if config_file is None:
-        pipeline_config_fullpath = pkg_resources.resource_filename(pkg, config_file)
+        pipeline_config_fullpath = pkg_resources.resource_filename(config_namespace, config_file)
         pipeline_config = ConfigClass(pipeline_config_fullpath, default_section='TEMPLATE')
     else:
         pipeline_config = ConfigClass(config_file, default_section='TEMPLATE')

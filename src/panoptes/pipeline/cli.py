@@ -37,7 +37,7 @@ def run(config_file=None,
         ingest_data_only=None,
         wait_for_event=None,
         monitor=False,
-        keep_running=True
+        keep_running=False
         ):
     config_namespace = 'panoptes.pipeline.config'
 

@@ -16,7 +16,7 @@ from keckdrpframework.primitives.base_primitive import BasePrimitive
 import matplotlib.pyplot as plt
 
 
-class Image(BasePrimitive):
+class SaveImage(BasePrimitive):
     def __init__(self, action, context):
         """
         Initializes super class.

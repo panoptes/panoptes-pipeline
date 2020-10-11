@@ -24,7 +24,7 @@ def open_nowarning(filename):
         return pf.open(filename, memmap=False)
 
 
-class Fits(BasePrimitive):
+class ReadFits(BasePrimitive):
     def __init__(self, action, context):
         """
         Initializes the super class.

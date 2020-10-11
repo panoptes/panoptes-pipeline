@@ -25,7 +25,7 @@ from panoptes.pipeline.pipes.main import PanoptesPipeline
 @click.option("--ingest_data_only", help="Ingest data and terminate")
 @click.option("--wait_for_event", help="Wait for events")
 @click.option('--monitor/--no-monitor', default=False, help='Monitor directory for incoming files, default False')
-@click.option("--keep-running", default=True, help="Continue processing, wait for ever, default True")
+@click.option("--keep-running", default=False, help="Continue processing, wait for ever, default True")
 @click.option("--queue_manager_only", help="Starts queue manager only, no processing (useful for RPC)")
 def run(config_file=None,
         framework_config_file=None,

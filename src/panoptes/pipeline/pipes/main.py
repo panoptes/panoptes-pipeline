@@ -31,10 +31,10 @@ class PanoptesPipeline(BasePipeline):
     """PANOPTES Image Processing for Exoplanets """
 
     event_table = {
-        "next_file": ("input.fits", "file_ready", "file_ready"),
+        "next_file": ("input.read_fits", "file_ready", "file_ready"),
         "file_ready": ("hist_equal2d", "histeq_done", "histeq_done"),
-        "histeq_done": ("output.image", "output.image.done", "html_list"),
-        "html_list": ("output.html", None, None),
+        "histeq_done": ("output.save_image", "output.image.done", "html_list"),
+        "html_list": ("output.save_html", None, None),
     }
 
     def __init__(self, context):

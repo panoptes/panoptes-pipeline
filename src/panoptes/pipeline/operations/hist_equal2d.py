@@ -115,9 +115,9 @@ class HistEqual2d(BasePrimitive):
         sum1 = np.sum(histg[lo_idx:hi_idx])
         thold = sum1 / (hi_idx - lo_idx) * self.t_factor
         thold = max(leng / n_hist, thold)
-        self.logger.debug(f"min thold={leng/n_hist:.2f}, sum1={sum1:.1f}, diff={(hi_idx-lo_idx):.0f}")
+        self.logger.debug(f"min thold={leng / n_hist:.2f}, {sum1=:.1f}, diff={(hi_idx - lo_idx):.0f}")
 
-        self.logger.debug(f"Hist eq. lo={from_lo:.1f}, hi={from_hi:.1f}, cen={cen:.0f}, std={cstd:.1f}, thold={thold:.1f}")
+        self.logger.debug(f"Hist eq. l{from_lo=:.1f}, {from_hi=:.1f}, {cen=:.0f}, {cstd=:.1f}, {thold=:.1f}")
         return self._applyAHEqHelper(flatData, leng, from_lo, from_hi, 0, n_hist - 1, n_hist, thold)
 
     def _applyAHEq(self, img):
@@ -132,10 +132,10 @@ class HistEqual2d(BasePrimitive):
 
     def _perform(self):
         args = self.action.args
-        img = args.img
-        h, w = img.shape
+        image_data = args.image_data
+        h, w = image_data.shape
 
         out_args = Arguments()
         out_args.name = args.name
-        out_args.img = self._applyAHEC(img).reshape((h, w)).astype(dtype="uint8")
+        out_args.image_data = self._applyAHEC(image_data).reshape((h, w)).astype(dtype="uint8")
         return out_args

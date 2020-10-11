@@ -1,21 +1,18 @@
 import os
-
+import csv
 from contextlib import suppress
 
 import numpy as np
 import pandas as pd
-
 from scipy import linalg
 
-from tqdm import tqdm
-
-import csv
-from dateutil.parser import parse as parse_date
 from astropy.io import fits
 from astropy.stats import sigma_clipped_stats
 
 from panoptes.utils.images import bayer
 from panoptes.utils.logging import logger
+
+from tqdm import tqdm
 
 
 def normalize(cube):
@@ -41,16 +38,14 @@ def find_similar_stars(
     logger.info(f"Finding similar stars for PICID {picid}")
 
     if force_new and csv_file and os.path.exists(csv_file):
-        logger.debug(f"Forcing new file for {picid}")
+        logger.info(f"Forcing new file for {picid}")
         with suppress(FileNotFoundError):
             os.remove(csv_file)
 
-    with suppress(FileNotFoundError):
+    with suppress(FileNotFoundError, ValueError):
         df0 = pd.read_csv(csv_file, index_col=[0])
-        logger.debug(f"Found existing csv file: {df0}")
+        logger.success(f"Found existing csv file: {df0}")
         return df0
-
-    data = dict()
 
     logger.debug("Getting Target PSC and subtracting bias")
     psc0 = get_psc(picid, stamps, **kwargs) - camera_bias
@@ -73,7 +68,7 @@ def find_similar_stars(
             else:
                 logger.warning(f"Sum for target frame {frame_index} is 0")
         except RuntimeWarning:
-            logger.warning("Skipping frame {}".format(frame_index))
+            logger.warning(f"Skipping frame {frame_index}")
 
     iterator = enumerate(list(stamps.keys()))
     if show_progress:
@@ -89,10 +84,10 @@ def find_similar_stars(
         try:
             snr = float(stamps[source_index].attrs['snr'])
             if snr < snr_limit:
-                logger.debug("Skipping PICID {}, low snr {:.02f}".format(source_index, snr))
+                logger.debug(f"Skipping PICID {source_index}, low snr {snr:.02f}")
                 continue
         except KeyError:
-            logger.debug("No source in table: {}".format(picid))
+            logger.debug(f"No source in table: {picid}")
             pass
 
         try:
@@ -108,11 +103,12 @@ def find_similar_stars(
                 normalized_psc1[frame_index] = psc1[frame_index] / psc1[frame_index].sum()
 
         # Store in the grid
+        data = dict()
         try:
             v = ((normalized_psc0 - normalized_psc1) ** 2).sum()
             data[source_index] = v
         except ValueError as e:
-            logger.debug("Skipping invalid stamp for source {}: {}".format(source_index, e))
+            logger.debug(f"Skipping invalid stamp for source {source_index}: {e!r}")
 
     df0 = pd.DataFrame(
         {'v': list(data.values())},
@@ -126,9 +122,9 @@ def find_similar_stars(
 
 def get_psc(picid, stamps, frame_slice=None):
     try:
-        psc = np.array(stamps[picid]['data'])
+        psc = stamps.query('picid == @picid').filter(like='pixel_').to_numpy()
     except KeyError:
-        raise Exception("{} not found in the stamp collection.".format(picid))
+        raise Exception(f"{picid} not found in the stamp collection.")
 
     if frame_slice is not None:
         psc = psc[frame_slice]

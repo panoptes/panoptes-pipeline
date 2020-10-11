@@ -79,6 +79,7 @@ def get_observation_metadata(sequence_ids, fields=None, show_progress=False):
         df_file = f'{OBS_BASE_URL}/{sequence_id}-metadata.parquet'
         if fields:
             fields = listify(fields)
+            # Always return the ID fields.
             fields.insert(0, 'time')
             fields.insert(1, 'sequence_id')
             fields = list(set(fields))

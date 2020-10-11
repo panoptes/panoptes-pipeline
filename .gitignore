@@ -7,6 +7,7 @@ output
 *.cfg
 !.isort.cfg
 !setup.cfg
+!src/panoptes/pipeline/config/*.cfg
 *.orig
 *.log
 *.pot

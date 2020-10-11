@@ -18,7 +18,7 @@ class HistEqual2d(BasePrimitive):
     """
     Histogram equalization.
     Example of a primitive.    
-    The configuration for this primitive is in the auxiliary configuration file fits2png.cfg.
+    The configuration for this primitive is in the auxiliary configuration file pipeline.cfg.
     """
 
     def __init__(self, action, context):

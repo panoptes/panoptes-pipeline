@@ -1,18 +1,17 @@
 import click
 
-from keckdrpframework.core.framework import Framework
-from keckdrpframework.config.framework_config import ConfigClass
-from keckdrpframework.models.arguments import Arguments
-from keckdrpframework.utils.drpf_logger import getLogger
 import subprocess
 import time
 import argparse
 import sys
 import traceback
 import pkg_resources
+import logging
 import logging.config
 
-from panoptes.pipeline.pipes.main import PanoptesPipeline
+from keckdrpframework.core.framework import Framework
+from keckdrpframework.config.framework_config import ConfigClass
+from keckdrpframework.utils.drpf_logger import getLogger
 
 
 @click.command(help='PANOPTES PIPELINE Runner')
@@ -20,7 +19,7 @@ from panoptes.pipeline.pipes.main import PanoptesPipeline
 @click.option('--framework-config-file', help="Configuration file for framework", default='framework.cfg')
 @click.option('--framework-logger-file', help="Configuration file for framework logger", default='logger.cfg')
 @click.option('--input-file', help='Input image file (full path, list ok)')
-@click.option('--fits-files', help="Input FITS files")
+@click.option('--fits-files', '-f', help="Input FITS file(s)", multiple=True)
 @click.option('--image-directory', help="Input image directory containing FITS images.")
 @click.option("--ingest_data_only", help="Ingest data and terminate")
 @click.option("--wait_for_event", help="Wait for events")
@@ -39,6 +38,8 @@ def run(config_file=None,
         monitor=False,
         keep_running=False
         ):
+    fits_files = fits_files or list()
+
     config_namespace = 'panoptes.pipeline.config'
 
     framework_config_fullpath = pkg_resources.resource_filename(config_namespace, framework_config_file)
@@ -54,7 +55,7 @@ def run(config_file=None,
 
     try:
         framework = Framework(PanoptesPipeline, framework_config_fullpath)
-        # logging.config.fileConfig(framework_logcfg_fullpath)
+        logging.config.fileConfig(framework_logcfg_fullpath)
         framework.config.instrument = pipeline_config
     except Exception as e:
         print("Failed to initialize framework, exiting ...", e)
@@ -69,7 +70,7 @@ def run(config_file=None,
 
     try:
         # Ingest image directory, trigger "next_file" on each file.
-        if image_directory is not None:
+        if image_directory is not None or fits_files and len(fits_files):
             framework.ingest_data(image_directory, fits_files, monitor)
             framework.start(queue_manager_only, ingest_data_only, wait_for_event, keep_running)
     except KeyboardInterrupt:

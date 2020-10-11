@@ -16,7 +16,7 @@ from keckdrpframework.primitives.base_primitive import BasePrimitive
 import matplotlib.pyplot as plt
 
 
-class SavePng(BasePrimitive):
+class Image(BasePrimitive):
     def __init__(self, action, context):
         """
         Initializes super class.
@@ -35,13 +35,13 @@ class SavePng(BasePrimitive):
         args = self.action.args
         name = os.path.basename(args.name)
 
-        out_name = self.output_dir + "/" + name.replace(".fits", self.extension)
-        img = args.img
-        h, w = img.shape
-        img1 = np.stack((img,) * 3, axis=-1)
+        pretty_image_path = self.output_dir + "/" + name.replace(".fits", self.extension)
+        image_data = args.image_data
+        h, w = image_data.shape
+        img1 = np.stack((image_data,) * 3, axis=-1)
 
-        plt.imsave(out_name, img1, format=self.output_format)
+        plt.imsave(pretty_image_path, img1, format=self.output_format)
 
-        self.logger.debug("Saved {}".format(out_name))
-        out_args = Arguments(name=out_name)
+        self.logger.debug(f"Saved {pretty_image_path=}")
+        out_args = Arguments(pretty_image_path=pretty_image_path)
         return out_args

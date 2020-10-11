@@ -24,7 +24,7 @@ def open_nowarning(filename):
         return pf.open(filename, memmap=False)
 
 
-class SimpleFitsReader(BasePrimitive):
+class Fits(BasePrimitive):
     def __init__(self, action, context):
         """
         Initializes the super class.
@@ -40,7 +40,7 @@ class SimpleFitsReader(BasePrimitive):
         self.logger.debug(f"Reading {name}")
         out_args = Arguments()
         out_args.name = name
-        out_args.img = self.readData(name)
+        out_args.image_data = self.readData(name)
 
         return out_args
 

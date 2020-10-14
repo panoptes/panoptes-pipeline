@@ -1,21 +1,18 @@
 import os
-
+import csv
 from contextlib import suppress
 
 import numpy as np
 import pandas as pd
-
 from scipy import linalg
 
-from tqdm import tqdm
-
-import csv
-from dateutil.parser import parse as parse_date
 from astropy.io import fits
 from astropy.stats import sigma_clipped_stats
 
 from panoptes.utils.images import bayer
 from panoptes.utils.logging import logger
+
+from tqdm import tqdm
 
 
 def normalize(cube):
@@ -36,31 +33,27 @@ def find_similar_stars(
 
     Args:
         stamps(np.array): Collection of stamps with axes: frame, PIC, pixels
-        i(int): Index of target PIC
+        (int): Index of target PIC
     """
-    logger.info("Finding similar stars for PICID {}".format(picid))
+    logger.info(f"Finding similar stars for PICID {picid}")
 
-    if force_new and csv_file and os.path.exist(csv_file):
-        logger.info("Forcing new file for {}".format(picid))
+    if force_new and csv_file and os.path.exists(csv_file):
+        logger.info(f"Forcing new file for {picid}")
         with suppress(FileNotFoundError):
             os.remove(csv_file)
 
-    try:
+    with suppress(FileNotFoundError, ValueError):
         df0 = pd.read_csv(csv_file, index_col=[0])
-        logger.info("Found existing csv file: {}".format(df0))
+        logger.success(f"Found existing csv file: {df0}")
         return df0
-    except Exception:
-        pass
 
-    data = dict()
-
-    logger.info("Getting Target PSC and subtracting bias")
+    logger.debug("Getting Target PSC and subtracting bias")
     psc0 = get_psc(picid, stamps, **kwargs) - camera_bias
-    logger.info("Target PSC shape: {}".format(psc0.shape))
+    logger.debug(f"Target PSC shape: {psc0.shape}")
     num_frames = psc0.shape[0]
 
     # Normalize
-    logger.info("Normalizing target for {} frames".format(num_frames))
+    logger.debug(f"Normalizing target for {num_frames} frames")
     normalized_psc0 = np.zeros_like(psc0, dtype='f4')
 
     good_frames = []
@@ -73,9 +66,9 @@ def find_similar_stars(
                 # Save frame index
                 good_frames.append(frame_index)
             else:
-                logger.warning("Sum for target frame {} is 0".format(frame_index))
+                logger.warning(f"Sum for target frame {frame_index} is 0")
         except RuntimeWarning:
-            logger.warning("Skipping frame {}".format(frame_index))
+            logger.warning(f"Skipping frame {frame_index}")
 
     iterator = enumerate(list(stamps.keys()))
     if show_progress:
@@ -91,10 +84,10 @@ def find_similar_stars(
         try:
             snr = float(stamps[source_index].attrs['snr'])
             if snr < snr_limit:
-                logger.info("Skipping PICID {}, low snr {:.02f}".format(source_index, snr))
+                logger.debug(f"Skipping PICID {source_index}, low snr {snr:.02f}")
                 continue
         except KeyError:
-            logger.debug("No source in table: {}".format(picid))
+            logger.debug(f"No source in table: {picid}")
             pass
 
         try:
@@ -110,11 +103,12 @@ def find_similar_stars(
                 normalized_psc1[frame_index] = psc1[frame_index] / psc1[frame_index].sum()
 
         # Store in the grid
+        data = dict()
         try:
             v = ((normalized_psc0 - normalized_psc1) ** 2).sum()
             data[source_index] = v
         except ValueError as e:
-            logger.info("Skipping invalid stamp for source {}: {}".format(source_index, e))
+            logger.debug(f"Skipping invalid stamp for source {source_index}: {e!r}")
 
     df0 = pd.DataFrame(
         {'v': list(data.values())},
@@ -128,9 +122,9 @@ def find_similar_stars(
 
 def get_psc(picid, stamps, frame_slice=None):
     try:
-        psc = np.array(stamps[picid]['data'])
+        psc = stamps.query('picid == @picid').filter(like='pixel_').to_numpy()
     except KeyError:
-        raise Exception("{} not found in the stamp collection.".format(picid))
+        raise Exception(f"{picid} not found in the stamp collection.")
 
     if frame_slice is not None:
         psc = psc[frame_slice]
@@ -210,34 +204,40 @@ def get_stamp_size(df0, superpixel_padding=1):
     return stamp_size
 
 
-def get_postage_stamps(point_sources, fits_fn, stamp_size=10, tmp_dir=None, force=False):
+def get_postage_stamps(point_sources,
+                       fits_fn,
+                       output_fn=None,
+                       stamp_size=10,
+                       x_column='measured_x',
+                       y_column='measured_y',
+                       force=False):
     """Extract postage stamps for each PICID in the given file.
 
     Args:
-        point_sources (`pandas.DataFrame`): A DataFrame containing the results from `sextractor`.
+        point_sources (`pandas.DataFrame`): A DataFrame containing the results from `source-extractor`.
         fits_fn (str): The name of the FITS file to extract stamps from.
+        output_fn (str, optional): Path for output csv file.
         stamp_size (int, optional): The size of the stamp to extract, default 10 pixels.
+        x_column (str): The name of the column to use for the x position.
+        y_column (str): The name of the column to use for the y position.
+        force (bool): If should create new file if old exists, default False.
+    Returns:
+        str: The path to the csv file with
     """
 
-    if tmp_dir is None:
-        tmp_dir = '/tmp'
-
     row = point_sources.iloc[0]
-    csv_fn = f'{row.unit_id}-{row.camera_id}-{row.seq_time}-{row.img_time}.csv'
-    sources_csv_fn = os.path.join(tmp_dir, csv_fn)
-    if os.path.exists(sources_csv_fn) and force is False:
-        logger.info(f'{sources_csv_fn} already exists and force=False, returning')
-        return sources_csv_fn
-
-    logger.debug(f'Sources metadata will be extracted to {sources_csv_fn}')
+    output_fn = output_fn or f'{row.unit_id}-{row.camera_id}-{row.seq_time}-{row.img_time}.csv'
+    logger.debug(f'Looking for {output_fn=}')
+    if os.path.exists(output_fn) and force is False:
+        logger.info(f'{output_fn} already exists and force=False, returning')
+        return output_fn
 
     data = fits.getdata(fits_fn)
-    header = fits.getheader(fits_fn)
 
     logger.debug(f'Extracting {len(point_sources)} point sources from {fits_fn}')
 
     logger.debug(f'Starting source extraction for {fits_fn}')
-    with open(sources_csv_fn, 'w') as metadata_fn:
+    with open(output_fn, 'w') as metadata_fn:
         writer = csv.writer(metadata_fn, quoting=csv.QUOTE_MINIMAL)
 
         # Write out headers.
@@ -245,36 +245,21 @@ def get_postage_stamps(point_sources, fits_fn, stamp_size=10, tmp_dir=None, forc
             'picid',
             'unit_id',
             'camera_id',
-            'sequence_time',
-            'image_time',
-            'x', 'y',
-            'ellipticity', 'theta_image',
-            'ra', 'dec',
-            'tmag', 'tmag_err',
-            'vmag', 'vmag_err',
-            'lumclass', 'lum', 'lum_err',
-            'contratio', 'numcont',
-            'catalog_sep_arcsec',
-            'fwhm',
-            'sextractor_flags',
-            'snr',
-            # 'sextractor_background',
-            'slice_y',
-            'slice_x',
-            'exptime',
-            'field',
-            'bucket_path',
+            'time',
+            'slice_y_start',
+            'slice_y_stop',
+            'slice_x_start',
+            'slice_x_stop',
         ]
         csv_headers.extend([f'pixel_{i:02d}' for i in range(stamp_size ** 2)])
         writer.writerow(csv_headers)
 
-        for picid, row in point_sources.iterrows():
+        for idx, row in point_sources.iterrows():
             # Get the stamp for the target
             target_slice = bayer.get_stamp_slice(
-                row.x, row.y,
+                row[x_column], row[y_column],
                 stamp_size=(stamp_size, stamp_size),
-                ignore_superpixel=False,
-                verbose=False
+                ignore_superpixel=False
             )
 
             # Add the target slice to metadata to preserve original location.
@@ -282,33 +267,19 @@ def get_postage_stamps(point_sources, fits_fn, stamp_size=10, tmp_dir=None, forc
             stamp = data[target_slice].flatten().tolist()
 
             row_values = [
-                int(picid),
+                int(row.picid),
                 str(row.unit_id),
                 str(row.camera_id),
-                parse_date(row.seq_time),
-                row.img_time,
-                int(row.x), int(row.y),
-                row.ellipticity, row.theta_image,
-                row.ra, row.dec,
-                row.tmag, row.tmag_err,
-                row.vmag, row.vmag_err,
-                row.lumclass, row.lum, row.lum_err,
-                row.contratio, row.numcont,
-                row.catalog_sep_arcsec,
-                row.fwhm_image,
-                int(row['flags']),
-                row['snr'],
-                # row.background,
-                target_slice[0],
-                target_slice[1],
-                header.get('EXPTIME', -1),
-                header.get('FIELD', 'UNKNOWN'),
-                row.bucket_path,
+                row.time,
+                target_slice[0].start,
+                target_slice[0].stop,
+                target_slice[1].start,
+                target_slice[1].stop,
                 *stamp
             ]
 
             # Write out stamp data
             writer.writerow(row_values)
 
-    logger.debug(f'PSC file saved to {sources_csv_fn}')
-    return sources_csv_fn
+    logger.debug(f'PSC file saved to {output_fn}')
+    return output_fn

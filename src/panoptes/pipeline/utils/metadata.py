@@ -49,6 +49,7 @@ def get_metadata(sequence_id=None, fields=None, show_progress=False):
     """
     # Get observation metadata from firestore.
     if sequence_id is not None:
+        logger.debug(f'Getting metadata for {sequence_id}')
         return get_observation_metadata(sequence_id, fields=fields, show_progress=show_progress)
 
 
@@ -78,6 +79,7 @@ def get_observation_metadata(sequence_ids, fields=None, show_progress=False):
         df_file = f'{OBS_BASE_URL}/{sequence_id}-metadata.parquet'
         if fields:
             fields = listify(fields)
+            # Always return the ID fields.
             fields.insert(0, 'time')
             fields.insert(1, 'sequence_id')
             fields = list(set(fields))
@@ -89,7 +91,7 @@ def get_observation_metadata(sequence_ids, fields=None, show_progress=False):
             observation_dfs.append(df)
 
     if len(observation_dfs) == 0:
-        logger.debug(f'No documents found for sequence_ids={sequence_ids}')
+        logger.info(f'No documents found for sequence_ids={sequence_ids}')
         return
 
     df = pd.concat(observation_dfs)
@@ -97,6 +99,7 @@ def get_observation_metadata(sequence_ids, fields=None, show_progress=False):
 
     # TODO(wtgee) any data cleaning or preparation for observations here.
 
+    logger.success(f'Returning {len(df)} rows of metadata')
     return df.sort_values(by=['time'])
 
 
@@ -192,7 +195,7 @@ def search_observations(
                                    pkgname='panoptes')
         obs_df = pd.read_csv(local_path).convert_dtypes()
 
-    logger.debug(f'Found {len(obs_df)} total observations')
+    logger.info(f'Found {len(obs_df)} total observations')
 
     # Perform filtering on other fields here.
     logger.debug(f'Filtering observations')
@@ -243,4 +246,5 @@ def search_observations(
         'total_minutes_exptime',
     ]
 
+    logger.success(f'Returning {len(obs_df)} observations')
     return obs_df.reindex(columns=columns)

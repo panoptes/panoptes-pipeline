@@ -1,4 +1,4 @@
-ARG image_url=gcr.io/panoptes-exp/panoptes-pocs:developer
+ARG image_url=gcr.io/panoptes-exp/panoptes-utils:develop
 FROM ${image_url} AS pocs-base
 
 LABEL description="Development environment for working with the pipeline"

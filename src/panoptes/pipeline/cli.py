@@ -13,6 +13,8 @@ from keckdrpframework.core.framework import Framework
 from keckdrpframework.config.framework_config import ConfigClass
 from keckdrpframework.utils.drpf_logger import getLogger
 
+from panoptes.pipeline.pipes.main import PanoptesPipeline
+
 
 @click.command(help='PANOPTES PIPELINE Runner')
 @click.option('--config-file', help="Configuration file for pipeline", default='panoptes.cfg')

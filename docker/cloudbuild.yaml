@@ -5,10 +5,10 @@ timeout: 18000s  # 5 hours
 
 substitutions:
   _PLATFORMS: linux/amd64
-  _BUILD_DIR: panoptes-utils
   _BASE_IMAGE: panoptes-utils
   _IMAGE_NAME: panoptes-pipeline
   _REPO_URL: https://github.com/panoptes/panoptes-pipeline
+  _BUILD_DIR: panoptes-pipeline  
   _TAG: develop
 
 steps:

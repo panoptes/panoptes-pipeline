@@ -15,6 +15,9 @@ Added
 - #70 Adding a docker-compose file for local jupyter notebook development.
 - #70 GCP cloudbuilds ``developer`` and ``gcp-notebook`` tags.
 
+Fixed
+^^^^^
+- #71 Removing leftover f-strings.
 
 v0.0.9
 ======

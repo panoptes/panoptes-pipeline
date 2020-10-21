@@ -21,10 +21,6 @@ ENV PANLOG "$pan_dir/logs"
 ENV PANUSER $panuser
 ENV POCS $pocs_dir
 
-USER root
-RUN sudo apt-get update && \
-    sudo apt-get install -y --no-install-recommends source-extractor
-
 COPY --chown=panoptes:panoptes . /var/panoptes/panoptes-pipeline/
 RUN echo "Installing panoptes-pipeline" && \
     cd /var/panoptes/panoptes-pipeline && \

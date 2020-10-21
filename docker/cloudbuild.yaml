@@ -69,7 +69,7 @@ steps:
 
   # Build a developer version.
   - name: "gcr.io/cloud-builders/docker"
-    id: "build-developer-images"
+    id: "build-developer-image"
     env:
       - "DOCKER_CLI_EXPERIMENTAL=enabled"
     args:
@@ -86,7 +86,7 @@ steps:
 
   # Build a GCP notebook version
   - name: "gcr.io/cloud-builders/docker"
-    id: "build-developer-images"
+    id: "build-gcp-notebook-image"
     env:
       - "DOCKER_CLI_EXPERIMENTAL=enabled"
     args:

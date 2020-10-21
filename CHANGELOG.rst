@@ -12,6 +12,7 @@ Added
 - #70 Adding a Dockerfile for GCP notebooks that inherits from TensorFlow.
 - #70 Adding a docker-compose file for local jupyter notebook development.
 - #70 Dockerfile is a substitution variable.
+- #70 GCP cloudbuilds ``developer`` and ``gcp-notebook`` tags.
 
 
 v0.0.9

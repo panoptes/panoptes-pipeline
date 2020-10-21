@@ -2,7 +2,14 @@
 Changelog
 =========
 
-v0.2.0
+v0.1.0dev
+=========
+
+Added
+^^^^^
+- Dockerfile for GCP notebooks.
+
+v0.0.9
 ======
 
 Changed

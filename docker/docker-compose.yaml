@@ -1,0 +1,17 @@
+version: '3.7'
+services:
+  developer:
+    build: .
+    image: gcr.io/panoptes-exp/panoptes-pipeline:developer
+    init: true
+    tty: true
+    environment:
+      GOOGLE_KEYS_DIR:
+    container_name: panoptes-pipeline-devenv
+    privileged: true
+    network_mode: host
+    volumes:
+      - /var/panoptes/panoptes-tutorials:/var/panoptes/panoptes-tutorials
+      - /var/panoptes/panoptes-pipeline:/var/panoptes/panoptes-pipeline
+      - $GOOGLE_KEYS_DIR:/keys
+    command: [ "jupyter-lab", "--ip=0.0.0.0", "--no-browser" ]

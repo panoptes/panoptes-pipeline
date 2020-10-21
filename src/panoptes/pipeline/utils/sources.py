@@ -186,7 +186,7 @@ def lookup_point_sources(fits_file,
         raise Exception(f"Problem looking up sources: {e!r} {fits_file}")
 
     if catalog_match:
-        logger.debug(f'Doing catalog match against stars for {fits_file=}')
+        logger.debug(f'Doing catalog match against stars for fits_file={fits_file}')
         try:
             point_sources = get_catalog_match(point_sources, wcs=wcs, **kwargs)
             logger.debug(f'Done with catalog match for {fits_file}')

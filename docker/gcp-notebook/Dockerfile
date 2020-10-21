@@ -13,7 +13,7 @@ RUN apt-get update && \
         libfreetype6-dev \
         libffi-dev && \
     cd /var/panoptes/panoptes-pipeline && \
-    pip install -e . && \
+    pip install -e ".[plotting]" && \
     # Cleanup
     apt-get autoremove --purge --yes && \
     apt-get autoclean --yes && \

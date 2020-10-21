@@ -227,7 +227,7 @@ def get_postage_stamps(point_sources,
 
     row = point_sources.iloc[0]
     output_fn = output_fn or f'{row.unit_id}-{row.camera_id}-{row.seq_time}-{row.img_time}.csv'
-    logger.debug(f'Looking for {output_fn=}')
+    logger.debug(f'Looking for {output_fn}')
     if os.path.exists(output_fn) and force is False:
         logger.info(f'{output_fn} already exists and force=False, returning')
         return output_fn

@@ -360,6 +360,7 @@ def extract_sources(fits_file,
                     force_new=False,
                     img_dimensions=(3476, 5208),
                     extractor_config='resources/source-extractor/panoptes.conf',
+                    extractor_params='resources/source-extractor/panoptes.params',
                     *args, **kwargs):
     # Write the source-extractor catalog to a file
     base_dir = os.path.dirname(fits_file)
@@ -372,8 +373,16 @@ def extract_sources(fits_file,
     logger.debug(f"Point source catalog: {catalog_filename}")
 
     if not extractor_config.startswith('/'):
-        extractor_config = str(get_project_root() / extractor_config)
-    logger.debug(f"Extractor config: {extractor_config}")
+        extractor_config_path = str(get_project_root() / extractor_config)
+    else:
+        extractor_config_path = str(extractor_config)
+    logger.debug(f"Extractor config: {extractor_config_path}")
+
+    if not extractor_params.startswith('/'):
+        extractor_params_path = str(get_project_root() / extractor_params)
+    else:
+        extractor_params_path = str(extractor_params)
+    logger.debug(f"Extractor config: {extractor_params_path}")
 
     if not os.path.exists(catalog_filename) or force_new:
         logger.debug("No catalog found, building from source-extractor")
@@ -387,7 +396,8 @@ def extract_sources(fits_file,
             fits_file = fits_utils.funpack(fits_file)
 
         measured_params = measured_params or [
-            '-c', extractor_config,
+            '-c', extractor_config_path,
+            '-PARAMETERS_NAME', extractor_params_path,
             '-CATALOG_NAME', catalog_filename,
         ]
 

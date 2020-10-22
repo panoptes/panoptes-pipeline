@@ -10,6 +10,8 @@ from google.cloud import bigquery
 from panoptes.utils.images import fits as fits_utils
 from panoptes.utils.logging import logger
 
+from panoptes.pipeline.utils.bigquery import get_bq_clients
+
 
 def get_stars_from_wcs(wcs, **kwargs):
     """Lookup star information from WCS footprint.
@@ -40,6 +42,7 @@ def get_stars(
         vmag_min=4,
         vmag_max=17,
         bq_client=None,
+        bqstorage_client=None,
         return_dataframe=True,
         **kwargs):
     """Look star information from the TESS catalog.
@@ -74,14 +77,14 @@ def get_stars(
       {sql_constraint}
     """
 
-    if bq_client is None:
-        bq_client = bigquery.Client()
+    if bq_client is None or bqstorage_client is None:
+        bq_client, bqstorage_client = get_bq_clients()
 
     results = None
     try:
         results = bq_client.query(sql)
         if return_dataframe:
-            results = results.to_dataframe()
+            results = results.result().to_dataframe(bqstorage_client=bqstorage_client)
             logger.debug(f'Found {len(results)} in Vmag=[{vmag_min}, {vmag_max}) and bounds=[{shape}]')
     except Exception as e:
         logger.warning(e)
@@ -267,7 +270,7 @@ def get_catalog_match(point_sources,
         sources.
 
     Args:
-        point_sources (`pandas.DataFrame`): The DataFrame containted point sources
+        point_sources (`pandas.DataFrame`): The DataFrame containing point sources
             to be matched. This usually comes from the output of `lookup_point_sources`
             but could be done manually.
         wcs (`astropy.wcs.WCS`, optional): The WCS instance to use for the catalog lookup.
@@ -305,8 +308,8 @@ def get_catalog_match(point_sources,
 
     # Get coords for catalog stars
     catalog_coords = SkyCoord(
-        ra=catalog_stars['catalog_ra'] * u.deg,
-        dec=catalog_stars['catalog_dec'] * u.deg
+        ra=catalog_stars['catalog_ra'].values * u.deg,
+        dec=catalog_stars['catalog_dec'].values * u.deg
     )
 
     # Get coords from detected point sources

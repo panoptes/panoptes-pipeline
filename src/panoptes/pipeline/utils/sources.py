@@ -2,15 +2,16 @@ import os
 import shutil
 import subprocess
 
+import pkg_resources
 from astropy import units as u
 from astropy.coordinates import SkyCoord, match_coordinates_sky
 from astropy.table import Table
-from google.cloud import bigquery
+from panoptes.pipeline.utils import get_project_root
 
 from panoptes.utils.images import fits as fits_utils
 from panoptes.utils.logging import logger
 
-from panoptes.pipeline.utils.bigquery import get_bq_clients
+from panoptes.pipeline.utils.gcp.bigquery import get_bq_clients
 
 
 def get_stars_from_wcs(wcs, **kwargs):
@@ -373,30 +374,28 @@ def extract_sources(fits_file,
 
     image_time = os.path.splitext(os.path.basename(fits_file))[0]
 
-    source_file = os.path.join(source_dir, f'point_sources_{image_time}.cat')
+    catalog_filename = os.path.join(source_dir, f'point_sources_{image_time}.cat')
+    logger.debug(f"Point source catalog: {catalog_filename}")
 
-    logger.debug(f"Point source catalog: {source_file}")
+    if not extractor_config.startswith('/'):
+        extractor_config = str(get_project_root() / extractor_config)
+    logger.debug(f"Extractor config: {extractor_config}")
 
-    if not os.path.exists(source_file) or force_new:
+    if not os.path.exists(catalog_filename) or force_new:
         logger.debug("No catalog found, building from source-extractor")
         # Build catalog of point sources
         source_extractor = shutil.which('sextractor') or shutil.which('source-extractor')
 
         assert source_extractor is not None, 'source-extractor not found'
 
-        if measured_params is None:
-            # If relative path, assume from project root.
-            if not extractor_config.startswith('/'):
-                extractor_config = os.path.expandvars(f'$PANDIR/panoptes-pipeline/{extractor_config}')
-
-            measured_params = [
-                '-c', extractor_config,
-                '-CATALOG_NAME', source_file,
-            ]
-
         # source-extractor can't handle compressed data.
         if fits_file.endswith('.fz'):
             fits_file = fits_utils.funpack(fits_file)
+
+        measured_params = measured_params or [
+            '-c', extractor_config,
+            '-CATALOG_NAME', catalog_filename,
+        ]
 
         logger.debug("Running source-extractor...")
         cmd = [source_extractor, *measured_params, fits_file]
@@ -412,8 +411,8 @@ def extract_sources(fits_file,
             raise Exception(f"Problem running source-extractor: {e.stderr}\n\n{e.stdout}")
 
     # Read catalog
-    logger.debug(f'Building detected source table with {source_file}')
-    point_sources = Table.read(source_file, format='ascii.sextractor')
+    logger.debug(f'Building detected source table with {catalog_filename}')
+    point_sources = Table.read(catalog_filename, format='ascii.sextractor')
 
     # Rename columns
     point_sources.rename_column('XPEAK_IMAGE', 'x')

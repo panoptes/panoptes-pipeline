@@ -3,7 +3,7 @@ from google.cloud import bigquery
 from google.cloud import bigquery_storage
 
 
-def get_bq_clients(project_id='panoptes-exp'):
+def get_bq_clients():
     """Get Bigquery and BigQueryStorage clients.
 
     Originally from: https://github.com/googleapis/python-bigquery-storage/
@@ -12,7 +12,7 @@ def get_bq_clients(project_id='panoptes-exp'):
     # Explicitly create a credentials object. This allows you to use the same
     # credentials for both the BigQuery and BigQuery Storage clients, avoiding
     # unnecessary API calls to fetch duplicate authentication tokens.
-    credentials, your_project_id = google.auth.default(
+    credentials, project_id = google.auth.default(
         scopes=["https://www.googleapis.com/auth/cloud-platform"]
     )
 

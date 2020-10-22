@@ -95,7 +95,6 @@ def get_stars(
 
 def lookup_point_sources(fits_file,
                          catalog_match=False,
-                         method='source-extractor',
                          force_new=False,
                          wcs=None,
                          **kwargs
@@ -155,8 +154,6 @@ def lookup_point_sources(fits_file,
         catalog_match (bool, optional): If `get_catalog_match` should be called after
             looking up sources. Default False. If True, the `args` and `kwargs` will
             be passed to `get_catalog_match`.
-        method (str, optional): Method for looking up sources, default (and currently
-            only) is `source-extractor`.
         wcs (`astropy.wcs.WCS`|None): A WCS file to use. Default is `None`, in which
             the WCS comes from the `fits_file`.
         force_new (bool, optional): Force a new catalog to be created,
@@ -177,15 +174,10 @@ def lookup_point_sources(fits_file,
 
     logger.debug(f"Looking up sources for {fits_file}")
 
-    # Only one supported method for now.
-    lookup_function = {
-        'source-extractor': extract_sources,
-    }
-
     # Lookup our appropriate method and call it with the fits file and kwargs
     try:
         logger.debug(f"Using {method} method for {fits_file}")
-        point_sources = lookup_function[method](fits_file, force_new=force_new, **kwargs)
+        point_sources = extract_sources(fits_file, force_new=force_new, **kwargs)
     except Exception as e:
         raise Exception(f"Problem looking up sources: {e!r} {fits_file}")
 
@@ -226,6 +218,9 @@ def get_catalog_match(point_sources,
     Columns that are added to `point_sources` include:
 
         * picid
+        * unit_id
+        * camera_id
+        * time
         * gaia
         * twomass
         * catalog_dec

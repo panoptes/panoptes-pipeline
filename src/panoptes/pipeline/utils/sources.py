@@ -174,12 +174,11 @@ def lookup_point_sources(fits_file,
 
     logger.debug(f"Looking up sources for {fits_file}")
 
-    # Lookup our appropriate method and call it with the fits file and kwargs
     try:
-        logger.debug(f"Using {method} method for {fits_file}")
+        logger.debug(f"Running source-extractor on {fits_file}")
         point_sources = extract_sources(fits_file, force_new=force_new, **kwargs)
     except Exception as e:
-        raise Exception(f"Problem looking up sources: {e!r} {fits_file}")
+        raise Exception(f"Problem with source-extractor: {e!r} {fits_file}")
 
     if catalog_match:
         logger.debug(f'Doing catalog match against stars for fits_file={fits_file}')

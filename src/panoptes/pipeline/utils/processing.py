@@ -29,7 +29,7 @@ def find_similar_stars(
         show_progress=True,
         force_new=False,
         *args, **kwargs):
-    """ Get all variances for given target
+    """ Find PSCs in stamps that are morphologically similar to the PSC for picid.
 
     Args:
         stamps(np.array): Collection of stamps with axes: frame, PIC, pixels
@@ -213,10 +213,16 @@ def get_postage_stamps(point_sources,
                        force=False):
     """Extract postage stamps for each PICID in the given file.
 
+    The `point_sources` DataFrame should contain the `picid` and
+    x_column and y_column specified. The `IMAGEID` in the fits file
+    will be used to look up the `unit_id`, `camera_id`, and `time`.
+
     Args:
-        point_sources (`pandas.DataFrame`): A DataFrame containing the results from `source-extractor`.
+        point_sources (`pandas.DataFrame`): A DataFrame containing the results
+            the `picid` and x and y columns.
         fits_fn (str): The name of the FITS file to extract stamps from.
-        output_fn (str, optional): Path for output csv file.
+        output_fn (str, optional): Path for output csv file, defaults to local
+            csv file with id as name.
         stamp_size (int, optional): The size of the stamp to extract, default 10 pixels.
         x_column (str): The name of the column to use for the x position.
         y_column (str): The name of the column to use for the y position.
@@ -224,15 +230,17 @@ def get_postage_stamps(point_sources,
     Returns:
         str: The path to the csv file with
     """
+    data, header = fits.getdata(fits_fn, header=True)
+    image_time = os.path.basename(fits_fn).split('.')[0]
+    unit_id, camera_id, seq_time = header['SEQID'].split('_')
 
     row = point_sources.iloc[0]
-    output_fn = output_fn or f'{row.unit_id}-{row.camera_id}-{row.seq_time}-{row.img_time}.csv'
-    logger.debug(f'Looking for {output_fn}')
+    output_fn = output_fn or f'{unit_id}-{camera_id}-{seq_time}-{image_time}.csv'
+
+    logger.debug(f'Looking for output file {output_fn}')
     if os.path.exists(output_fn) and force is False:
         logger.info(f'{output_fn} already exists and force=False, returning')
         return output_fn
-
-    data = fits.getdata(fits_fn)
 
     logger.debug(f'Extracting {len(point_sources)} point sources from {fits_fn}')
 
@@ -268,9 +276,9 @@ def get_postage_stamps(point_sources,
 
             row_values = [
                 int(row.picid),
-                str(row.unit_id),
-                str(row.camera_id),
-                row.time,
+                str(unit_id),
+                str(camera_id),
+                image_time,
                 target_slice[0].start,
                 target_slice[0].stop,
                 target_slice[1].start,

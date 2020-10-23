@@ -411,11 +411,14 @@ def extract_sources(fits_file,
         if fits_file.endswith('.fz'):
             fits_file = fits_utils.funpack(fits_file)
 
-        measured_params = measured_params or [
-            '-c', extractor_config_path,
-            '-PARAMETERS_NAME', extractor_params_path,
-            '-CATALOG_NAME', catalog_filename,
-        ]
+        if measured_params is None:
+            measured_params = [
+                '-c', extractor_config_path,
+                '-PARAMETERS_NAME', extractor_params_path,
+                '-CATALOG_NAME', catalog_filename,
+            ]
+        else:
+            measured_params.extend(['-CATALOG_NAME', catalog_filename])
 
         logger.debug("Running source-extractor...")
         cmd = [source_extractor, *measured_params, fits_file]

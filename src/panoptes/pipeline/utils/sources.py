@@ -2,7 +2,6 @@ import os
 import shutil
 import subprocess
 
-import pkg_resources
 from astropy import units as u
 from astropy.coordinates import SkyCoord, match_coordinates_sky
 from astropy.table import Table
@@ -44,6 +43,7 @@ def get_stars(
         vmag_max=17,
         bq_client=None,
         bqstorage_client=None,
+        column_mapping=None,
         return_dataframe=True,
         **kwargs):
     """Look star information from the TESS catalog.
@@ -62,16 +62,31 @@ def get_stars(
     if shape is not None:
         sql_constraint = f"AND ST_CONTAINS(ST_GEOGFROMTEXT('POLYGON(({shape}))'), coords)"
 
+    column_mapping = column_mapping or {
+        "id": "picid",
+        "twomass": "twomass",
+        "gaia": "gaia",
+        "ra": "catalog_ra",
+        "dec": "catalog_dec",
+        "vmag": "catalog_vmag",
+        "vmag_partition": "catalog_vmag_bin",
+        "e_vmag": "catalog_vmag_err",
+        "tmag": "catalog_tmag",
+        "e_tmag": "catalog_tmag_err",
+        "gaiamag": "catalog_gaiamag",
+        "e_gaiamag": "catalog_gaiamag_err",
+        "gaiabp": "catalog_gaiabp",
+        "e_gaiabp": "catalog_gaiabp_err",
+        "gaiarp": "catalog_gaiarp",
+        "e_gaiarp": "catalog_gaiarp_err",
+    }
+
+    column_mapping_str = ', '.join([f'{k} as {v}' for k, v in column_mapping.items()])
+
     # Note that for how the BigQuery partition works, we need the parition one step
     # below the requested Vmag_max.
     sql = f"""
-    SELECT
-        id as picid, twomass, gaia,
-        ra as catalog_ra,
-        dec as catalog_dec,
-        vmag as catalog_vmag,
-        vmag_partition as catalog_vmag_bin,
-        e_vmag as catalog_vmag_err
+    SELECT {column_mapping_str} 
     FROM catalog.pic
     WHERE
       vmag_partition BETWEEN {vmag_min} AND {vmag_max - 1}
@@ -320,10 +335,21 @@ def get_catalog_match(point_sources,
 
     # Add the matches and their separation.
     point_sources = point_sources.join(catalog_stars.iloc[idx].reset_index(drop=True))
-    point_sources['catalog_sep_arcsec'] = d2d.to(u.arcsec).value
+    point_sources['catalog_sep_arcsec'] = d2d.to_value(u.arcsec)
 
     # All point sources so far are matched.
     point_sources['status'] = 'matched'
+
+    # Sources that didn't match.
+    if return_unmatched:
+        logger.debug(f'Adding unmatched sources to table for wcs={wcs.wcs.crval!r}')
+        unmatched = catalog_stars.iloc[catalog_stars.index.difference(idx)].copy()
+
+        unmatched['status'] = 'unmatched'
+        point_sources = point_sources.append(unmatched)
+
+    # Correct some dtypes.
+    point_sources.status = point_sources.status.astype('category')
 
     # Reorder columns so id cols are first then alpha.
     new_column_order = sorted(list(point_sources.columns))
@@ -332,16 +358,6 @@ def get_catalog_match(point_sources,
         new_column_order.remove(col)
         new_column_order.insert(i, col)
     point_sources = point_sources.reindex(columns=new_column_order)
-
-    # Sources that didn't match.
-    if return_unmatched:
-        logger.debug(f'Adding unmatched sources to table for wcs={wcs.wcs.crval!r}')
-        unmatched = catalog_stars.iloc[catalog_stars.index.difference(idx)].copy()
-        unmatched['status'] = 'unmatched'
-        point_sources = point_sources.append(unmatched)
-
-    # Correct some dtypes.
-    point_sources.status = point_sources.status.astype('category')
 
     logger.debug(f'Point sources: {len(point_sources)} for wcs={wcs.wcs.crval!r}')
 

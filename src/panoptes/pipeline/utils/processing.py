@@ -4,6 +4,7 @@ from contextlib import suppress
 
 import numpy as np
 import pandas as pd
+from panoptes.utils import listify
 from scipy import linalg
 
 from astropy.io import fits
@@ -15,19 +16,11 @@ from panoptes.utils.logging import logger
 from tqdm import tqdm
 
 
-def normalize(cube):
-    return (cube.T / cube.sum(1)).T
-
-
 def find_similar_stars(
         picid,
-        stamps,
-        csv_file=None,
-        camera_bias=2048,
-        num_refs=100,
-        snr_limit=10,
+        stamp_files,
+        num_refs=200,
         show_progress=True,
-        force_new=False,
         *args, **kwargs):
     """ Find PSCs in stamps that are morphologically similar to the PSC for picid.
 
@@ -37,87 +30,71 @@ def find_similar_stars(
     """
     logger.info(f"Finding similar stars for PICID {picid}")
 
-    if force_new and csv_file and os.path.exists(csv_file):
-        logger.info(f"Forcing new file for {picid}")
-        with suppress(FileNotFoundError):
-            os.remove(csv_file)
+    stamp_files = listify(stamp_files)
 
-    with suppress(FileNotFoundError, ValueError):
-        df0 = pd.read_csv(csv_file, index_col=[0])
-        logger.success(f"Found existing csv file: {df0}")
-        return df0
-
-    logger.debug("Getting Target PSC and subtracting bias")
-    psc0 = get_psc(picid, stamps, **kwargs) - camera_bias
-    logger.debug(f"Target PSC shape: {psc0.shape}")
-    num_frames = psc0.shape[0]
-
-    # Normalize
-    logger.debug(f"Normalizing target for {num_frames} frames")
-    normalized_psc0 = np.zeros_like(psc0, dtype='f4')
-
-    good_frames = []
-    for frame_index in range(num_frames):
-        try:
-            if psc0[frame_index].sum() > 0.:
-                # Normalize and store frame
-                normalized_psc0[frame_index] = psc0[frame_index] / psc0[frame_index].sum()
-
-                # Save frame index
-                good_frames.append(frame_index)
-            else:
-                logger.warning(f"Sum for target frame {frame_index} is 0")
-        except RuntimeWarning:
-            logger.warning(f"Skipping frame {frame_index}")
-
-    iterator = enumerate(list(stamps.keys()))
+    iterator = stamp_files
     if show_progress:
-        iterator = tqdm(
-            iterator,
-            total=len(stamps),
-            desc="Finding similar",
-            leave=False
-        )
+        iterator = tqdm(iterator, total=len(stamp_files))
 
-    for i, source_index in iterator:
-        # Skip low SNR (if we know SNR)
-        try:
-            snr = float(stamps[source_index].attrs['snr'])
-            if snr < snr_limit:
-                logger.debug(f"Skipping PICID {source_index}, low snr {snr:.02f}")
-                continue
-        except KeyError:
-            logger.debug(f"No source in table: {picid}")
-            pass
+    refs_list = list()
+    for fits_file in iterator:
+        # Load all the stamps and metadata
+        stamps0 = pd.read_csv(fits_file)
+        stamps0.picid = stamps0.picid.astype('int')
 
-        try:
-            psc1 = get_psc(source_index, stamps, **kwargs) - camera_bias
-        except Exception:
-            continue
+        # Get the target.
+        target_psc = stamps0.query('picid==@picid')
 
-        normalized_psc1 = np.zeros_like(psc1, dtype='f4')
+        # Get just the stamp data minus the camera bias.
+        stamp_data = stamps0.filter(regex='pixel').to_numpy()
+        target_stamp = target_psc.filter(regex='pixel').to_numpy()
 
-        # Normalize
-        for frame_index in good_frames:
-            if psc1[frame_index].sum() > 0.:
-                normalized_psc1[frame_index] = psc1[frame_index] / psc1[frame_index].sum()
+        # Normalize stamps.
+        normalized_stamps = (stamp_data.T / stamp_data.sum(1)).T
+        normalized_target_stamp = target_stamp / target_stamp.sum()
 
-        # Store in the grid
-        data = dict()
-        try:
-            v = ((normalized_psc0 - normalized_psc1) ** 2).sum()
-            data[source_index] = v
-        except ValueError as e:
-            logger.debug(f"Skipping invalid stamp for source {source_index}: {e!r}")
+        # Get the summed squared difference between stamps and target.
+        loss_score = ((normalized_stamps - normalized_target_stamp) ** 2).sum(1)
 
-    df0 = pd.DataFrame(
-        {'v': list(data.values())},
-        index=list(data.keys())).sort_values(by='v')
+        # Return sorted score series.
+        sort_idx = np.argsort(loss_score)
+        refs_list.append(pd.Series(loss_score[sort_idx], index=stamps0.picid[sort_idx]))
 
-    if csv_file:
-        df0[:num_refs].to_csv(csv_file)
+    # Combine all the loss scores.
+    target_refs = pd.concat(refs_list).reset_index().rename(columns={0: 'score'})
 
-    return df0
+    # Group by star and return top sorted scores. Includes target, so num_ref+1.
+    top_refs = target_refs.groupby('picid').sum().sort_values(by='score')[:num_refs+1]
+
+    return top_refs
+
+
+def get_refs_for_file(fits_file, stamps, num_refs=200):
+    """Find references for all stamps. Not super efficient."""
+    stamps0 = pd.read_csv(fits_file)
+    picids = stamps0.picid.values
+
+    stamp_data = stamps0.filter(regex='pixel').to_numpy()
+    normalized_stamps = (stamp_data.T / stamp_data.sum(1)).T
+
+    refs_list = list()
+    for i, normalized_target_stamp in tqdm(enumerate(normalized_stamps), total=len(picids)):
+        refs_list.append(picids[np.argsort(((normalized_stamps - normalized_target_stamp) ** 2).sum(1))[:num_refs]])
+
+    return refs_list
+
+
+def load_all_stamps(stamp_files, ):
+    stamps = list()
+
+    for fn in tqdm(stamp_files):
+        stamps.append(pd.read_csv(fn))
+
+    stamps = pd.concat(stamps).convert_dtypes()
+    stamps.picid = stamps.picid.astype('int')
+    stamps.time = pd.to_datetime(stamps.time)
+
+    return stamps
 
 
 def get_psc(picid, stamps, frame_slice=None):
@@ -210,7 +187,7 @@ def get_postage_stamps(point_sources,
                        stamp_size=10,
                        x_column='measured_x',
                        y_column='measured_y',
-                       force=False):
+                       force_new=False):
     """Extract postage stamps for each PICID in the given file.
 
     The `point_sources` DataFrame should contain the `picid` and
@@ -226,7 +203,7 @@ def get_postage_stamps(point_sources,
         stamp_size (int, optional): The size of the stamp to extract, default 10 pixels.
         x_column (str): The name of the column to use for the x position.
         y_column (str): The name of the column to use for the y position.
-        force (bool): If should create new file if old exists, default False.
+        force_new (bool): If should create new file if old exists, default False.
     Returns:
         str: The path to the csv file with
     """
@@ -238,8 +215,8 @@ def get_postage_stamps(point_sources,
     output_fn = output_fn or f'{unit_id}-{camera_id}-{seq_time}-{image_time}.csv'
 
     logger.debug(f'Looking for output file {output_fn}')
-    if os.path.exists(output_fn) and force is False:
-        logger.info(f'{output_fn} already exists and force=False, returning')
+    if os.path.exists(output_fn) and force_new is False:
+        logger.info(f'{output_fn} already exists and force_new=False, returning')
         return output_fn
 
     logger.debug(f'Extracting {len(point_sources)} point sources from {fits_fn}')

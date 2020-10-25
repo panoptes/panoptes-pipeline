@@ -63,7 +63,7 @@ def find_similar_stars(
     # Combine all the loss scores.
     target_refs = pd.concat(refs_list).reset_index().rename(columns={0: 'score'})
 
-    # Group by star and return top sorted scores. Includes target, so num_ref+1.
+    # Group by star and return top sorted scores.
     top_refs = target_refs.groupby('picid').sum().sort_values(by='score')[:num_refs+1]
 
     return top_refs
@@ -84,13 +84,18 @@ def get_refs_for_file(fits_file, stamps, num_refs=200):
     return refs_list
 
 
-def load_all_stamps(stamp_files, ):
+def load_stamps(stamp_files, picid=None):
+    """Load the stamp files with optional PICID filter."""
     stamps = list()
 
     for fn in tqdm(stamp_files):
-        stamps.append(pd.read_csv(fn))
+        df0 = pd.read_csv(fn)
+        if picid is not None:
+            df0 = df0.set_index('picid').loc[picid].reset_index()
 
-    stamps = pd.concat(stamps).convert_dtypes()
+        stamps.append(df0)
+
+    stamps = pd.concat(stamps)
     stamps.picid = stamps.picid.astype('int')
     stamps.time = pd.to_datetime(stamps.time)
 
@@ -187,7 +192,7 @@ def get_postage_stamps(point_sources,
                        stamp_size=10,
                        x_column='measured_x',
                        y_column='measured_y',
-                       force_new=False):
+                       force=False):
     """Extract postage stamps for each PICID in the given file.
 
     The `point_sources` DataFrame should contain the `picid` and
@@ -203,7 +208,7 @@ def get_postage_stamps(point_sources,
         stamp_size (int, optional): The size of the stamp to extract, default 10 pixels.
         x_column (str): The name of the column to use for the x position.
         y_column (str): The name of the column to use for the y position.
-        force_new (bool): If should create new file if old exists, default False.
+        force (bool): If should create new file if old exists, default False.
     Returns:
         str: The path to the csv file with
     """
@@ -215,8 +220,8 @@ def get_postage_stamps(point_sources,
     output_fn = output_fn or f'{unit_id}-{camera_id}-{seq_time}-{image_time}.csv'
 
     logger.debug(f'Looking for output file {output_fn}')
-    if os.path.exists(output_fn) and force_new is False:
-        logger.info(f'{output_fn} already exists and force_new=False, returning')
+    if os.path.exists(output_fn) and force is False:
+        logger.info(f'{output_fn} already exists and force=False, returning')
         return output_fn
 
     logger.debug(f'Extracting {len(point_sources)} point sources from {fits_fn}')

@@ -193,7 +193,7 @@ def search_observations(
                                    cache='update',
                                    show_progress=False,
                                    pkgname='panoptes')
-        obs_df = pd.read_csv(local_path).convert_dtypes()
+        obs_df = pd.read_csv(local_path)
 
     logger.info(f'Found {len(obs_df)} total observations')
 

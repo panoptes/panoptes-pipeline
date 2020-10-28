@@ -476,6 +476,7 @@ def extract_sources(fits_file,
         return bayer.get_pixel_color(row.measured_x_int, row.measured_y_int)
 
     point_sources['measured_peak_color'] = point_sources.apply(lambda row: get_color(row), axis=1)
+    point_sources['measured_peak_color'] = point_sources['measured_peak_color'].astype('category')
 
     # Add the image id to the front
     image_id = fits_utils.getval(fits_file, 'IMAGEID')

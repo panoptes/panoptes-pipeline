@@ -1,6 +1,5 @@
 import os
 import csv
-from contextlib import suppress
 
 import numpy as np
 import pandas as pd

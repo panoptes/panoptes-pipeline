@@ -8,6 +8,7 @@ from astropy.table import Table
 from panoptes.pipeline.utils import get_project_root
 
 from panoptes.utils.images import fits as fits_utils
+from panoptes.utils.images import bayer
 from panoptes.utils.logging import logger
 
 from panoptes.pipeline.utils.gcp.bigquery import get_bq_clients
@@ -437,20 +438,16 @@ def extract_sources(fits_file,
     logger.debug(f'Building detected source table with {catalog_filename}')
     point_sources = Table.read(catalog_filename, format='ascii.sextractor')
 
-    # Rename columns
-    point_sources.rename_column('XPEAK_IMAGE', 'x')
-    point_sources.rename_column('YPEAK_IMAGE', 'y')
-
     # Filter point sources near edge
     # w, h = data[0].shape
     logger.debug('Trimming sources near edge')
     w, h = img_dimensions
-    top = point_sources['y'] > trim_size
-    bottom = point_sources['y'] < w - trim_size
-    left = point_sources['x'] > trim_size
-    right = point_sources['x'] < h - trim_size
+    top = point_sources['YPEAK_IMAGE'] > trim_size
+    bottom = point_sources['YPEAK_IMAGE'] < w - trim_size
+    left = point_sources['XPEAK_IMAGE'] > trim_size
+    right = point_sources['XPEAK_IMAGE'] < h - trim_size
 
-    # Do the trim an convert to pandas.
+    # Do the trim and convert to pandas.
     point_sources = point_sources[top & bottom & right & left].to_pandas()
 
     # Rename all the columns at once.
@@ -459,8 +456,8 @@ def extract_sources(fits_file,
         'measured_dec',
         'measured_x_int',
         'measured_y_int',
-        'measured_x',
-        'measured_y',
+        'measured_x_peak',
+        'measured_y_peak',
         'measured_ellipticity',
         'measured_theta_image',
         'measured_flux_best',
@@ -474,11 +471,19 @@ def extract_sources(fits_file,
         'measured_flags',
     ]
 
+    # Get the pixel color for the peak.
+    def get_color(row):
+        return bayer.get_pixel_color(row.measured_x_int, row.measured_y_int)
+
+    point_sources['measured_peak_color'] = point_sources.apply(lambda row: get_color(row), axis=1)
+
     # Add the image id to the front
-    unit_id, camera_id, obstime = fits_utils.getval(fits_file, 'IMAGEID').split('_')
+    image_id = fits_utils.getval(fits_file, 'IMAGEID')
+    unit_id, camera_id, obstime = image_id.split('_')
+    point_sources['image_id'] = unit_id
     point_sources['unit_id'] = unit_id
     point_sources['camera_id'] = camera_id
     point_sources['time'] = obstime
 
     logger.debug(f'Returning {len(point_sources)} sources from source-extractor')
-    return point_sources.convert_dtypes()
+    return point_sources

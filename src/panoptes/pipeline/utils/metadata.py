@@ -1,14 +1,21 @@
+import os
+import shutil
+from glob import glob
 from contextlib import suppress
+import subprocess
 
+from dateutil.parser import parse as date_parse
 import pandas as pd
+from tqdm.auto import tqdm
+
 from astropy import units as u
 from astropy.coordinates import SkyCoord
 from astropy.utils.data import download_file
-from dateutil.parser import parse as date_parse
+
 from panoptes.utils import listify
 from panoptes.utils.logging import logger
 from panoptes.utils.time import current_time
-from tqdm.auto import tqdm
+from panoptes.utils.images import fits as fits_utils
 
 OBS_BASE_URL = 'https://storage.googleapis.com/panoptes-observations'
 OBSERVATIONS_URL = 'https://storage.googleapis.com/panoptes-exp.appspot.com/observations.csv'
@@ -270,3 +277,34 @@ def search_observations(
 
     logger.success(f'Returning {len(obs_df)} observations')
     return obs_df.reindex(columns=columns)
+
+def download_images(image_list, output_dir, overwrite=False, unpack=True, show_progress=True):
+    """Download images."""
+    os.makedirs(output_dir, exist_ok=True)
+
+    fits_files = list()
+    
+    iterator = image_list
+    if show_progress:
+        iterator = tqdm(iterator)
+        
+    wget = shutil.which('wget')
+        
+    for fits_file in iterator:
+        base = os.path.basename(fits_file)
+        unpacked = base.replace('.fz', '')
+
+        if not os.path.exists(f'{output_dir}/{base}') or overwrite:
+            if not os.path.exists(f'{output_dir}/{unpacked}') or overwrite:
+                download_cmd = [wget, '-q', fits_file, '-O', f'{output_dir}/{base}']
+                subprocess.run(download_cmd)
+
+        # Unpack the file if packed version exists locally.
+        if os.path.exists(f'{output_dir}/{base}') and unpack:
+            fits_utils.funpack(f'{output_dir}/{base}')
+            
+        if os.path.exists(f'{output_dir}/{unpacked}'):
+            fits_files.append(f'{output_dir}/{unpacked}')
+    
+    logger.debug(f'Downloaded {len(fits_files)} files.')
+    return fits_files

@@ -8,23 +8,29 @@ from dateutil.parser import parse as date_parse
 from panoptes.utils import listify
 from panoptes.utils.logging import logger
 from panoptes.utils.time import current_time
-from tqdm import tqdm
+from tqdm.auto import tqdm
 
 OBS_BASE_URL = 'https://storage.googleapis.com/panoptes-observations'
+OBSERVATIONS_URL = 'https://storage.googleapis.com/panoptes-exp.appspot.com/observations.csv'
 
 
 def get_metadata(sequence_id=None, fields=None, show_progress=False):
     """Access PANOPTES data from the network.
 
-    This function is capable of searching one type of object at a time, which is
-    specified via the respective id parameter.
-
+    This function is capable of searching for metadata of PANOPTES observations.
+    
+    Currently this only supports searching at the observation level, and
+    so the function is a thin-wrapper around the `get_observation_metadata`.
+    
     >>> from panoptes.utils.data import get_metadata
+    
     >>> # Get all image metadata for the observation.
     >>> sequence_id = 'PAN001_14d3bd_20170405T100854'
     >>> observation_df = get_metadata(sequence_id=sequence_id)
+    
     >>> type(observation_df)
     <class 'pandas.core.frame.DataFrame'>
+    
     >>> print('Total exptime: ', observation_df.image_exptime.sum())
     Total exptime:  7200.0
 
@@ -47,19 +53,26 @@ def get_metadata(sequence_id=None, fields=None, show_progress=False):
     Returns:
 
     """
-    # Get observation metadata from firestore.
+    # Pass request to `get_observation_metadata`.
     if sequence_id is not None:
         logger.debug(f'Getting metadata for {sequence_id}')
         return get_observation_metadata(sequence_id, fields=fields, show_progress=show_progress)
 
 
 def get_observation_metadata(sequence_ids, fields=None, show_progress=False):
-    """Get the metadata for given sequence_ids.
+    """Get the metadata for the given sequence_id(s).
+    
+    This function will search for pre-processed observations that have a stored
+    parquet file.
+    
+    Note that since the files are stored in parquet format, specifying the `fields`
+    does in fact save on the size of the returned data. If requesting many `sequence_ids`
+    it may be worth figuring out exactly what columns you need first.
 
     Args:
         sequence_ids (list): A list of sequence_ids as strings.
         fields (list|None):  A list of fields to fetch from the database in addition
-            to the 'time' and 'sequence_id' columns. If None, returns all fields.
+            to the 'time' and 'sequence_id' columns. If None, returns all fields. 
         show_progress (bool): If True, show a progress bar, default False.
 
     Returns:
@@ -95,28 +108,32 @@ def get_observation_metadata(sequence_ids, fields=None, show_progress=False):
         return
 
     df = pd.concat(observation_dfs)
+    
+    # Return column names in sorted order
     df = df.reindex(sorted(df.columns), axis=1)
 
     # TODO(wtgee) any data cleaning or preparation for observations here.
 
-    logger.success(f'Returning {len(df)} rows of metadata')
+    logger.success(f'Returning {len(df)} rows of metadata sorted by time')
     return df.sort_values(by=['time'])
 
 
 def search_observations(
+        coords=None,
         unit_id=None,
         start_date=None,
         end_date=None,
         ra=None,
         dec=None,
-        coords=None,
         radius=10,  # degrees
-        status=None,
+        status='matched',
         min_num_images=1,
-        source_url='https://storage.googleapis.com/panoptes-exp.appspot.com/observations.csv',
+        source_url=OBSERVATIONS_URL,
         source=None
 ):
     """Search PANOPTES observations.
+    
+    Either a `coords` or `ra` and `dec` must be specified for search to work.
 
     >>> from astropy.coordinates import SkyCoord
     >>> from panoptes.utils.data import search_observations
@@ -140,9 +157,9 @@ def search_observations(
     Total minutes exposure: 20376.83
 
     Args:
+        coords (`astropy.coordinates.SkyCoord`|None): A valid coordinate instance.
         ra (float|None): The RA position in degrees of the center of search.
         dec (float|None): The Dec position in degrees of the center of the search.
-        coords (`astropy.coordinates.SkyCoord`|None): A valid coordinate instance.
         radius (float): The search radius in degrees. Searches are currently done in
             a square box, so this is half the length of the side of the box.
         start_date (str|`datetime.datetime`|None): A valid datetime instance or `None` (default).
@@ -152,9 +169,11 @@ def search_observations(
         unit_id (str|list|None): A str or list of strs of unit_ids to include.
             Default `None` will include all.
         status (str|list|None): A str or list of observation status to include.
-            Default `None` will include all.
+            Defaults to "matched" for observations that have been fully processed. Passing
+            `None` will return all status.
         min_num_images (int): Minimum number of images the observation should have, default 1.
-        source_url (str): The remote url where the static CSV file is located.
+        source_url (str): The remote url where the static CSV file is located, default to PANOPTES
+            storage location.
         source (`pandas.DataFrame`|None): The dataframe to use or the search.
             If `None` (default) then the `source_url` will be used to look up the file.
 
@@ -165,7 +184,10 @@ def search_observations(
     logger.debug(f'Setting up search params')
 
     if coords is None:
-        coords = SkyCoord(ra=ra, dec=dec, unit='degree')
+        try:
+            coords = SkyCoord(ra=ra, dec=dec, unit='degree')
+        except ValueError:
+            raise 
 
     # Setup defaults for search.
     if start_date is None:

@@ -24,7 +24,7 @@ def find_similar_stars(
     """ Find PSCs in stamps that are morphologically similar to the PSC for picid.
 
     Args:
-        stamps(np.array): Collection of stamps with axes: frame, PIC, pixels
+        stamps (np.array): Collection of stamps with axes: frame, PIC, pixels
         (int): Index of target PIC
     """
     logger.info(f"Finding similar stars for PICID {picid}")
@@ -215,7 +215,6 @@ def get_postage_stamps(point_sources,
     image_time = os.path.basename(fits_fn).split('.')[0]
     unit_id, camera_id, seq_time = header['SEQID'].split('_')
 
-    row = point_sources.iloc[0]
     output_fn = output_fn or f'{unit_id}-{camera_id}-{seq_time}-{image_time}.csv'
 
     logger.debug(f'Looking for output file {output_fn}')

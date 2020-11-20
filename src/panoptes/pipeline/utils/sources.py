@@ -76,10 +76,13 @@ def get_stars(
         "e_tmag": "catalog_tmag_err",
         "gaiamag": "catalog_gaiamag",
         "e_gaiamag": "catalog_gaiamag_err",
-        "gaiabp": "catalog_gaiabp",
-        "e_gaiabp": "catalog_gaiabp_err",
-        "gaiarp": "catalog_gaiarp",
-        "e_gaiarp": "catalog_gaiarp_err",
+        # NOTE: The columns in BQ are currently mis-named for the GAIA b and r.
+        # The magnitude and error columns are switched, so we trick it here.
+        # TODO: Fix the BQ mapping.
+        "gaiabp": "catalog_gaiabp_err",
+        "e_gaiabp": "catalog_gaiabp",
+        "gaiarp": "catalog_gaiarp_err",
+        "e_gaiarp": "catalog_gaiarp",
     }
 
     column_mapping_str = ', '.join([f'{k} as {v}' for k, v in column_mapping.items()])

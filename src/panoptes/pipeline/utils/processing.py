@@ -38,8 +38,7 @@ def find_similar_stars(
     refs_list = list()
     for fits_file in iterator:
         # Load all the stamps and metadata
-        stamps0 = pd.read_csv(fits_file)
-        stamps0.picid = stamps0.picid.astype('int')
+        stamps0 = pd.read_csv(fits_file).sort_values(by='time')
 
         # Get the target.
         target_psc = stamps0.query('picid==@picid')
@@ -53,19 +52,24 @@ def find_similar_stars(
         normalized_target_stamp = target_stamp / target_stamp.sum()
 
         # Get the summed squared difference between stamps and target.
-        loss_score = ((normalized_stamps - normalized_target_stamp) ** 2).sum(1)
+        loss_score = ((normalized_target_stamp - normalized_stamps) ** 2).sum(1)
 
         # Return sorted score series.
         sort_idx = np.argsort(loss_score)
-        refs_list.append(pd.Series(loss_score[sort_idx], index=stamps0.picid[sort_idx]))
+        df_idx = pd.Index(stamps0.iloc[sort_idx].picid, name='picid')
+
+        refs_list.append(pd.Series(loss_score[sort_idx], index=df_idx))
 
     # Combine all the loss scores.
     target_refs = pd.concat(refs_list).reset_index().rename(columns={0: 'score'})
 
-    # Group by star and return top sorted scores.
-    top_refs = target_refs.groupby('picid').sum().sort_values(by='score')[:num_refs+1]
+    if num_refs is not None:
+        # Group by star and return top sorted scores.
+        top_refs = target_refs.groupby('picid').sum().sort_values(by='score')[:num_refs+1]
 
-    return top_refs
+        return top_refs
+    else:
+        return target_refs
 
 
 def get_refs_for_file(fits_file, stamps, num_refs=200):
@@ -98,7 +102,7 @@ def load_stamps(stamp_files, picid=None):
     stamps.picid = stamps.picid.astype('int')
     stamps.time = pd.to_datetime(stamps.time)
 
-    return stamps
+    return stamps.sort_values(by='time')
 
 
 def get_psc(picid, stamps, frame_slice=None):
@@ -189,8 +193,10 @@ def get_postage_stamps(point_sources,
                        fits_fn,
                        output_fn=None,
                        stamp_size=10,
-                       x_column='measured_x',
-                       y_column='measured_y',
+                       x_column='catalog_wcs_x_int',
+                       y_column='catalog_wcs_y_int',
+                       global_background=True,
+                       rgb_background=None,
                        force=False):
     """Extract postage stamps for each PICID in the given file.
 
@@ -212,7 +218,7 @@ def get_postage_stamps(point_sources,
         str: The path to the csv file with
     """
     data, header = fits.getdata(fits_fn, header=True)
-    image_time = os.path.basename(fits_fn).split('.')[0]
+    image_time = pd.to_datetime(os.path.basename(fits_fn).split('.')[0])
     unit_id, camera_id, seq_time = header['SEQID'].split('_')
 
     output_fn = output_fn or f'{unit_id}-{camera_id}-{seq_time}-{image_time}.csv'
@@ -221,6 +227,10 @@ def get_postage_stamps(point_sources,
     if os.path.exists(output_fn) and force is False:
         logger.info(f'{output_fn} already exists and force=False, returning')
         return output_fn
+
+    if global_background and rgb_background is None:
+        logger.debug(f'Getting global RGB background')
+        rgb_background = bayer.get_rgb_background(fits_fn)
 
     logger.debug(f'Extracting {len(point_sources)} point sources from {fits_fn}')
 
@@ -239,6 +249,13 @@ def get_postage_stamps(point_sources,
             'slice_x_start',
             'slice_x_stop',
         ]
+
+        if global_background:
+            csv_headers.extend([
+                'background_r',
+                'background_g',
+                'background_b',
+            ])
         csv_headers.extend([f'pixel_{i:02d}' for i in range(stamp_size ** 2)])
         writer.writerow(csv_headers)
 
@@ -252,7 +269,11 @@ def get_postage_stamps(point_sources,
 
             # Add the target slice to metadata to preserve original location.
             row['target_slice'] = target_slice
-            stamp = data[target_slice].flatten().tolist()
+            stamp = data[target_slice]
+
+            # Make sure we got a full stamp.
+            if stamp.shape != (stamp_size, stamp_size):
+                continue
 
             row_values = [
                 int(row.picid),
@@ -263,8 +284,19 @@ def get_postage_stamps(point_sources,
                 target_slice[0].stop,
                 target_slice[1].start,
                 target_slice[1].stop,
-                *stamp
             ]
+
+            if global_background:
+                # Get the background and average.
+                stamp_rgb_bg = rgb_background[target_slice]
+                try:
+                    rgb_bg_avg = [int(x.mean()) for x in bayer.get_rgb_data(stamp_rgb_bg)]
+                except Exception:
+                    rgb_bg_avg = [0, 0, 0]
+                finally:
+                    row_values.extend(rgb_bg_avg)
+
+            row_values.extend(stamp.flatten().tolist())
 
             # Write out stamp data
             writer.writerow(row_values)

@@ -4,9 +4,6 @@ import glob
 from enum import IntEnum
 
 from tqdm.auto import tqdm
-import numpy as np
-import pandas as pd
-from scipy import linalg
 
 from astropy.io import fits
 from astropy.stats import sigma_clipped_stats
@@ -262,7 +259,7 @@ def get_postage_stamps(point_sources,
                 # Get the background and average.
                 stamp_rgb_bg = rgb_background[target_slice]
                 try:
-                    rgb_bg_avg = [int(x.mean()) for x in bayer.get_rgb_data(stamp_rgb_bg)]
+                    rgb_bg_avg = [int(np.ma.mean(x)) for x in bayer.get_rgb_data(stamp_rgb_bg)]
                 except Exception:
                     rgb_bg_avg = [0, 0, 0]
                 finally:
@@ -283,31 +280,37 @@ def process_observation_sources(sequence_dir,
                                 background_sigma=3,
                                 observation_filename='observation.parquet',
                                 ):
+    logger.info(f'Processing {sequence_dir}')
     # Get sequence info.
     os.makedirs(f'{sequence_dir}/lightcurves', exist_ok=True)
 
     # Load stamps and get list of fits files.
+    logger.info(f'Loading Postage Stamp Cubes (PSC)')
     obs_stamps = pd.concat([pd.read_csv(f) for f in glob.glob(f'{sequence_dir}/sources/*-stamps.csv')])
     kdims = ['unit_id', 'camera_id', 'picid', 'time']
     obs_stamps.time = pd.to_datetime(obs_stamps.time, utc=True)
     obs_stamps = obs_stamps.set_index(kdims).sort_index()
 
     # Stamp data
+    logger.info(f'Normalizing PSCs')
     psc_data = obs_stamps.filter(regex='pixel_')
     # Normalize stamp data
     norm_psc_data = (psc_data.T / psc_data.sum(1)).T
     stamp_size = int(np.sqrt(psc_data.shape[-1]))
 
     # Load metadata for observation.
+    logger.info(f'Loading observation metadata')
     obs_df = pd.read_parquet(os.path.join(sequence_dir, observation_filename))
 
     num_frames = len(obs_stamps.reset_index().time.unique())
+    picid_list = list(obs_stamps.index.get_level_values('picid').unique())
 
-    picid_list = obs_stamps.picid.unique()
-
+    logger.info(f'Processing {len(picid_list)} over {num_frames} frames.')
     for picid in tqdm(picid_list, desc='Looking at stars...'):
         target_df = obs_df.query('picid==@picid')
         lightcurve_path = f'{sequence_dir}/lightcurves/{picid}.csv'
+
+        target_time = target_df.index.get_level_values('time')
 
         # Get the target data
         target_psc_data = psc_data.loc[:, :, picid, :]
@@ -363,7 +366,7 @@ def process_observation_sources(sequence_dir,
 
         # Get global background for target.
         target_back_df = obs_stamps.query('picid==@picid').sort_values(by='time').filter(regex='background')
-        target_back_df.index = target_df.time
+        target_back_df.index = target_time
         target_back_df = target_back_df.rename(
             columns={f'background_{c.name.lower()[0]}': f'{c.name.lower()[0]}' for c in RGB})
 
@@ -384,7 +387,7 @@ def process_observation_sources(sequence_dir,
         target_rgb_aperture = bayer.get_rgb_data(target_rgb_aperture_data)
         comp_rgb_aperture = bayer.get_rgb_data(comp_rgb_aperture_data)
 
-        rgb_lc_df = make_rgb_lightcurve(target_rgb_aperture, comp_rgb_aperture, target_df.time, norm=True).reset_index()
+        rgb_lc_df = make_rgb_lightcurve(target_rgb_aperture, comp_rgb_aperture, target_time, norm=True).reset_index()
         rgb_lc_df['picid'] = picid
         rgb_lc_df.to_csv(lightcurve_path, index=False)
 

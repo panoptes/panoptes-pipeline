@@ -1,18 +1,35 @@
 import os
 import csv
+import glob
+from enum import IntEnum
 
+from tqdm.auto import tqdm
 import numpy as np
 import pandas as pd
-from panoptes.utils import listify
 from scipy import linalg
 
 from astropy.io import fits
 from astropy.stats import sigma_clipped_stats
 
+from panoptes.utils import listify
 from panoptes.utils.images import bayer
 from panoptes.utils.logging import logger
 
-from tqdm import tqdm
+import pandas as pd
+import numpy as np
+from scipy import ndimage
+from sklearn.linear_model import LinearRegression
+
+
+class RGB(IntEnum):
+    """Helper class for array index access."""
+    RED = 0
+    R = 0
+    GREEN = 1
+    G = 1
+    G1 = 1
+    BLUE = 2
+    B = 2
 
 
 def find_similar_stars(
@@ -65,26 +82,11 @@ def find_similar_stars(
 
     if num_refs is not None:
         # Group by star and return top sorted scores.
-        top_refs = target_refs.groupby('picid').sum().sort_values(by='score')[:num_refs+1]
+        top_refs = target_refs.groupby('picid').sum().sort_values(by='score')[:num_refs + 1]
 
         return top_refs
     else:
         return target_refs
-
-
-def get_refs_for_file(fits_file, stamps, num_refs=200):
-    """Find references for all stamps. Not super efficient."""
-    stamps0 = pd.read_csv(fits_file)
-    picids = stamps0.picid.values
-
-    stamp_data = stamps0.filter(regex='pixel').to_numpy()
-    normalized_stamps = (stamp_data.T / stamp_data.sum(1)).T
-
-    refs_list = list()
-    for i, normalized_target_stamp in tqdm(enumerate(normalized_stamps), total=len(picids)):
-        refs_list.append(picids[np.argsort(((normalized_stamps - normalized_target_stamp) ** 2).sum(1))[:num_refs]])
-
-    return refs_list
 
 
 def load_stamps(stamp_files, picid=None):
@@ -103,36 +105,6 @@ def load_stamps(stamp_files, picid=None):
     stamps.time = pd.to_datetime(stamps.time)
 
     return stamps.sort_values(by='time')
-
-
-def get_psc(picid, stamps, frame_slice=None):
-    try:
-        psc = stamps.query('picid == @picid').filter(like='pixel_').to_numpy()
-    except KeyError:
-        raise Exception(f"{picid} not found in the stamp collection.")
-
-    if frame_slice is not None:
-        psc = psc[frame_slice]
-
-    return psc
-
-
-def get_ideal_full_coeffs(stamp_collection):
-    num_frames = stamp_collection.shape[1]
-    num_pixels = stamp_collection.shape[2]
-
-    target_frames = stamp_collection[0].flatten()
-    refs_frames = stamp_collection[1:].reshape(-1, num_frames * num_pixels).T
-
-    coeffs = linalg.lstsq(refs_frames, target_frames)
-
-    return coeffs
-
-
-def get_ideal_full_psc(stamp_collection, coeffs):
-    refs = stamp_collection[1:]
-    created_frame = (refs.T * coeffs).sum(2).T
-    return created_frame
 
 
 def get_stamp_size(df0, superpixel_padding=1):
@@ -303,3 +275,164 @@ def get_postage_stamps(point_sources,
 
     logger.debug(f'PSC file saved to {output_fn}')
     return output_fn
+
+
+def process_observation_sources(sequence_dir,
+                                num_refs=200,
+                                camera_bias=0,
+                                background_sigma=3,
+                                observation_filename='observation.parquet',
+                                ):
+    # Get sequence info.
+    os.makedirs(f'{sequence_dir}/lightcurves', exist_ok=True)
+
+    # Load stamps and get list of fits files.
+    obs_stamps = pd.concat([pd.read_csv(f) for f in glob.glob(f'{sequence_dir}/sources/*-stamps.csv')])
+    kdims = ['unit_id', 'camera_id', 'picid', 'time']
+    obs_stamps.time = pd.to_datetime(obs_stamps.time, utc=True)
+    obs_stamps = obs_stamps.set_index(kdims).sort_index()
+
+    # Stamp data
+    psc_data = obs_stamps.filter(regex='pixel_')
+    # Normalize stamp data
+    norm_psc_data = (psc_data.T / psc_data.sum(1)).T
+    stamp_size = int(np.sqrt(psc_data.shape[-1]))
+
+    # Load metadata for observation.
+    obs_df = pd.read_parquet(os.path.join(sequence_dir, observation_filename))
+
+    num_frames = len(obs_stamps.reset_index().time.unique())
+
+    picid_list = obs_stamps.picid.unique()
+
+    for picid in tqdm(picid_list, desc='Looking at stars...'):
+        target_df = obs_df.query('picid==@picid')
+        lightcurve_path = f'{sequence_dir}/lightcurves/{picid}.csv'
+
+        # Get the target data
+        target_psc_data = psc_data.loc[:, :, picid, :]
+        target_norm_psc_data = norm_psc_data.loc[:, :, picid, :]
+
+        # Get the SSD for each stamp separately.
+        all_refs_frame_scores = norm_psc_data.rsub(target_norm_psc_data).pow(2).sum(1)
+
+        # The sum of the SSDs for each source give final score, with smaller values better.
+        # The top value should have a score of `0` and should be the target.
+        all_ref_scores = all_refs_frame_scores.sum(level='picid').sort_values()
+
+        # Get the top refs by score. Skip the target at index=0.
+        top_refs_list = all_ref_scores[1:num_refs + 1].index.tolist()
+
+        # Filter the observation dataframe down to just the references.
+        refs_df = obs_df[obs_df.index.get_level_values(2).isin(top_refs_list)].sort_index()
+
+        # Get frame scores for references.
+        ref_picid_list = all_refs_frame_scores.index.get_level_values(3).isin(refs_df.index.get_level_values(2))
+        refs_scores = all_refs_frame_scores[ref_picid_list].reset_index()
+        refs_scores.time = pd.to_datetime(refs_scores.time, utc=True)
+
+        # Add final score to refs
+        refs_df['score'] = refs_scores.set_index(kdims)
+
+        # ### Create comparison star
+
+        # Get PSCs for references
+        refs_psc = psc_data[psc_data.index.isin(refs_df.index)].droplevel(['unit_id', 'camera_id'])
+        norm_refs_psc_data = norm_psc_data[norm_psc_data.index.isin(refs_df.index)].droplevel(['unit_id', 'camera_id'])
+
+        X_train = norm_refs_psc_data.to_numpy().reshape(num_refs, -1).T
+        X_test = refs_psc.to_numpy().reshape(num_refs, -1).T
+
+        y_train = target_norm_psc_data.to_numpy().flatten()
+        # y_test = target_psc_data.to_numpy().flatten()
+
+        lin_reg = LinearRegression().fit(X_train, y_train)
+
+        # Predict comparison from comparison stars with flux.
+        comp_psc = lin_reg.predict(X_test).reshape(num_frames, stamp_size, stamp_size)
+
+        # Get target array of same size/shape as comparison.
+        target_psc = target_psc_data.to_numpy().reshape(num_frames, stamp_size, stamp_size)
+
+        # ### Apertures
+        # #### Subtract background
+
+        # Split the data into three colors.
+        target_rgb_psc = bayer.get_rgb_data(target_psc) - camera_bias
+        comp_rgb_psc = bayer.get_rgb_data(comp_psc) - camera_bias
+
+        # Get global background for target.
+        target_back_df = obs_stamps.query('picid==@picid').sort_values(by='time').filter(regex='background')
+        target_back_df.index = target_df.time
+        target_back_df = target_back_df.rename(
+            columns={f'background_{c.name.lower()[0]}': f'{c.name.lower()[0]}' for c in RGB})
+
+        # Get background subtracted target and comparison using global background.
+        rgb_bg_sub_data = get_rgb_bg_sub_mask(target_rgb_psc, target_back_df.to_numpy().T,
+                                              background_sigma=background_sigma).sum(axis=0)
+        comp_rgb_bg_sub_data = get_rgb_bg_sub_mask(comp_rgb_psc, target_back_df.to_numpy().T,
+                                                   background_sigma=background_sigma).sum(axis=0)
+
+        # Make apertures from the comparison star.
+        apertures = make_apertures(comp_rgb_bg_sub_data)
+
+        # Get just aperture data.
+        target_rgb_aperture_data = np.ma.array(rgb_bg_sub_data.data, mask=apertures)
+        comp_rgb_aperture_data = np.ma.array(comp_rgb_bg_sub_data.data, mask=apertures)
+
+        # Split aperture data into rgb.
+        target_rgb_aperture = bayer.get_rgb_data(target_rgb_aperture_data)
+        comp_rgb_aperture = bayer.get_rgb_data(comp_rgb_aperture_data)
+
+        rgb_lc_df = make_rgb_lightcurve(target_rgb_aperture, comp_rgb_aperture, target_df.time, norm=True).reset_index()
+        rgb_lc_df['picid'] = picid
+        rgb_lc_df.to_csv(lightcurve_path, index=False)
+
+
+def get_rgb_bg_sub_mask(psc, background, background_std=None, background_sigma=3):
+    if background_std is None:
+        background_std = background.std(1)
+
+    rgb = list()
+    for color in RGB:
+        sub_back = background[color] + (background_sigma * background_std[color])
+
+        # Subtract from comparison
+        sub_comp = (psc[color].T - sub_back).T
+
+        sub_comp = np.ma.masked_less(sub_comp, 0)
+
+        rgb.append(sub_comp)
+
+    rgb_mask = np.ma.array(rgb)
+
+    return rgb_mask
+
+
+def make_apertures(rgb_data, smooth_filter=np.ones((3, 3)), *args, **kwargs):
+    # Get RGB data and make single stamp.
+    apertures = [~ndimage.binary_opening(rgb_data[i],
+                                         structure=smooth_filter,
+                                         iterations=1) for i in range(len(rgb_data))]
+    return np.ma.array(apertures)
+
+
+def make_rgb_lightcurve(target, comp, target_time, freq=None, norm=False):
+    lcs = dict()
+    num_frames = len(target_time)
+    for color in RGB:
+        lc = target[color].reshape(num_frames, -1).sum(1) / comp[color].reshape(num_frames, -1).sum(1)
+        lc_df = pd.DataFrame(lc, index=target_time)
+
+        if freq is not None:
+            lc_df = lc_df.resample(freq).mean()
+
+        lc_values = lc_df[0].values
+        if norm:
+            lc_values = lc_values / np.ma.median(lc_values)
+
+        lcs[color.name.lower()] = lc_values
+
+    df = pd.DataFrame(lcs, index=lc_df.index)
+
+    return df

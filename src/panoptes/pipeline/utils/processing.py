@@ -52,7 +52,7 @@ def find_similar_stars(
 
     iterator = stamp_files
     if show_progress:
-        iterator = tqdm(iterator, total=len(stamp_files), desc=f'Finding similar stars')
+        iterator = tqdm(iterator, total=len(stamp_files))
 
     refs_list = list()
     for fits_file in iterator:
@@ -291,6 +291,7 @@ def process_observation_sources(sequence_dir,
     sources_dir = f'{sequence_dir}/sources'
     os.makedirs(sources_dir, exist_ok=True)
     os.makedirs(f'{sequence_dir}/lightcurves', exist_ok=True)
+    os.makedirs(f'{sequence_dir}/psc', exist_ok=True)
 
     # The path for the metadata dataframe if it exists.
     images_df_path = f'{sequence_dir}/images-metadata.csv'
@@ -451,6 +452,7 @@ def process_observation_sources(sequence_dir,
     for picid in tqdm(picid_list, desc='Looking at stars...'):
         target_df = obs_df.query('picid==@picid')
         lightcurve_path = f'{sequence_dir}/lightcurves/{picid}.csv'
+        psc_path = f'{sequence_dir}/psc/{picid}.npz'
 
         target_time = target_df.index.get_level_values('time')
 
@@ -521,15 +523,10 @@ def process_observation_sources(sequence_dir,
         # Make apertures from the comparison star.
         apertures = make_apertures(comp_rgb_bg_sub_data)
 
-        # Get just aperture data.
-        target_rgb_aperture_data = np.ma.array(rgb_bg_sub_data.data, mask=apertures)
-        comp_rgb_aperture_data = np.ma.array(comp_rgb_bg_sub_data.data, mask=apertures)
+        # Save the target and comp PSC
+        np.savez_compressed(psc_path, target=rgb_bg_sub_data.data, comparison=comp_rgb_bg_sub_data.data, aperture=apertures)
 
-        # Split aperture data into rgb.
-        target_rgb_aperture = bayer.get_rgb_data(target_rgb_aperture_data)
-        comp_rgb_aperture = bayer.get_rgb_data(comp_rgb_aperture_data)
-
-        rgb_lc_df = make_rgb_lightcurve(target_rgb_aperture, comp_rgb_aperture, target_time, norm=True).reset_index()
+        rgb_lc_df = make_rgb_lightcurve(rgb_bg_sub_data, comp_rgb_bg_sub_data, apertures, target_time, norm=True).reset_index()
         rgb_lc_df['picid'] = picid
         rgb_lc_df.to_csv(lightcurve_path, index=False)
 
@@ -559,10 +556,19 @@ def make_apertures(rgb_data, smooth_filter=np.ones((3, 3)), *args, **kwargs):
     apertures = [~ndimage.binary_opening(rgb_data[i],
                                          structure=smooth_filter,
                                          iterations=1) for i in range(len(rgb_data))]
-    return np.ma.array(apertures)
+    return np.array(apertures)
 
 
-def make_rgb_lightcurve(target, comp, target_time, freq=None, norm=False):
+def make_rgb_lightcurve(target, comp, apertures, target_time, freq=None, norm=False):
+
+    # Get just aperture data.
+    target_rgb_aperture_data = np.ma.array(target.data, mask=apertures)
+    comp_rgb_aperture_data = np.ma.array(comp.data, mask=apertures)
+
+    # Split aperture data into rgb.
+    target_rgb_aperture = bayer.get_rgb_data(target_rgb_aperture_data)
+    comp_rgb_aperture = bayer.get_rgb_data(comp_rgb_aperture_data)
+
     lcs = dict()
     num_frames = len(target_time)
     for color in RGB:

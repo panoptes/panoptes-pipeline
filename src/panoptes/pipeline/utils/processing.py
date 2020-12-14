@@ -1,6 +1,5 @@
 import os
 import csv
-import glob
 from contextlib import suppress
 from enum import IntEnum
 
@@ -346,6 +345,9 @@ def process_observation_sources(sequence_dir,
                 if point_sources is not None:
                     point_sources.to_parquet(sources_filename, index=False)
                     all_point_sources.append(point_sources)
+            else:
+                # Load existing files.
+                all_point_sources.append(pd.read_parquet(sources_filename))
         except Exception as e:
             tqdm.write(f'Error: {fits_file} {e!r}')
 
@@ -356,8 +358,6 @@ def process_observation_sources(sequence_dir,
 
     # Explicit time cast
     obs_sources_df.time = pd.to_datetime(obs_sources_df.time, utc=True)
-
-    num_frames = len(obs_sources_df.time.unique())
 
     image_columns_drop = [
         'bucket_path',
@@ -399,34 +399,39 @@ def process_observation_sources(sequence_dir,
     image_slice_files = list()
     for fits_file in tqdm(fits_files, desc='Making Postage Stamp Cubes'):
         image_time = os.path.splitext(os.path.basename(fits_file))[0]
-
-        # Get background
-        rgb_background = get_rgb_background(fits_file)
-
         psc_fn = f'{sources_dir}/{image_time}-stamps.csv'
-        csv_fn = get_postage_stamps(xy_mean.reset_index(),
-                                    fits_file,
-                                    stamp_size=stamp_size,
-                                    x_column='catalog_wcs_x_int',
-                                    y_column='catalog_wcs_y_int',
-                                    output_fn=psc_fn,
-                                    global_background=True,
-                                    rgb_background=rgb_background,
-                                    force=force_new)
-        image_slice_files.append(csv_fn)
+
+        if not os.path.exists(psc_fn) or force_new:
+            # Get background
+            rgb_background = get_rgb_background(fits_file)
+            csv_fn = get_postage_stamps(xy_mean.reset_index(),
+                                        fits_file,
+                                        stamp_size=stamp_size,
+                                        x_column='catalog_wcs_x_int',
+                                        y_column='catalog_wcs_y_int',
+                                        output_fn=psc_fn,
+                                        global_background=True,
+                                        rgb_background=rgb_background,
+                                        force=force_new)
+            image_slice_files.append(csv_fn)
+        else:
+            image_slice_files.append(psc_fn)
+
+    full_info_fn = f'{sequence_dir}/observation.parquet'
 
     # Set the index
     kdims = ['unit_id', 'camera_id', 'picid', 'time']
 
-    logger.info(f'Loading Postage Stamp Cubes (PSC)')
-    stamps = load_stamps(image_slice_files)
-    stamps.time = pd.to_datetime(stamps.time, utc=True)
-    stamps_df = stamps.set_index(kdims).sort_index()
+    if not os.path.exists(full_info_fn) or force_new:
+        logger.info(f'Loading Postage Stamp Cubes (PSC)')
+        stamps = load_stamps(image_slice_files)
+        stamps.time = pd.to_datetime(stamps.time, utc=True)
+        stamps_df = stamps.set_index(kdims).sort_index()
 
-    obs_stamps = obs_sources_df.set_index(kdims).sort_index().merge(stamps_df, left_index=True, right_index=True)
-
-    full_info_fn = f'{sequence_dir}/observation.parquet'
-    obs_stamps.to_parquet(full_info_fn)
+        obs_stamps = obs_sources_df.set_index(kdims).sort_index().merge(stamps_df, left_index=True, right_index=True)
+        obs_stamps.to_parquet(full_info_fn)
+    else:
+        obs_stamps = pd.read_parquet(full_info_fn)
 
     # Load stamps and get list of fits files.
     # obs_stamps = pd.concat([pd.read_csv(f) for f in glob.glob(f'{sequence_dir}/sources/*-stamps.csv')])
@@ -449,10 +454,13 @@ def process_observation_sources(sequence_dir,
     picid_list = list(obs_stamps.index.get_level_values('picid').unique())
 
     logger.info(f'Processing {len(picid_list)} over {num_frames} frames.')
-    for picid in tqdm(picid_list, desc='Looking at stars...'):
+    for picid in tqdm(picid_list, desc='Looking at stars'):
         target_df = obs_df.query('picid==@picid')
         lightcurve_path = f'{sequence_dir}/lightcurves/{picid}.csv'
         psc_path = f'{sequence_dir}/psc/{picid}.npz'
+
+        if os.path.exists(lightcurve_path) and os.path.exists(psc_path) and force_new is False:
+            continue
 
         target_time = target_df.index.get_level_values('time')
 
@@ -524,9 +532,11 @@ def process_observation_sources(sequence_dir,
         apertures = make_apertures(comp_rgb_bg_sub_data)
 
         # Save the target and comp PSC
-        np.savez_compressed(psc_path, target=rgb_bg_sub_data.data, comparison=comp_rgb_bg_sub_data.data, aperture=apertures)
+        np.savez_compressed(psc_path, target=rgb_bg_sub_data.data, comparison=comp_rgb_bg_sub_data.data,
+                            aperture=apertures)
 
-        rgb_lc_df = make_rgb_lightcurve(rgb_bg_sub_data, comp_rgb_bg_sub_data, apertures, target_time, norm=True).reset_index()
+        rgb_lc_df = make_rgb_lightcurve(rgb_bg_sub_data, comp_rgb_bg_sub_data, apertures, target_time,
+                                        norm=True).reset_index()
         rgb_lc_df['picid'] = picid
         rgb_lc_df.to_csv(lightcurve_path, index=False)
 
@@ -560,7 +570,6 @@ def make_apertures(rgb_data, smooth_filter=np.ones((3, 3)), *args, **kwargs):
 
 
 def make_rgb_lightcurve(target, comp, apertures, target_time, freq=None, norm=False):
-
     # Get just aperture data.
     target_rgb_aperture_data = np.ma.array(target.data, mask=apertures)
     comp_rgb_aperture_data = np.ma.array(comp.data, mask=apertures)

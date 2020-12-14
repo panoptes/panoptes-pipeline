@@ -1,8 +1,12 @@
 import os
 import csv
 import glob
+from contextlib import suppress
 from enum import IntEnum
 
+from panoptes.pipeline.utils import sources
+from panoptes.pipeline.utils.gcp.bigquery import get_bq_clients
+from panoptes.utils.images.bayer import get_rgb_background
 from tqdm.auto import tqdm
 
 from astropy.io import fits
@@ -11,6 +15,7 @@ from astropy.stats import sigma_clipped_stats
 from panoptes.utils import listify
 from panoptes.utils.images import bayer
 from panoptes.utils.logging import logger
+from panoptes.utils.images import fits as fits_utils
 
 import pandas as pd
 import numpy as np
@@ -47,7 +52,7 @@ def find_similar_stars(
 
     iterator = stamp_files
     if show_progress:
-        iterator = tqdm(iterator, total=len(stamp_files))
+        iterator = tqdm(iterator, total=len(stamp_files), desc=f'Finding similar stars')
 
     refs_list = list()
     for fits_file in iterator:
@@ -90,7 +95,7 @@ def load_stamps(stamp_files, picid=None):
     """Load the stamp files with optional PICID filter."""
     stamps = list()
 
-    for fn in tqdm(stamp_files):
+    for fn in tqdm(stamp_files, desc='Loading stamp files'):
         df0 = pd.read_csv(fn)
         if picid is not None:
             df0 = df0.set_index('picid').loc[picid].reset_index()
@@ -279,17 +284,154 @@ def process_observation_sources(sequence_dir,
                                 camera_bias=0,
                                 background_sigma=3,
                                 observation_filename='observation.parquet',
+                                force_new=False,
                                 ):
     logger.info(f'Processing {sequence_dir}')
     # Get sequence info.
+    sources_dir = f'{sequence_dir}/sources'
+    os.makedirs(sources_dir, exist_ok=True)
     os.makedirs(f'{sequence_dir}/lightcurves', exist_ok=True)
 
-    # Load stamps and get list of fits files.
-    logger.info(f'Loading Postage Stamp Cubes (PSC)')
-    obs_stamps = pd.concat([pd.read_csv(f) for f in glob.glob(f'{sequence_dir}/sources/*-stamps.csv')])
+    # The path for the metadata dataframe if it exists.
+    images_df_path = f'{sequence_dir}/images-metadata.csv'
+
+    bq_client, bqstorage_client = get_bq_clients()
+
+    # Get the metadata from local file.
+    images_df = pd.read_csv(images_df_path).sort_values(by='time')
+
+    # Get the list of local paths for the downloaded images.
+    fits_files = images_df.local_file.to_list()
+
+    # Get the WCS for the first image
+    frame_index = 0
+    wcs0 = fits_utils.getwcs(fits_files[frame_index])
+
+    catalog_stars_fn = f'{sequence_dir}/catalog-stars.parquet'
+
+    if force_new:
+        with suppress(FileNotFoundError):
+            os.unlink(catalog_stars_fn)
+
+    try:
+        catalog_stars_df = pd.read_parquet(catalog_stars_fn)
+    except (FileNotFoundError, OSError):
+        catalog_stars_df = sources.get_stars_from_wcs(wcs0,
+                                                      vmag_min=6,
+                                                      vmag_max=13,
+                                                      numcont=5,
+                                                      bq_client=bq_client,
+                                                      bqstorage_client=bqstorage_client)
+        catalog_stars_df.to_parquet(catalog_stars_fn, index=False)
+
+    all_point_sources = list()
+    for fits_file in tqdm(fits_files, desc='Getting star positions'):
+        image_id = fits_utils.getval(fits_file, 'IMAGEID')
+        sources_filename = f'{sources_dir}/{image_id}-metadata.parquet'
+
+        try:
+            if not os.path.exists(sources_filename) or force_new:
+                wcs0 = fits_utils.getwcs(fits_file)
+                point_sources = sources.get_xy_positions(wcs0, catalog_stars_df)
+
+                # Get unit and camera id. Time from the filename.
+                unit_id, camera_id, _ = image_id.split('_')
+                obstime = os.path.splitext(os.path.basename(fits_file))[0]
+
+                point_sources['unit_id'] = unit_id
+                point_sources['camera_id'] = camera_id
+                point_sources['time'] = obstime
+
+                if point_sources is not None:
+                    point_sources.to_parquet(sources_filename, index=False)
+                    all_point_sources.append(point_sources)
+        except Exception as e:
+            tqdm.write(f'Error: {fits_file} {e!r}')
+
+    obs_sources_df = pd.concat(all_point_sources)
+
+    # Convert dtypes (mostly objects to strings) but not integers.
+    obs_sources_df.convert_dtypes(convert_integer=False)
+
+    # Explicit time cast
+    obs_sources_df.time = pd.to_datetime(obs_sources_df.time, utc=True)
+
+    num_frames = len(obs_sources_df.time.unique())
+
+    image_columns_drop = [
+        'bucket_path',
+        'local_file',
+        'sequence_id',
+        'image_id'
+    ]
+    images_df0 = images_df.drop(columns=image_columns_drop)
+    images_df0.time = pd.to_datetime(images_df0.time, utc=True)
+
+    # Merge individual image metadata with full observation metadata.
+    obs_sources_df = obs_sources_df.merge(images_df0, on=['time', 'unit_id'])
+    del images_df0
+
+    # Make xy catalog with the average positions from all measured frames.
+    xy_catalog = obs_sources_df.reset_index().filter(regex='picid|^catalog_wcs_x_int$|^catalog_wcs_y_int$').groupby(
+        'picid')
+
+    # Get just the position columns
+    xy_mean = xy_catalog.mean()
+
+    # Get the range for the measured peaks
+    xy_range = xy_catalog.transform(lambda grp: grp.max() - grp.min()).rename(
+        columns=dict(catalog_wcs_x_int='x_range', catalog_wcs_y_int='y_range'))
+    xy_range['picid'] = obs_sources_df.picid
+
+    # Add the range columns
+    xy_mean = xy_mean.join(xy_range.groupby('picid').max())
+
+    range_sigma = 2
+    superpixel_size = 4
+
+    # Get the mean of the range plus the sigma. Get the max of x or y.
+    stamp_range = int(np.ceil(max((xy_mean.mean() + (range_sigma * xy_mean.std())).filter(regex='range'))))
+    add_pixels = ((superpixel_size - (stamp_range - 2)) % superpixel_size)
+    stamp_size = int(stamp_range + add_pixels)
+
+    # Get slices
+    image_slice_files = list()
+    for fits_file in tqdm(fits_files, desc='Making Postage Stamp Cubes'):
+        image_time = os.path.splitext(os.path.basename(fits_file))[0]
+
+        # Get background
+        rgb_background = get_rgb_background(fits_file)
+
+        psc_fn = f'{sources_dir}/{image_time}-stamps.csv'
+        csv_fn = get_postage_stamps(xy_mean.reset_index(),
+                                    fits_file,
+                                    stamp_size=stamp_size,
+                                    x_column='catalog_wcs_x_int',
+                                    y_column='catalog_wcs_y_int',
+                                    output_fn=psc_fn,
+                                    global_background=True,
+                                    rgb_background=rgb_background,
+                                    force=force_new)
+        image_slice_files.append(csv_fn)
+
+    # Set the index
     kdims = ['unit_id', 'camera_id', 'picid', 'time']
-    obs_stamps.time = pd.to_datetime(obs_stamps.time, utc=True)
-    obs_stamps = obs_stamps.set_index(kdims).sort_index()
+
+    logger.info(f'Loading Postage Stamp Cubes (PSC)')
+    stamps = load_stamps(image_slice_files)
+    stamps.time = pd.to_datetime(stamps.time, utc=True)
+    stamps_df = stamps.set_index(kdims).sort_index()
+
+    obs_stamps = obs_sources_df.set_index(kdims).sort_index().merge(stamps_df, left_index=True, right_index=True)
+
+    full_info_fn = f'{sequence_dir}/observation.parquet'
+    obs_stamps.to_parquet(full_info_fn)
+
+    # Load stamps and get list of fits files.
+    # obs_stamps = pd.concat([pd.read_csv(f) for f in glob.glob(f'{sequence_dir}/sources/*-stamps.csv')])
+    # kdims = ['unit_id', 'camera_id', 'picid', 'time']
+    # obs_stamps.time = pd.to_datetime(obs_stamps.time, utc=True)
+    # obs_stamps = obs_stamps.set_index(kdims).sort_index()
 
     # Stamp data
     logger.info(f'Normalizing PSCs')

@@ -572,12 +572,15 @@ def make_rgb_lightcurve(target, comp, apertures, target_time, freq=None, norm=Fa
     lcs = dict()
     num_frames = len(target_time)
     for color in RGB:
-        lc = target[color].reshape(num_frames, -1).sum(1) / comp[color].reshape(num_frames, -1).sum(1)
+        target_sum = target_rgb_aperture[color].reshape(num_frames, -1).sum(1)
+        comp_sum = comp_rgb_aperture[color].reshape(num_frames, -1).sum(1)
+        lc = target_sum / comp_sum
         lc_df = pd.DataFrame(lc, index=target_time)
 
         if freq is not None:
             lc_df = lc_df.resample(freq).mean()
 
+        # The 'mean' above names the column '0'.
         lc_values = lc_df[0].values
         if norm:
             lc_values = lc_values / np.ma.median(lc_values)

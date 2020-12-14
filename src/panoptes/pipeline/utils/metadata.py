@@ -90,7 +90,7 @@ def get_observation_metadata(sequence_ids, fields=None, show_progress=False):
     observation_dfs = list()
 
     if show_progress:
-        iterator = tqdm(sequence_ids)
+        iterator = tqdm(sequence_ids, desc='Getting image metadata')
     else:
         iterator = sequence_ids
 
@@ -286,7 +286,7 @@ def download_images(image_list, output_dir, overwrite=False, unpack=True, show_p
     
     iterator = image_list
     if show_progress:
-        iterator = tqdm(iterator)
+        iterator = tqdm(iterator, desc='Downloading images')
         
     wget = shutil.which('wget')
         

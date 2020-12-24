@@ -450,83 +450,85 @@ def process_observation_sources(sequence_id,
 
     logger.info(f'Processing {len(picid_list)} stars over {num_frames} frames.')
     for picid in tqdm(picid_list, desc='Looking at stars'):
-#         tqdm.write(f'Starting {picid}')
-        lightcurve_path = f'{subdirs["lightcurves"]}/{picid}.csv'
-        psc_path = f'{sequence_dir}/psc/{picid}.npz'
-
-        if os.path.exists(lightcurve_path) and os.path.exists(psc_path):
-            continue
-
-        # Get the target data
-        target_norm_psc_data = norm_psc_data.loc[:, :, picid, :]
-
-        # Get the SSD for each stamp separately.
-#         tqdm.write(f'Making ssd per frame for {picid}')
-        ssd_per_frame = norm_psc_data.rsub(target_norm_psc_data).pow(2).sum(1)
-
-        # The sum of the SSDs for each source give final score, with smaller values better.
-        # The top value should have a score of `0` and should be the target.
-        final_scores = ssd_per_frame.sum(level='picid').sort_values()
-
-        assert final_scores.iloc[0] == 0.
-#         tqdm.write('Have final scores for {picid}')
-
-        # Get the top refs by score. Skip the target at index=0.
-        top_refs_list = final_scores[1:num_refs + 1].index.tolist()
-
-        # Filter the observation dataframe down to just the references.
-        refs_meta_index = obs_sources_df.index.get_level_values('picid').isin(top_refs_list)
-        refs_df = obs_sources_df[refs_meta_index].copy().sort_index()
-
-        # Get SSD value for references for each frame.
-        ssd_index = ssd_per_frame.index.get_level_values('picid').isin(top_refs_list)
-        refs_scores = ssd_per_frame[ssd_index].reset_index()
-        refs_scores.time = pd.to_datetime(refs_scores.time, utc=True)
-
-        # Add final score to the reference metadata.
-        refs_df['similarity_score'] = refs_scores.set_index(kdims)
-
-        # ### Create comparison star
-
-        # Get PSCs for target and references.
-        drop_index_cols = ['unit_id', 'camera_id']
-        refs_psc = psc_data[refs_meta_index].droplevel(drop_index_cols)
-        norm_refs_psc = norm_psc_data[refs_meta_index].droplevel(drop_index_cols)
-
-        # Build the comparison PSC.
-#         tqdm.write('Building comparison star for {picid}')
-        comparison_psc = build_comparison_psc(norm_refs_psc, num_refs, refs_psc,
-                                              target_norm_psc_data)
-
-        # Get target array of same size/shape as comparison.
-        target_psc_data = psc_data.loc[:, :, picid, :].droplevel(drop_index_cols)
-
-        # Put into an actual cube for RGB extraction.
-        comparison_psc = comparison_psc.reshape(num_frames, stamp_size, stamp_size)
-        target_psc = target_psc_data.to_numpy().reshape(num_frames, stamp_size, stamp_size)
+        # Output the target and comparison as direct arrays (for now).
+        psc_path = f'{subdirs["psc"]}/{picid}.npz'
+        process_target(picid, norm_psc_data, obs_sources_df, psc_data, stamp_size,
+                       num_refs=num_refs, output_path=psc_path)
 
         # Split the data into three colors.
-#         target_rgb_psc = bayer.get_rgb_data(target_psc)
-#         comp_rgb_psc = bayer.get_rgb_data(comparison_psc)
+        #         target_rgb_psc = bayer.get_rgb_data(target_psc)
+        #         comp_rgb_psc = bayer.get_rgb_data(comparison_psc)
 
         # Get background subtracted target and comparison using global background.
         # Mask negative pixels.
-#         target_rgb_psc = np.ma.masked_less(target_rgb_psc, 0)
-#         comp_rgb_psc = np.ma.masked_less(comp_rgb_psc, 0)
+        #         target_rgb_psc = np.ma.masked_less(target_rgb_psc, 0)
+        #         comp_rgb_psc = np.ma.masked_less(comp_rgb_psc, 0)
 
         # Mask saturated pixels.
-#         target_rgb_psc = np.ma.masked_greater(target_rgb_psc, saturation_limit)
-#         comp_rgb_psc = np.ma.masked_greater(comp_rgb_psc, saturation_limit)
+        #         target_rgb_psc = np.ma.masked_greater(target_rgb_psc, saturation_limit)
+        #         comp_rgb_psc = np.ma.masked_greater(comp_rgb_psc, saturation_limit)
 
-#         target_rgb_psc = mask_outliers(target_rgb_psc, upper_limit=saturation_limit)
-#         comp_rgb_psc = mask_outliers(comp_rgb_psc, upper_limit=saturation_limit)
+        #         target_rgb_psc = mask_outliers(target_rgb_psc, upper_limit=saturation_limit)
+        #         comp_rgb_psc = mask_outliers(comp_rgb_psc, upper_limit=saturation_limit)
 
-#         target_df = obs_sources_df.query('picid==@picid').reset_index().sort_values(by='time')
+        #         target_df = obs_sources_df.query('picid==@picid').reset_index().sort_values(
+        #         by='time')
 
-        logger.info('Saving final PSC for {picid}')
-        np.savez_compressed(psc_path,
-                            target=target_psc.astype('int16'),
-                            comparison=comparison_psc.astype('int16'))
+
+def process_target(picid, norm_psc_data, obs_sources_df, psc_data, stamp_size, num_refs=200,
+                   output_path=None, force_new=False):
+    if os.path.exists(output_path) and force_new is False:
+        return
+
+    num_frames = norm_psc_data.shape[1]
+
+    # Get the target data
+    target_norm_psc_data = norm_psc_data.loc[:, :, picid, :]
+
+    # Get the SSD for each stamp separately.
+    ssd_per_frame = norm_psc_data.rsub(target_norm_psc_data).pow(2).sum(1)
+
+    # The sum of the SSDs for each source give final score, with smaller values better.
+    # The top value should have a score of `0` and should be the target.
+    final_scores = ssd_per_frame.sum(level='picid').sort_values()
+    assert final_scores.iloc[0] == 0.  # TODO make approximate?
+
+    # Get the top refs by score. Skip the target at index=0.
+    top_refs_list = final_scores[1:num_refs + 1].index.tolist()
+
+    # Filter the observation dataframe down to just the references.
+    refs_meta_index = obs_sources_df.index.get_level_values('picid').isin(top_refs_list)
+
+    # Get PSCs for target and references.
+    drop_index_cols = ['unit_id', 'camera_id']
+    refs_psc = psc_data[refs_meta_index].droplevel(drop_index_cols)
+    norm_refs_psc = norm_psc_data[refs_meta_index].droplevel(drop_index_cols)
+
+    # Build the comparison PSC.
+    try:
+        comparison_psc = build_comparison_psc(target_norm_psc_data,
+                                              norm_refs_psc,
+                                              refs_psc,
+                                              num_refs=num_refs,
+                                              )
+    except Exception as e:
+        return
+
+    # Get target array of same size/shape as comparison.
+    target_psc_data = psc_data.loc[:, :, picid, :].droplevel(drop_index_cols)
+
+    # Put into an actual cube for RGB extraction.
+    comparison_psc = comparison_psc.reshape(num_frames, stamp_size, stamp_size)
+    target_psc = target_psc_data.to_numpy().reshape(num_frames, stamp_size, stamp_size)
+
+    logger.info('Saving final PSC for {picid}')
+    np.savez_compressed(output_path,
+                        target=target_psc.astype('int16'),
+                        comparison=comparison_psc.astype('int16'),
+                        ref_list=top_refs_list,
+                        ref_scores=final_scores
+                        )
+
 
 #         final_df = pd.DataFrame({'target': target_psc.reshape(num_frames, -1),
 #                                  'comparison': comparison_psc.reshape(num_frames, -1)},
@@ -534,24 +536,24 @@ def process_observation_sources(sequence_id,
 #         final_df['picid'] = picid
 #         final_df.reset_index().to_csv(lightcurve_path, index=False)
 
-        # # Make apertures from the comparison star.
-        # apertures = make_apertures(comp_rgb_psc)
-        #
-        # # Save the target and comp PSC.
-        # np.savez_compressed(psc_path, target=target_rgb_psc.data,
-        #                     comparison=comp_rgb_psc.data,
-        #                     aperture=apertures)
+# # Make apertures from the comparison star.
+# apertures = make_apertures(comp_rgb_psc)
+#
+# # Save the target and comp PSC.
+# np.savez_compressed(psc_path, target=target_rgb_psc.data,
+#                     comparison=comp_rgb_psc.data,
+#                     aperture=apertures)
 
-        # rgb_lc_df = make_rgb_lightcurve(target_rgb_psc,
-        #                                 comp_rgb_psc,
-        #                                 apertures,
-        #                                 target_time,
-        #                                 norm=True).reset_index()
-        # rgb_lc_df['picid'] = picid
-        # rgb_lc_df.to_csv(lightcurve_path, index=False)
+# rgb_lc_df = make_rgb_lightcurve(target_rgb_psc,
+#                                 comp_rgb_psc,
+#                                 apertures,
+#                                 target_time,
+#                                 norm=True).reset_index()
+# rgb_lc_df['picid'] = picid
+# rgb_lc_df.to_csv(lightcurve_path, index=False)
 
 
-def build_comparison_psc(norm_refs_psc, num_refs, refs_psc, target_norm_psc_data):
+def build_comparison_psc(target_norm_psc_data, norm_refs_psc, refs_psc, num_refs=200):
     X_train = norm_refs_psc.to_numpy().reshape(num_refs, -1).T
     X_test = refs_psc.to_numpy().reshape(num_refs, -1).T
 

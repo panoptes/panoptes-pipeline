@@ -219,7 +219,7 @@ def get_postage_stamps(point_sources,
 
     if global_background and rgb_background is None:
         logger.debug(f'Getting global RGB background')
-        rgb_background = bayer.get_rgb_background(fits_fn)
+        rgb_background = lookup_rgb_background(fits_fn)
 
     logger.debug(f'Extracting {len(point_sources)} point sources from {fits_fn}')
     with open(output_fn, 'w') as metadata_fn:
@@ -271,7 +271,7 @@ def get_postage_stamps(point_sources,
             ]
 
             if global_background and rgb_background is not None:
-                # Subtract the RGB background, which should not include the bias.
+                # Subtract the RGB background.
                 stamp = stamp - rgb_background[target_slice]
 
             row_values.extend(stamp.flatten().tolist())
@@ -592,7 +592,7 @@ def make_apertures(rgb_data, smooth_filter=np.ones((3, 3)), *args, **kwargs):
     return np.array(apertures)
 
 
-def lookup_rgb_background(filename, box_size=(79, 84), camera_bias=0, save=True, **kwargs):
+def lookup_rgb_background(filename, box_size=(79, 84), camera_bias=2048, save=True, **kwargs):
     sub_fn = filename.replace('.fits', '-bg-subtracted.fits')
 
     if os.path.exists(sub_fn):

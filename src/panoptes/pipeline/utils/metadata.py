@@ -12,7 +12,7 @@ from astropy import units as u
 from astropy.coordinates import SkyCoord
 from astropy.utils.data import download_file
 
-from panoptes.utils import listify
+from panoptes.utils.utils import listify
 from panoptes.utils.logging import logger
 from panoptes.utils.time import current_time
 from panoptes.utils.images import fits as fits_utils
@@ -25,19 +25,19 @@ def get_metadata(sequence_id=None, fields=None, show_progress=False):
     """Access PANOPTES data from the network.
 
     This function is capable of searching for metadata of PANOPTES observations.
-    
+
     Currently this only supports searching at the observation level, and
     so the function is a thin-wrapper around the `get_observation_metadata`.
-    
+
     >>> from panoptes.utils.data import get_metadata
-    
+
     >>> # Get all image metadata for the observation.
     >>> sequence_id = 'PAN001_14d3bd_20170405T100854'
     >>> observation_df = get_metadata(sequence_id=sequence_id)
-    
+
     >>> type(observation_df)
     <class 'pandas.core.frame.DataFrame'>
-    
+
     >>> print('Total exptime: ', observation_df.image_exptime.sum())
     Total exptime:  7200.0
 
@@ -68,10 +68,10 @@ def get_metadata(sequence_id=None, fields=None, show_progress=False):
 
 def get_observation_metadata(sequence_ids, fields=None, show_progress=False):
     """Get the metadata for the given sequence_id(s).
-    
+
     This function will search for pre-processed observations that have a stored
     parquet file.
-    
+
     Note that since the files are stored in parquet format, specifying the `fields`
     does in fact save on the size of the returned data. If requesting many `sequence_ids`
     it may be worth figuring out exactly what columns you need first.
@@ -79,7 +79,7 @@ def get_observation_metadata(sequence_ids, fields=None, show_progress=False):
     Args:
         sequence_ids (list): A list of sequence_ids as strings.
         fields (list|None):  A list of fields to fetch from the database in addition
-            to the 'time' and 'sequence_id' columns. If None, returns all fields. 
+            to the 'time' and 'sequence_id' columns. If None, returns all fields.
         show_progress (bool): If True, show a progress bar, default False.
 
     Returns:
@@ -115,7 +115,7 @@ def get_observation_metadata(sequence_ids, fields=None, show_progress=False):
         return
 
     df = pd.concat(observation_dfs)
-    
+
     # Return column names in sorted order
     df = df.reindex(sorted(df.columns), axis=1)
 
@@ -139,7 +139,7 @@ def search_observations(
         source=None
 ):
     """Search PANOPTES observations.
-    
+
     Either a `coords` or `ra` and `dec` must be specified for search to work.
 
     >>> from astropy.coordinates import SkyCoord
@@ -194,9 +194,9 @@ def search_observations(
         try:
             coords = SkyCoord(ra=ra, dec=dec, unit='degree')
         except ValueError:
-            raise 
+            raise
 
-    # Setup defaults for search.
+            # Setup defaults for search.
     if start_date is None:
         start_date = '2018-01-01'
 
@@ -278,18 +278,19 @@ def search_observations(
     logger.success(f'Returning {len(obs_df)} observations')
     return obs_df.reindex(columns=columns)
 
+
 def download_images(image_list, output_dir, overwrite=False, unpack=True, show_progress=True):
     """Download images."""
     os.makedirs(output_dir, exist_ok=True)
 
     fits_files = list()
-    
+
     iterator = image_list
     if show_progress:
         iterator = tqdm(iterator, desc='Downloading images')
-        
+
     wget = shutil.which('wget')
-        
+
     for fits_file in iterator:
         base = os.path.basename(fits_file)
         unpacked = base.replace('.fz', '')
@@ -302,9 +303,9 @@ def download_images(image_list, output_dir, overwrite=False, unpack=True, show_p
         # Unpack the file if packed version exists locally.
         if os.path.exists(f'{output_dir}/{base}') and unpack:
             fits_utils.funpack(f'{output_dir}/{base}')
-            
+
         if os.path.exists(f'{output_dir}/{unpacked}'):
             fits_files.append(f'{output_dir}/{unpacked}')
-    
+
     logger.debug(f'Downloaded {len(fits_files)} files.')
     return fits_files

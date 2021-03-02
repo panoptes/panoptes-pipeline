@@ -1,11 +1,11 @@
 import os
 import shutil
 import subprocess
+from pathlib import Path
 
 from astropy import units as u
 from astropy.coordinates import SkyCoord
 from astropy.table import Table
-from panoptes.pipeline.utils import get_project_root
 from panoptes.utils.images import fits as fits_utils
 from panoptes.utils.images import bayer
 from panoptes.utils.logging import logger
@@ -519,3 +519,7 @@ def extract_sources(fits_file,
 
     logger.debug(f'Returning {len(point_sources)} sources from source-extractor')
     return point_sources
+
+
+def get_project_root() -> Path:
+    return Path(__file__).parent.parent.parent.parent.parent

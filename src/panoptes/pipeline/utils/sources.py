@@ -522,4 +522,5 @@ def extract_sources(fits_file,
 
 
 def get_project_root() -> Path:
+    """Ugh."""
     return Path(__file__).parent.parent.parent.parent.parent

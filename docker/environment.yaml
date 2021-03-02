@@ -13,4 +13,4 @@ dependencies:
   - pyarrow
   - scipy
   - pip:
-      - git+git://github.com/panoptes/panoptes-utils@develop#egg=panoptes-utils[images]
+      - panoptes-utils[images]

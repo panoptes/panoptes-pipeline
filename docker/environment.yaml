@@ -1,0 +1,16 @@
+channels:
+  - https://conda.anaconda.org/conda-forge
+dependencies:
+  - astropy
+  - google-cloud-bigquery
+  - google-cloud-bigquery-storage
+  - jupyterlab
+  - matplotlib-base
+  - numpy
+  - pandas
+  - pillow
+  - pip
+  - pyarrow
+  - scipy
+  - pip:
+      - panoptes-utils[images]

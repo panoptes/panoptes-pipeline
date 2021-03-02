@@ -1,35 +1,37 @@
-ARG image_url=gcr.io/panoptes-exp/panoptes-utils:develop
-FROM ${image_url} AS pocs-base
+ARG image_url=gcr.io/panoptes-exp/panoptes-utils
+ARG image_tag=develop
+FROM ${image_url}:${image_tag} AS base
 
-LABEL description="Development environment for working with the pipeline"
+LABEL description="Development environment for working with the PIPELINE"
 LABEL maintainers="developers@projectpanoptes.org"
 LABEL repo="github.com/panoptes/panoptes-pipeline"
 
-ARG panuser=panoptes
 ARG userid=1000
-ARG pan_dir=/var/panoptes
-ARG pocs_dir="${pan_dir}/POCS"
-ARG conda_env_name="base"
+ENV USERID $userid
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV LANG=C.UTF-8 LC_ALL=C.UTF-8
-ENV SHELL /bin/zsh
 
-ENV USERID $userid
-ENV PANDIR $pan_dir
-ENV PANLOG "$pan_dir/logs"
-ENV PANUSER $panuser
-ENV POCS $pocs_dir
+USER "${userid}"
+COPY docker/environment.yaml .
+RUN /conda/bin/conda env update -n base -f environment.yaml
 
-COPY --chown=panoptes:panoptes . /var/panoptes/panoptes-pipeline/
-RUN echo "Installing panoptes-pipeline" && \
-    cd /var/panoptes/panoptes-pipeline && \
-    "${PANDIR}/conda/bin/pip" install -e . && \
+ARG pip_install_name="."
+ARG pip_install_extras=""
+
+COPY --chown="${userid}:${userid}" . .
+RUN echo "Installing ${pip_install_name} module with ${pip_install_extras}" && \
+    /conda/bin/pip install "${pip_install_name}${pip_install_extras}" && \
     # Cleanup
-    sudo apt-get autoremove --purge --yes && \
+    /conda/bin/pip cache purge && \
+    /conda/bin/conda clean -fay && \
+    sudo apt-get autoremove --purge --yes \
+        gcc pkg-config git && \
     sudo apt-get autoclean --yes && \
+    sudo apt-get --yes clean && \
     sudo rm -rf /var/lib/apt/lists/*
 
-USER root
-WORKDIR ${PANDIR}
+WORKDIR /app
 
+ENTRYPOINT [ "/usr/bin/env", "bash", "-ic" ]
+CMD [ "jupyterlab" ]

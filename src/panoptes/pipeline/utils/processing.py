@@ -1,157 +1,106 @@
 import os
 import csv
-from contextlib import suppress
+import shutil
+from enum import IntEnum
 
-import numpy as np
 import pandas as pd
-from scipy import linalg
+import numpy as np
+from panoptes.utils.images.bayer import get_rgb_background
+from scipy import ndimage
+from sklearn.linear_model import LinearRegression
+
+from tqdm.auto import tqdm
 
 from astropy.io import fits
-from astropy.stats import sigma_clipped_stats
 
+from panoptes.utils.utils import listify
+from panoptes.utils.time import current_time
 from panoptes.utils.images import bayer
 from panoptes.utils.logging import logger
+from panoptes.utils.images import fits as fits_utils
 
-from tqdm import tqdm
-
-
-def normalize(cube):
-    return (cube.T / cube.sum(1)).T
+from panoptes.pipeline.utils import sources
+from panoptes.pipeline.utils.gcp.bigquery import get_bq_clients
+from panoptes.pipeline.utils import metadata
 
 
 def find_similar_stars(
         picid,
-        stamps,
-        csv_file=None,
-        camera_bias=2048,
-        num_refs=100,
-        snr_limit=10,
+        stamp_files,
+        num_refs=200,
         show_progress=True,
-        force_new=False,
         *args, **kwargs):
-    """ Get all variances for given target
+    """ Find PSCs in stamps that are morphologically similar to the PSC for picid.
 
     Args:
-        stamps(np.array): Collection of stamps with axes: frame, PIC, pixels
+        stamps (np.array): Collection of stamps with axes: frame, PIC, pixels
         (int): Index of target PIC
     """
     logger.info(f"Finding similar stars for PICID {picid}")
 
-    if force_new and csv_file and os.path.exists(csv_file):
-        logger.info(f"Forcing new file for {picid}")
-        with suppress(FileNotFoundError):
-            os.remove(csv_file)
+    stamp_files = listify(stamp_files)
 
-    with suppress(FileNotFoundError, ValueError):
-        df0 = pd.read_csv(csv_file, index_col=[0])
-        logger.success(f"Found existing csv file: {df0}")
-        return df0
-
-    logger.debug("Getting Target PSC and subtracting bias")
-    psc0 = get_psc(picid, stamps, **kwargs) - camera_bias
-    logger.debug(f"Target PSC shape: {psc0.shape}")
-    num_frames = psc0.shape[0]
-
-    # Normalize
-    logger.debug(f"Normalizing target for {num_frames} frames")
-    normalized_psc0 = np.zeros_like(psc0, dtype='f4')
-
-    good_frames = []
-    for frame_index in range(num_frames):
-        try:
-            if psc0[frame_index].sum() > 0.:
-                # Normalize and store frame
-                normalized_psc0[frame_index] = psc0[frame_index] / psc0[frame_index].sum()
-
-                # Save frame index
-                good_frames.append(frame_index)
-            else:
-                logger.warning(f"Sum for target frame {frame_index} is 0")
-        except RuntimeWarning:
-            logger.warning(f"Skipping frame {frame_index}")
-
-    iterator = enumerate(list(stamps.keys()))
+    iterator = stamp_files
     if show_progress:
-        iterator = tqdm(
-            iterator,
-            total=len(stamps),
-            desc="Finding similar",
-            leave=False
-        )
+        iterator = tqdm(iterator, total=len(stamp_files))
 
-    for i, source_index in iterator:
-        # Skip low SNR (if we know SNR)
-        try:
-            snr = float(stamps[source_index].attrs['snr'])
-            if snr < snr_limit:
-                logger.debug(f"Skipping PICID {source_index}, low snr {snr:.02f}")
-                continue
-        except KeyError:
-            logger.debug(f"No source in table: {picid}")
-            pass
+    refs_list = list()
+    for fits_file in iterator:
+        # Load all the stamps and metadata
+        stamps0 = pd.read_csv(fits_file).sort_values(by='time')
 
-        try:
-            psc1 = get_psc(source_index, stamps, **kwargs) - camera_bias
-        except Exception:
-            continue
+        # Get the target.
+        target_psc = stamps0.query('picid==@picid')
 
-        normalized_psc1 = np.zeros_like(psc1, dtype='f4')
+        # Get just the stamp data minus the camera bias.
+        stamp_data = stamps0.filter(regex='pixel').to_numpy()
+        target_stamp = target_psc.filter(regex='pixel').to_numpy()
 
-        # Normalize
-        for frame_index in good_frames:
-            if psc1[frame_index].sum() > 0.:
-                normalized_psc1[frame_index] = psc1[frame_index] / psc1[frame_index].sum()
+        # Normalize stamps.
+        normalized_stamps = (stamp_data.T / stamp_data.sum(1)).T
+        normalized_target_stamp = target_stamp / target_stamp.sum()
 
-        # Store in the grid
-        data = dict()
-        try:
-            v = ((normalized_psc0 - normalized_psc1) ** 2).sum()
-            data[source_index] = v
-        except ValueError as e:
-            logger.debug(f"Skipping invalid stamp for source {source_index}: {e!r}")
+        # Get the summed squared difference between stamps and target.
+        loss_score = ((normalized_target_stamp - normalized_stamps) ** 2).sum(1)
 
-    df0 = pd.DataFrame(
-        {'v': list(data.values())},
-        index=list(data.keys())).sort_values(by='v')
+        # Return sorted score series.
+        sort_idx = np.argsort(loss_score)
+        df_idx = pd.Index(stamps0.iloc[sort_idx].picid, name='picid')
 
-    if csv_file:
-        df0[:num_refs].to_csv(csv_file)
+        refs_list.append(pd.Series(loss_score[sort_idx], index=df_idx))
 
-    return df0
+    # Combine all the loss scores.
+    target_refs = pd.concat(refs_list).reset_index().rename(columns={0: 'score'})
+
+    if num_refs is not None:
+        # Group by star and return top sorted scores.
+        top_refs = target_refs.groupby('picid').sum().sort_values(by='score')[:num_refs + 1]
+
+        return top_refs
+    else:
+        return target_refs
 
 
-def get_psc(picid, stamps, frame_slice=None):
-    try:
-        psc = stamps.query('picid == @picid').filter(like='pixel_').to_numpy()
-    except KeyError:
-        raise Exception(f"{picid} not found in the stamp collection.")
+def load_stamps(stamp_files, picid=None):
+    """Load the stamp files with optional PICID filter."""
+    stamps = list()
 
-    if frame_slice is not None:
-        psc = psc[frame_slice]
+    for fn in tqdm(stamp_files, desc='Loading stamp files'):
+        df0 = pd.read_csv(fn)
+        if picid is not None:
+            df0 = df0.set_index('picid').loc[picid].reset_index()
 
-    return psc
+        stamps.append(df0)
 
+    stamps = pd.concat(stamps)
+    stamps.picid = stamps.picid.astype('int')
+    stamps.time = pd.to_datetime(stamps.time, utc=True)
 
-def get_ideal_full_coeffs(stamp_collection):
-    num_frames = stamp_collection.shape[1]
-    num_pixels = stamp_collection.shape[2]
-
-    target_frames = stamp_collection[0].flatten()
-    refs_frames = stamp_collection[1:].reshape(-1, num_frames * num_pixels).T
-
-    coeffs = linalg.lstsq(refs_frames, target_frames)
-
-    return coeffs
+    return stamps.sort_values(by='time')
 
 
-def get_ideal_full_psc(stamp_collection, coeffs):
-    refs = stamp_collection[1:]
-    created_frame = (refs.T * coeffs).sum(2).T
-    return created_frame
-
-
-def get_stamp_size(df0, superpixel_padding=1):
-    """Get the stamp size for given pixel drifts.
+def get_stamp_info(df0, range_sigma=1, superpixel_size=4):
+    """Get the stamp positions and size for given pixel drifts.
 
     This will find the median drift length in both coordinate axes and append
     a padding of superpixels. The returned length is for an assumed square postage
@@ -180,43 +129,67 @@ def get_stamp_size(df0, superpixel_padding=1):
                 rgxxxxxxxxrg
 
     Args:
-        df0 (`pandas.DataFrame`): A DataFrame that includes the `x_max/x_min` and
-            `y_max/y_min` columns
-        superpixel_padding (int, optional): The number of superpixels to place
-            around the area the star traverses.
+        df0 (`pandas.DataFrame`): A DataFrame that includes the 'catalog_wcs_x_int'
+            and 'catalog_wcs_y_int' columns.
 
     Returns:
-        int: The length of one side of a square postage stamp.
+        pandas.DataFrame: DataFrame with mean catalog positions and a calculated
+            stamp_size.
     """
-    # Get the movement stats
-    x_range_mean, x_range_med, x_range_std = sigma_clipped_stats(df0.x_max - df0.x_min)
-    y_range_mean, y_range_med, y_range_std = sigma_clipped_stats(df0.y_max - df0.y_min)
+    # Make xy catalog with the average positions from all measured frames.
+    xy_catalog = df0.reset_index().filter(
+        regex='picid|^catalog_wcs_x_int$|^catalog_wcs_y_int$')
 
-    # Get the larger of the two movements
-    stamp_size = max(int(x_range_med + round(x_range_std)), int(y_range_med + round(y_range_std)))
+    # Get just the position columns
+    xy_mean = xy_catalog.groupby('picid').mean()
 
-    # Round to nearest superpixel integer
-    stamp_size = 2 * round(stamp_size / 2)
+    # Get the range for the measured peaks
+    xy_range = xy_catalog.groupby('picid').transform(lambda grp: grp.max() - grp.min())
+    xy_range.rename(columns=dict(catalog_wcs_x_int='x_range', catalog_wcs_y_int='y_range'),
+                    inplace=True)
+    xy_range['picid'] = df0.picid
 
-    # Add padding for our superpixels (i.e. number of superpixels * pixel width of superpixel)
-    stamp_size += (superpixel_padding * 4)
+    # Add the range columns
+    xy_mean = xy_mean.join(xy_range.groupby('picid').max())
 
-    return stamp_size
+    # Get the upper quantile of all sources plus one std
+    stamp_range = np.ceil(
+        max((xy_mean.quantile(q=0.95) + (range_sigma * xy_mean.std())).filter(regex='range')))
+    # Rounds up to the nearest allowed size based on the superpixel.
+    add_pixels = ((superpixel_size - (stamp_range - 2)) % superpixel_size)
+    stamp_size = int(stamp_range + add_pixels)
+
+    xy_mean['stamp_size'] = stamp_size
+
+    return xy_mean.reset_index()
 
 
 def get_postage_stamps(point_sources,
-                       fits_fn,
+                       fits_fn=None,
+                       data=None,
+                       header=None,
                        output_fn=None,
                        stamp_size=10,
-                       x_column='measured_x',
-                       y_column='measured_y',
-                       force=False):
+                       x_column='catalog_wcs_x_int',
+                       y_column='catalog_wcs_y_int',
+                       global_background=True,
+                       rgb_background=None,
+                       camera_bias=0,
+                       force=False,
+                       show_progress=True,
+                       ):
     """Extract postage stamps for each PICID in the given file.
 
+    The `point_sources` DataFrame should contain the `picid` and
+    x_column and y_column specified. The `IMAGEID` in the fits file
+    will be used to look up the `unit_id`, `camera_id`, and `time`.
+
     Args:
-        point_sources (`pandas.DataFrame`): A DataFrame containing the results from `source-extractor`.
+        point_sources (`pandas.DataFrame`): A DataFrame containing the results
+            the `picid` and x and y columns.
         fits_fn (str): The name of the FITS file to extract stamps from.
-        output_fn (str, optional): Path for output csv file.
+        output_fn (str, optional): Path for output csv file, defaults to local
+            csv file with id as name.
         stamp_size (int, optional): The size of the stamp to extract, default 10 pixels.
         x_column (str): The name of the column to use for the x position.
         y_column (str): The name of the column to use for the y position.
@@ -224,19 +197,25 @@ def get_postage_stamps(point_sources,
     Returns:
         str: The path to the csv file with
     """
+    if fits_fn and data is None:
+        data, header = fits.getdata(fits_fn, header=True)
 
-    row = point_sources.iloc[0]
-    output_fn = output_fn or f'{row.unit_id}-{row.camera_id}-{row.seq_time}-{row.img_time}.csv'
-    logger.debug(f'Looking for {output_fn}')
+    raw_data = data.copy() - camera_bias
+    image_time = pd.to_datetime(os.path.basename(fits_fn).split('.')[0])
+    unit_id, camera_id, seq_time = header['SEQID'].split('_')
+
+    output_fn = output_fn or f'{unit_id}-{camera_id}-{seq_time}-{image_time}.csv'
+
+    logger.debug(f'Looking for output file {output_fn}')
     if os.path.exists(output_fn) and force is False:
-        logger.info(f'{output_fn} already exists and force=False, returning')
+        logger.debug(f'{output_fn} already exists and force=False, returning existing file')
         return output_fn
 
-    data = fits.getdata(fits_fn)
+    if global_background and rgb_background is None:
+        logger.debug(f'Getting global RGB background')
+        rgb_background = bayer.get_rgb_background(fits_fn)
 
     logger.debug(f'Extracting {len(point_sources)} point sources from {fits_fn}')
-
-    logger.debug(f'Starting source extraction for {fits_fn}')
     with open(output_fn, 'w') as metadata_fn:
         writer = csv.writer(metadata_fn, quoting=csv.QUOTE_MINIMAL)
 
@@ -251,10 +230,18 @@ def get_postage_stamps(point_sources,
             'slice_x_start',
             'slice_x_stop',
         ]
+
+        if global_background:
+            csv_headers.extend(['bg_red', 'bg_green', 'bg_blue'])
+
         csv_headers.extend([f'pixel_{i:02d}' for i in range(stamp_size ** 2)])
         writer.writerow(csv_headers)
 
-        for idx, row in point_sources.iterrows():
+        iter = point_sources.iterrows()
+        if show_progress:
+            iter = tqdm(iter, total=len(point_sources), desc='Making stamps')
+
+        for idx, row in iter:
             # Get the stamp for the target
             target_slice = bayer.get_stamp_slice(
                 row[x_column], row[y_column],
@@ -262,24 +249,407 @@ def get_postage_stamps(point_sources,
                 ignore_superpixel=False
             )
 
-            # Add the target slice to metadata to preserve original location.
-            row['target_slice'] = target_slice
-            stamp = data[target_slice].flatten().tolist()
+            # Get the stamp from the data and subtract the camera bias.
+            stamp = raw_data[target_slice]
+
+            # Make sure we got a full stamp.
+            if stamp.shape != (stamp_size, stamp_size):
+                continue
 
             row_values = [
                 int(row.picid),
-                str(row.unit_id),
-                str(row.camera_id),
-                row.time,
+                str(unit_id),
+                str(camera_id),
+                image_time,
                 target_slice[0].start,
                 target_slice[0].stop,
                 target_slice[1].start,
                 target_slice[1].stop,
-                *stamp
             ]
+
+            if global_background and rgb_background is not None:
+                # Subtract the RGB background, which should not include the bias.
+                rgb_stamp = rgb_background[target_slice]
+
+                r, g, b = bayer.get_rgb_data(rgb_stamp)
+                row_values.extend([
+                    np.ma.median(r),
+                    np.ma.median(g),
+                    np.ma.median(b),
+                ])
+
+                stamp = stamp - rgb_stamp
+
+            row_values.extend(stamp.flatten().tolist())
 
             # Write out stamp data
             writer.writerow(row_values)
 
     logger.debug(f'PSC file saved to {output_fn}')
     return output_fn
+
+
+def process_observation_sources(sequence_id,
+                                output_dir='.',
+                                num_refs=200,
+                                camera_bias=2048,
+                                stamp_size=None,
+                                saturation_limit=11495,  # After subtracting bias.
+                                bg_box_size=(79, 84),
+                                observation_filename='observation.parquet',
+                                force_new=False,
+                                frame_slice=slice(None, None),
+                                ):
+    logger.info(f'Processing {sequence_id}')
+
+    start_time = current_time(flatten=True)
+
+    sequence_dir = os.path.realpath(f'{output_dir}/{sequence_id}/{start_time}')
+
+    # Cleanup old processing if requested.
+    if force_new and os.path.exists(sequence_dir):
+        logger.info(f'Forcing new processing by deleting existing {sequence_dir}')
+        shutil.rmtree(sequence_dir, ignore_errors=True)
+
+    # Create directories for output.
+    subdir_names = ['sources', 'lightcurves', 'psc', 'stamps', 'images']
+    subdirs = dict()
+    for subdir in subdir_names:
+        dir_path = f'{sequence_dir}/{subdir}'
+        subdirs[subdir] = dir_path
+        os.makedirs(dir_path, exist_ok=True)
+
+    # Get the metadata from local file.
+    images_df = metadata.get_metadata(sequence_id=sequence_id).sort_values(by='time')
+
+    # Get the list of local paths for the downloaded images.
+    image_list = images_df.public_url.to_list()
+
+    # Download the files
+    fits_files = metadata.download_images(image_list, subdirs['images'])[frame_slice]
+    num_frames = len(fits_files)
+
+    # Lookup the stars in the field.
+    catalog_stars_fn = f'{sequence_dir}/catalog-stars.parquet'
+    try:
+        catalog_stars_df = pd.read_parquet(catalog_stars_fn)
+    except (FileNotFoundError, OSError):
+        # BigQuery lookup.
+        bq_client, bqstorage_client = get_bq_clients()
+
+        # Get the WCS for the middle image. This searches with a larger radius than
+        # the WCS so only one lookup is needed even if all the frames are slightly off.
+        wcs0 = fits_utils.getwcs(fits_files[int(num_frames / 2)])
+        catalog_stars_df = sources.get_stars_from_wcs(wcs0,
+                                                      vmag_min=6,
+                                                      vmag_max=13,
+                                                      # numcont=5,
+                                                      bq_client=bq_client,
+                                                      bqstorage_client=bqstorage_client)
+        catalog_stars_df.to_parquet(catalog_stars_fn, index=False)
+
+    # Get the xy positions of the catalog stars for each frame.
+    all_point_sources = list()
+    for fits_file in tqdm(fits_files, desc='Getting star positions'):
+        image_id = fits_utils.getval(fits_file, 'IMAGEID')
+        sources_filename = f'{subdirs["sources"]}/{image_id}-metadata.parquet'
+
+        try:
+            if not os.path.exists(sources_filename):
+                # Get the stellar positions for all catalog stars using WCS for frame.
+                wcs0 = fits_utils.getwcs(fits_file)
+                point_sources = sources.get_xy_positions(wcs0, catalog_stars_df)
+
+                # Get unit and camera id. Time from the filename.
+                unit_id, camera_id, _ = image_id.split('_')
+                obstime = os.path.splitext(os.path.basename(fits_file))[0]
+
+                # Add the id columns.
+                point_sources['unit_id'] = unit_id
+                point_sources['camera_id'] = camera_id
+                point_sources['time'] = obstime
+
+                if point_sources is not None:
+                    point_sources.to_parquet(sources_filename, index=False)
+                    all_point_sources.append(point_sources)
+            else:
+                # Load existing files.
+                all_point_sources.append(pd.read_parquet(sources_filename))
+        except Exception as e:
+            tqdm.write(f'Error: {fits_file} {e!r}')
+
+    # Make a single dataframe for all the frames.
+    obs_sources_df = pd.concat(all_point_sources)
+    obs_sources_df.convert_dtypes(convert_integer=False)
+    obs_sources_df.time = pd.to_datetime(obs_sources_df.time, utc=True)
+    del all_point_sources
+
+    image_columns_drop = [
+        'bucket_path',
+        'local_file',
+        'sequence_id',
+        'image_id'
+    ]
+    images_df0 = images_df.drop(columns=image_columns_drop, errors='ignore')
+    images_df0.time = pd.to_datetime(images_df0.time, utc=True)
+
+    # Merge individual image metadata with full observation metadata.
+    obs_sources_df = obs_sources_df.merge(images_df0, on=['time', 'unit_id'])
+    del images_df0
+
+    # Figure out the appropriate stamp size.
+    if stamp_size is None:
+        xy_mean = get_stamp_info(obs_sources_df)
+        stamp_size = xy_mean['stamp_size'].iloc[0]
+
+    # Get slices
+    image_slice_files = list()
+    for fits_file in tqdm(fits_files,
+                          desc=f'Making {stamp_size}x{stamp_size} stamps'):
+        image_time = os.path.splitext(os.path.basename(fits_file))[0]
+        stamp_fn = f'{subdirs["stamps"]}/{image_time}-stamps.csv'
+
+        if not os.path.exists(stamp_fn):
+            # Get and save the RGB background, which will include the camera bias.
+            rgb_background = lookup_rgb_background(fits_file,
+                                                   box_size=bg_box_size,
+                                                   camera_bias=camera_bias,
+                                                   save=True)
+            csv_fn = get_postage_stamps(xy_mean,
+                                        fits_file,
+                                        stamp_size=stamp_size,
+                                        x_column='catalog_wcs_x_int',
+                                        y_column='catalog_wcs_y_int',
+                                        output_fn=stamp_fn,
+                                        global_background=True,
+                                        rgb_background=rgb_background,
+                                        camera_bias=camera_bias,
+                                        force=force_new,
+                                        show_progress=False
+                                        )
+            image_slice_files.append(csv_fn)
+        else:
+            image_slice_files.append(stamp_fn)
+
+    full_info_fn = f'{sequence_dir}/{observation_filename}'
+
+    # Set the index
+    kdims = ['unit_id', 'camera_id', 'picid', 'time']
+
+    # Load all the stamps.
+    if not os.path.exists(full_info_fn):
+        logger.info(f'Loading Postage Stamp Cubes (PSC)')
+        stamps = load_stamps(image_slice_files)
+        stamps.time = pd.to_datetime(stamps.time, utc=True)
+        stamps_df = stamps.set_index(kdims).sort_index()
+
+        obs_sources_df = obs_sources_df.set_index(kdims).sort_index().merge(stamps_df,
+                                                                            left_index=True,
+                                                                            right_index=True)
+        obs_sources_df.to_parquet(full_info_fn)
+    else:
+        obs_sources_df = pd.read_parquet(full_info_fn)
+
+    # Normalize stamp data
+    logger.info(f'Normalizing PSCs')
+    psc_data = obs_sources_df.filter(regex='pixel_')
+    norm_psc_data = (psc_data.T / psc_data.sum(1)).T
+
+    num_frames = len(obs_sources_df.reset_index().time.unique())
+    picid_list = list(obs_sources_df.index.get_level_values('picid').unique())
+
+    logger.info(f'Processing {len(picid_list)} stars over {num_frames} frames.')
+    for picid in tqdm(picid_list, desc='Looking at stars'):
+        #         tqdm.write(f'Starting {picid}')
+        lightcurve_path = f'{subdirs["lightcurves"]}/{picid}.csv'
+        psc_path = f'{sequence_dir}/psc/{picid}.npz'
+
+        if os.path.exists(lightcurve_path) and os.path.exists(psc_path):
+            continue
+
+        # Get the target data
+        target_norm_psc_data = norm_psc_data.loc[:, :, picid, :]
+
+        # Get the SSD for each stamp separately.
+        #         tqdm.write(f'Making ssd per frame for {picid}')
+        ssd_per_frame = norm_psc_data.rsub(target_norm_psc_data).pow(2).sum(1)
+
+        # The sum of the SSDs for each source give final score, with smaller values better.
+        # The top value should have a score of `0` and should be the target.
+        final_scores = ssd_per_frame.sum(level='picid').sort_values()
+
+        assert final_scores.iloc[0] == 0.
+        #         tqdm.write('Have final scores for {picid}')
+
+        # Get the top refs by score. Skip the target at index=0.
+        top_refs_list = final_scores[1:num_refs + 1].index.tolist()
+
+        # Filter the observation dataframe down to just the references.
+        refs_meta_index = obs_sources_df.index.get_level_values('picid').isin(top_refs_list)
+        refs_df = obs_sources_df[refs_meta_index].copy().sort_index()
+
+        # Get SSD value for references for each frame.
+        ssd_index = ssd_per_frame.index.get_level_values('picid').isin(top_refs_list)
+        refs_scores = ssd_per_frame[ssd_index].reset_index()
+        refs_scores.time = pd.to_datetime(refs_scores.time, utc=True)
+
+        # Add final score to the reference metadata.
+        refs_df['similarity_score'] = refs_scores.set_index(kdims)
+
+        # ### Create comparison star
+
+        # Get PSCs for target and references.
+        drop_index_cols = ['unit_id', 'camera_id']
+        refs_psc = psc_data[refs_meta_index].droplevel(drop_index_cols)
+        norm_refs_psc = norm_psc_data[refs_meta_index].droplevel(drop_index_cols)
+
+        # Build the comparison PSC.
+        #         tqdm.write('Building comparison star for {picid}')
+        try:
+            comparison_psc = build_comparison_psc(norm_refs_psc, num_refs, refs_psc,
+                                                  target_norm_psc_data)
+        except Exception as e:
+            tqdm.write(f'Problem with {picid}: {e!r}')
+            continue
+
+        # Get target array of same size/shape as comparison.
+        target_psc_data = psc_data.loc[:, :, picid, :].droplevel(drop_index_cols)
+
+        # Put into an actual cube for RGB extraction.
+        comparison_psc = comparison_psc.reshape(num_frames, stamp_size, stamp_size)
+        target_psc = target_psc_data.to_numpy().reshape(num_frames, stamp_size, stamp_size)
+
+        logger.info('Saving final PSC for {picid}')
+        np.savez_compressed(psc_path,
+                            target=target_psc.astype('int16'),
+                            comparison=comparison_psc.astype('int16'),
+                            ref_list=top_refs_list,
+                            ref_scores=final_scores
+                            )
+
+        # Split the data into three colors.
+        #         target_rgb_psc = bayer.get_rgb_data(target_psc)
+        #         comp_rgb_psc = bayer.get_rgb_data(comparison_psc)
+
+        # Get background subtracted target and comparison using global background.
+        # Mask negative pixels.
+        #         target_rgb_psc = np.ma.masked_less(target_rgb_psc, 0)
+        #         comp_rgb_psc = np.ma.masked_less(comp_rgb_psc, 0)
+
+        # Mask saturated pixels.
+        #         target_rgb_psc = np.ma.masked_greater(target_rgb_psc, saturation_limit)
+        #         comp_rgb_psc = np.ma.masked_greater(comp_rgb_psc, saturation_limit)
+
+        #         target_rgb_psc = mask_outliers(target_rgb_psc, upper_limit=saturation_limit)
+        #         comp_rgb_psc = mask_outliers(comp_rgb_psc, upper_limit=saturation_limit)
+
+        #         target_df = obs_sources_df.query('picid==@picid').reset_index().sort_values(
+        #         by='time')
+
+
+
+def build_comparison_psc(norm_refs_psc, num_refs, refs_psc, target_norm_psc_data):
+    X_train = norm_refs_psc.to_numpy().reshape(num_refs, -1).T
+    X_test = refs_psc.to_numpy().reshape(num_refs, -1).T
+
+    y_train = target_norm_psc_data.to_numpy().flatten()
+    # y_test = target_psc_data.to_numpy().flatten()
+
+    lin_reg = LinearRegression().fit(X_train, y_train)
+
+    # Predict comparison from comparison stars with flux.
+    comp_psc = lin_reg.predict(X_test)
+
+    return comp_psc
+
+
+def mask_outliers(psc, lower_limit=0, upper_limit=11490):
+    rgb = list()
+    for color in RGB:
+        # Mask negative pixels.
+        df0 = np.ma.masked_less(psc[color], lower_limit)
+
+        # Mask saturated pixels.
+        df0 = np.ma.masked_greater(df0, upper_limit)
+
+        rgb.append(df0)
+
+    rgb_mask = np.ma.array(rgb)
+
+    return rgb_mask.sum(axis=0)
+
+
+def make_apertures(rgb_data, smooth_filter=np.ones((3, 3)), *args, **kwargs):
+    # Get RGB data and make single stamp.
+    apertures = [~ndimage.binary_opening(rgb_data[i],
+                                         structure=smooth_filter,
+                                         iterations=1) for i in range(len(rgb_data))]
+    return np.array(apertures)
+
+
+def lookup_rgb_background(fits_fn=None, data=None, header=None,
+                          box_size=(79, 84), camera_bias=0, save=True,
+                          output_fn=None, force_new=False, **kwargs):
+    sub_fn = output_fn or fits_fn.replace('.fits', '-bg-subtracted.fits')
+
+    if fits_fn is None and data is None:
+        raise ValueError(f'Need either a fits_fn or data')
+
+    if not os.path.exists(sub_fn) or force_new:
+        if data is not None:
+            raw_data = data.copy()
+        else:
+            # Get raw data.
+            raw_data, header = fits_utils.getdata(fits_fn, header=True)
+
+        # Get the background with bias subtracted.
+        rgb_bg_data = get_rgb_background(data=raw_data,
+                                         box_size=box_size,
+                                         camera_bias=camera_bias,
+                                         **kwargs)
+
+        if save:
+            # Bias not included in bg so need to subtract again.
+            subtracted_data = raw_data - camera_bias - rgb_bg_data
+
+            raw_hdu = fits.PrimaryHDU(raw_data.astype('int16'), header=header)
+            # Todo: fix this so headers are appropriate.
+            sub_hdu = fits.ImageHDU(subtracted_data.astype('int16'), header=header)
+            back_hdu = fits.ImageHDU(rgb_bg_data.astype('int16'), header=header)
+
+            hdul = fits.HDUList([raw_hdu, sub_hdu, back_hdu])
+            hdul.writeto(sub_fn, overwrite=True)
+
+    return sub_fn
+
+
+def make_rgb_lightcurve(target, comp, apertures, target_time, freq=None, norm=False):
+    # Get just aperture data.
+    target_rgb_aperture_data = np.ma.array(target.data, mask=apertures)
+    comp_rgb_aperture_data = np.ma.array(comp.data, mask=apertures)
+
+    # Split aperture data into rgb.
+    target_rgb_aperture = bayer.get_rgb_data(target_rgb_aperture_data)
+    comp_rgb_aperture = bayer.get_rgb_data(comp_rgb_aperture_data)
+
+    lcs = dict()
+    num_frames = len(target_time)
+    for color in RGB:
+        target_sum = target_rgb_aperture[color].reshape(num_frames, -1).sum(1)
+        comp_sum = comp_rgb_aperture[color].reshape(num_frames, -1).sum(1)
+        lc = target_sum / comp_sum
+        lc_df = pd.DataFrame(lc, index=target_time)
+
+        if freq is not None:
+            lc_df = lc_df.resample(freq).mean()
+
+        # The 'mean' above names the column '0'.
+        lc_values = lc_df[0].values
+        if norm:
+            lc_values = lc_values / np.ma.median(lc_values)
+
+        lcs[color.name.lower()] = lc_values
+
+    df = pd.DataFrame(lcs, index=lc_df.index)
+
+    return df

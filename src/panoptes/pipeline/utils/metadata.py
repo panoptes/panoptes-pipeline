@@ -1,17 +1,14 @@
 import os
 import shutil
-from glob import glob
 from contextlib import suppress
 import subprocess
 
 from dateutil.parser import parse as date_parse
 import pandas as pd
 from tqdm.auto import tqdm
-
 from astropy import units as u
 from astropy.coordinates import SkyCoord
 from astropy.utils.data import download_file
-
 from panoptes.utils.utils import listify
 from panoptes.utils.logging import logger
 from panoptes.utils.time import current_time
@@ -23,6 +20,8 @@ OBSERVATIONS_URL = 'https://storage.googleapis.com/panoptes-exp.appspot.com/obse
 
 def get_metadata(sequence_id=None, fields=None, show_progress=False):
     """Access PANOPTES data from the network.
+
+    NOTE: This is slated for removal soon.
 
     This function is capable of searching for metadata of PANOPTES observations.
 
@@ -68,6 +67,8 @@ def get_metadata(sequence_id=None, fields=None, show_progress=False):
 
 def get_observation_metadata(sequence_ids, fields=None, show_progress=False):
     """Get the metadata for the given sequence_id(s).
+
+    NOTE: This is slated for removal soon.
 
     This function will search for pre-processed observations that have a stored
     parquet file.
@@ -280,7 +281,10 @@ def search_observations(
 
 
 def download_images(image_list, output_dir, overwrite=False, unpack=True, show_progress=True):
-    """Download images."""
+    """Download images.
+
+    Temporary helper script that needs to be more robust.
+    """
     os.makedirs(output_dir, exist_ok=True)
 
     fits_files = list()

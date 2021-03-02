@@ -3,14 +3,12 @@ import shutil
 import subprocess
 
 from astropy import units as u
-from astropy.coordinates import SkyCoord, match_coordinates_sky
+from astropy.coordinates import SkyCoord
 from astropy.table import Table
 from panoptes.pipeline.utils import get_project_root
-
 from panoptes.utils.images import fits as fits_utils
 from panoptes.utils.images import bayer
 from panoptes.utils.logging import logger
-
 from panoptes.pipeline.utils.gcp.bigquery import get_bq_clients
 
 
@@ -68,7 +66,7 @@ def get_stars(
 
     column_mapping = column_mapping or {
         "id": "picid",
-#         "twomass": "twomass",
+        #         "twomass": "twomass",
         "gaia": "gaia",
         "ra": "catalog_ra",
         "dec": "catalog_dec",
@@ -112,7 +110,8 @@ def get_stars(
         results = bq_client.query(sql)
         if return_dataframe:
             results = results.result().to_dataframe(bqstorage_client=bqstorage_client)
-            logger.debug(f'Found {len(results)} in Vmag=[{vmag_min}, {vmag_max}) and bounds=[{shape}]')
+            logger.debug(
+                f'Found {len(results)} in Vmag=[{vmag_min}, {vmag_max}) and bounds=[{shape}]')
     except Exception as e:
         logger.warning(e)
 
@@ -338,7 +337,8 @@ def get_catalog_match(point_sources,
     )
 
     # Do catalog matching
-    logger.debug(f'Matching {len(catalog_coords)} catalog stars to {len(stars_coords)} detected stars')
+    logger.debug(
+        f'Matching {len(catalog_coords)} catalog stars to {len(stars_coords)} detected stars')
     idx, d2d, d3d = stars_coords.match_to_catalog_sky(catalog_coords)
     logger.debug(f'Got {len(idx)} matched sources (includes duplicates) for wcs={wcs.wcs.crval}')
 
@@ -356,12 +356,12 @@ def get_catalog_match(point_sources,
     matched_sources.status = matched_sources.status.astype('category')
 
     # Sources that didn't match.
-#     if return_unmatched:
-#         logger.debug(f'Adding unmatched sources to table for wcs={wcs.wcs.crval!r}')
-#         unmatched = catalog_stars.iloc[catalog_stars.index.difference(idx)].copy()
+    #     if return_unmatched:
+    #         logger.debug(f'Adding unmatched sources to table for wcs={wcs.wcs.crval!r}')
+    #         unmatched = catalog_stars.iloc[catalog_stars.index.difference(idx)].copy()
 
-#         unmatched['status'] = 'unmatched'
-#         point_sources = point_sources.append(unmatched)
+    #         unmatched['status'] = 'unmatched'
+    #         point_sources = point_sources.append(unmatched)
 
     # Reorder columns so id cols are first then alpha.
     new_column_order = sorted(list(matched_sources.columns))
@@ -382,7 +382,8 @@ def get_catalog_match(point_sources,
     return matched_sources
 
 
-def get_xy_positions(wcs_input, catalog_df, ra_column='catalog_ra', dec_column='catalog_dec', origin=1, copy_catalog=True):
+def get_xy_positions(wcs_input, catalog_df, ra_column='catalog_ra', dec_column='catalog_dec',
+                     origin=1, copy_catalog=True):
     if copy_catalog:
         catalog_df = catalog_df.copy()
 
@@ -480,7 +481,7 @@ def extract_sources(fits_file,
     point_sources = point_sources[top & bottom & right & left].to_pandas()
 
     # Rename all the columns at once.
-#     point_sources.columns = [f'measured_{c.lower()}' for c in point_sources.columns]
+    #     point_sources.columns = [f'measured_{c.lower()}' for c in point_sources.columns]
     point_sources.columns = [
         'measured_ra',
         'measured_dec',

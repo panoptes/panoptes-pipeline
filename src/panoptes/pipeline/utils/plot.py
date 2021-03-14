@@ -61,9 +61,14 @@ def plot_stamp(picid,
 
     if frame_idx:
         # NOTE: this will fail if not square
-        stamp_size = int(np.sqrt(data.shape[-1]))
-        stamp = data.iloc[frame_idx].to_numpy().reshape(stamp_size, stamp_size)
+        try:
+            stamp_size = int(np.sqrt(data.shape[-1]))
+            stamp = data.iloc[frame_idx].to_numpy().reshape(stamp_size, stamp_size)
+        except AttributeError:
+            stamp_size = data.shape[-1]
+            stamp = data[frame_idx]
     else:
+        stamp_size = data.shape[-1]
         stamp = data
 
     # Get the frame bounds on full image.
@@ -102,8 +107,8 @@ def plot_stamp(picid,
                label='Catalog - current frame')
 
     plot_utils.add_pixel_grid(ax,
-                              grid_height=data.shape[0],
-                              grid_width=data.shape[1],
+                              grid_height=stamp_size,
+                              grid_width=stamp_size,
                               show_superpixel=True,
                               major_alpha=0.3, minor_alpha=0.0, )
     ax.set_xticklabels([t for t in range(int(x0), int(x1) + 2, 2)], rotation=45)

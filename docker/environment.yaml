@@ -2,8 +2,14 @@ channels:
   - https://conda.anaconda.org/conda-forge
 dependencies:
   - astropy
+  - astroplan
+  - altair
+  - bokeh
+  - hvplot
+  - panel
+  - seaborn
   - google-cloud-bigquery
-  - google-cloud-bigquery-storage
+  - google-cloud-bigquery-storage[pandas,pyarrow]
   - jupyterlab
   - matplotlib-base
   - numpy
@@ -13,4 +19,4 @@ dependencies:
   - pyarrow
   - scipy
   - pip:
-      - panoptes-utils[images]
+      - panoptes-utils[images,social,config]

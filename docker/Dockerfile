@@ -14,10 +14,13 @@ ENV LANG=C.UTF-8 LC_ALL=C.UTF-8
 
 USER "${userid}"
 COPY docker/environment.yaml .
-RUN /conda/bin/conda env update -n base -f environment.yaml
+RUN /conda/bin/conda env update -n base -f environment.yaml && \
+    jupyter labextension install @pyviz/jupyterlab_pyviz
 
 ARG pip_install_name="."
 ARG pip_install_extras=""
+ARG port=8080
+ENV PORT=port
 
 COPY --chown="${userid}:${userid}" . .
 RUN echo "Installing ${pip_install_name} module with ${pip_install_extras}" && \
@@ -34,4 +37,4 @@ RUN echo "Installing ${pip_install_name} module with ${pip_install_extras}" && \
 WORKDIR /app
 
 ENTRYPOINT [ "/usr/bin/env", "bash", "-ic" ]
-CMD [ "jupyterlab" ]
+CMD [ "jupyter-lab --port ${PORT}" ]

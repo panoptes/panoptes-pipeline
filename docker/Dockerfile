@@ -14,8 +14,7 @@ ENV LANG=C.UTF-8 LC_ALL=C.UTF-8
 
 USER "${userid}"
 COPY docker/environment.yaml .
-RUN /conda/bin/conda env update -n base -f environment.yaml && \
-    /conda/bin/jupyter labextension install @pyviz/jupyterlab_pyviz
+RUN /conda/bin/conda env update -n base -f environment.yaml
 
 ARG pip_install_name="."
 ARG pip_install_extras=""
@@ -25,6 +24,7 @@ ENV PORT=port
 COPY --chown="${userid}:${userid}" . .
 RUN echo "Installing ${pip_install_name} module with ${pip_install_extras}" && \
     /conda/bin/pip install "${pip_install_name}${pip_install_extras}" && \
+    /conda/bin/jupyter labextension install @pyviz/jupyterlab_pyviz && \
     # Cleanup
     /conda/bin/pip cache purge && \
     /conda/bin/conda clean -fay && \

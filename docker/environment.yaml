@@ -8,6 +8,7 @@ dependencies:
   - hvplot
   - panel
   - seaborn
+  - nodejs
   - google-cloud-bigquery
   - google-cloud-bigquery-storage[pandas,pyarrow]
   - jupyterlab

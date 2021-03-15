@@ -52,6 +52,11 @@ class ObservationPathInfo:
             self.image_time = date_parse(path_match.group('image_time'))
 
     @property
+    def id(self):
+        """Full path info joined with underscores"""
+        return self.get_id()
+
+    @property
     def sequence_id(self) -> str:
         """The sequence id."""
         return f'{self.unit_id}_{self.camera_id}_{self.sequence_time}'
@@ -64,6 +69,10 @@ class ObservationPathInfo:
     def as_path(self) -> Path:
         """Return a Path object."""
         return Path(self.unit_id, self.camera_id, self.sequence_time, self.image_time)
+
+    def get_id(self, sep='_') -> str:
+        """Returns the full path id with the given separator."""
+        return f'{sep}'.join(['unit_id', 'camera_id', 'sequence_time', 'image_time'])
 
 
 def get_metadata(sequence_id=None, fields=None, show_progress=False):

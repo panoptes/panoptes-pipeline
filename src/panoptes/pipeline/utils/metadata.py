@@ -1,7 +1,12 @@
 import os
+import re
 import shutil
 from contextlib import suppress
 import subprocess
+from dataclasses import dataclass, InitVar
+from datetime import datetime
+from pathlib import Path
+from typing import Pattern, Union
 
 from dateutil.parser import parse as date_parse
 import pandas as pd
@@ -16,6 +21,49 @@ from panoptes.utils.images import fits as fits_utils
 
 OBS_BASE_URL = 'https://storage.googleapis.com/panoptes-observations'
 OBSERVATIONS_URL = 'https://storage.googleapis.com/panoptes-exp.appspot.com/observations.csv'
+
+PATH_MATCHER: Pattern[str] = re.compile(r""".*(?P<unit_id>PAN\d{3})
+                                /(?P<camera_id>[a-gA-G0-9]{6})
+                                /?(?P<field_name>.*)?
+                                /(?P<sequence_time>[0-9]{8}T[0-9]{6})
+                                /(?P<image_time>[0-9]{8}T[0-9]{6})
+                                \.(?P<fileext>.*)$""",
+                                        re.VERBOSE)
+
+
+@dataclass
+class ObservationPathInfo:
+    """Parse the location path for an image."""
+    unit_id: str = None
+    camera_id: str = None
+    field_name: str = None
+    sequence_time: Union[str, datetime] = None
+    image_time: Union[str, datetime] = None
+    path: InitVar[str] = None
+
+    def __post_init__(self, path: str):
+        """Parse the path"""
+        path_match = PATH_MATCHER.match(path)
+        if path_match is not None:
+            self.unit_id = path_match.group('unit_id')
+            self.camera_id = path_match.group('camera_id')
+            self.field_name = path_match.group('field_name')
+            self.sequence_time = date_parse(path_match.group('sequence_time'))
+            self.image_time = date_parse(path_match.group('image_time'))
+
+    @property
+    def sequence_id(self) -> str:
+        """The sequence id."""
+        return f'{self.unit_id}_{self.camera_id}_{self.sequence_time}'
+
+    @property
+    def image_id(self) -> str:
+        """The matched image id."""
+        return f'{self.unit_id}_{self.camera_id}_{self.sequence_time}'
+
+    def as_path(self) -> Path:
+        """Return a Path object."""
+        return Path(self.unit_id, self.camera_id, self.sequence_time, self.image_time)
 
 
 def get_metadata(sequence_id=None, fields=None, show_progress=False):

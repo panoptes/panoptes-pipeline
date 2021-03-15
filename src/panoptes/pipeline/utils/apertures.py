@@ -9,10 +9,15 @@ from panoptes.utils.images import bayer
 from panoptes.utils.logging import logger
 
 
-def get_rectangle_aperture(stamp_size, annulus_width=2):
+def get_rectangle_aperture(stamp_size: Tuple[int, int], annulus_width: int = 2):
     """Gets a square aperture.
 
-    plt.imshow(stamps.get_rectangle_aperture(annulus_width=2))
+    Args:
+        stamp_size (Tuple[int, int]):  The full aperture stamp size.
+        annulus_width (int): The width of the annulus, default 2 pixels.
+
+    Returns:
+        npt.ArrayLike: The aperture mask.
     """
     center_aperture = np.ones(stamp_size)
 
@@ -26,20 +31,32 @@ def get_rectangle_aperture(stamp_size, annulus_width=2):
     return aperture_mask
 
 
-def get_sigma_clip_aperture(data, sigma=2):
-    """
-    plt.imshow(stamps.get_sigma_clip_aperture(stamp_size=stamp_size, sigma=2))
-    """
-    stamp_area = data.shape[-1]
+def get_rgb_sigma_clip_aperture(data: npt.ArrayLike, sigma: int = 2, **kwargs):
+    """Make a sigma clipper aperture for each of the RGB channels.
 
-    # Assume square stamp.
-    stamp_size = int(np.sqrt(stamp_area))
+    Args:
+        data (numpy.typing.ArrayLike): The data to be clipped. This should be an
+            array of size [3 x num_frames x stamp_area] or
+            [3 x num_frames x stamp_width x stamp_height].
+        sigma (int): The sigma to use for clipping.
+        kwargs (dict): Keyword options passed to the `astropy.stats.sigma_clip`.
+
+    Returns:
+        npt.ArrayLike: The aperture mask.
+    """
+    if len(data.shape) == 4:
+        stamp_size = data.shape[-2:]
+        stamp_area = stamp_size[0] * stamp_size[1]
+    else:
+        stamp_area = data.shape[-1]
+        stamp_side = int(np.sqrt(stamp_area))
+        stamp_size = (stamp_side, stamp_side)
 
     # Aperture is size of stamp.
     aperture_mask = np.ones([stamp_area]).reshape(stamp_size)
 
     for i, color in enumerate(bayer.RGB):
-        d0 = data[i].mean(0).reshape((stamp_size, stamp_size))
+        d0 = data[i].mean(0).reshape(stamp_size)
         clipped_data = sigma_clip(d0.copy(), sigma=sigma)
 
         # Add clipped data to aperture.

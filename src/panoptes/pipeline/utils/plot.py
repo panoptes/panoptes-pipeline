@@ -49,11 +49,13 @@ def plot_stamp(picid,
                data,
                metadata,
                frame_idx=None,
+               norm_data=None,
                show_mean=False,
                show_all=False,
                cmap=None,
-               stretch='sqrt',
+               stretch='linear',
                title=None,
+               mask_alpha=0.25
                ):
     cmap = cmap or plot_utils.get_palette()
 
@@ -79,15 +81,22 @@ def plot_stamp(picid,
     y_peak = metadata.catalog_wcs_y_int.iloc[frame_idx or 0] - y0
 
     # Plot stamp.
-    norm = simple_norm(stamp, stretch)
-    im0 = ax.imshow(stamp, norm=norm, cmap=cmap, origin='lower')
+    norm_data = norm_data if norm_data is not None else stamp
+    norm = simple_norm(norm_data, stretch, min_cut=norm_data.min(), max_cut=norm_data.max() + 50)
+    
+    if hasattr(stamp, 'mask'):
+        im0 = ax.imshow(stamp, norm=norm, cmap=cmap, origin='lower')
+        ax.imshow(np.ma.array(stamp.data, mask=~stamp.mask), norm=norm, cmap=cmap, origin='lower', alpha=mask_alpha)
+    else:
+        im0 = ax.imshow(stamp, norm=norm, cmap=cmap, origin='lower')
+    
     plot_utils.add_colorbar(im0)
 
     # Mean location
     if show_mean:
         ax.scatter(metadata.catalog_wcs_x_mean.astype('int') - x0,
                    metadata.catalog_wcs_y_mean.astype('int') - y0,
-                   marker='x',
+                   marker='+',
                    color='lightgreen',
                    edgecolors='red',
                    s=250,
@@ -96,14 +105,15 @@ def plot_stamp(picid,
     if show_all:
         ax.scatter(metadata.catalog_wcs_x_int - x0,
                    metadata.catalog_wcs_y_int - y0,
-                   marker='x',
+                   marker='+',
                    color='orange',
                    edgecolors='orange',
                    s=100,
                    label='Catalog - other frames')
 
     # Star catalog location for current frame
-    ax.scatter(x_peak, y_peak, marker='*', color='yellow', edgecolors='black', s=200,
+    if frame_idx is not None:
+        ax.scatter(x_peak, y_peak, marker='*', color='yellow', edgecolors='black', s=200,
                label='Catalog - current frame')
 
     plot_utils.add_pixel_grid(ax,
@@ -119,9 +129,8 @@ def plot_stamp(picid,
     if frame_idx is None:
         frame_idx = ''
 
-    title = title or f'PICID: {picid} Frame: {frame_idx} / {len(metadata)}'
-
-    ax.set_title(title)
+    ax.set_title(f'Frame: {frame_idx} / {len(metadata)}')
+    fig.suptitle(title)
     fig.set_size_inches(14, 6)
     return fig
 

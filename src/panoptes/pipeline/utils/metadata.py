@@ -8,71 +8,130 @@ from datetime import datetime
 from pathlib import Path
 from typing import Pattern, Union
 
-from dateutil.parser import parse as date_parse
+from dateutil.parser import parse as parse_date
+from dateutil.tz import UTC
 import pandas as pd
+from google.cloud import firestore
 from tqdm.auto import tqdm
 from astropy import units as u
 from astropy.coordinates import SkyCoord
+from astropy.time import Time
 from astropy.utils.data import download_file
+
 from panoptes.utils.utils import listify
 from panoptes.utils.logging import logger
-from panoptes.utils.time import current_time
+from panoptes.utils.time import current_time, flatten_time
 from panoptes.utils.images import fits as fits_utils
+from panoptes.pipeline.utils.status import ImageStatus
 
 OBS_BASE_URL = 'https://storage.googleapis.com/panoptes-observations'
 OBSERVATIONS_URL = 'https://storage.googleapis.com/panoptes-exp.appspot.com/observations.csv'
 
-PATH_MATCHER: Pattern[str] = re.compile(r""".*(?P<unit_id>PAN\d{3})
-                                /(?P<camera_id>[a-gA-G0-9]{6})
-                                /?(?P<field_name>.*)?
-                                /(?P<sequence_time>[0-9]{8}T[0-9]{6})
-                                /(?P<image_time>[0-9]{8}T[0-9]{6})
-                                \.(?P<fileext>.*)$""",
+PATH_MATCHER: Pattern[str] = re.compile(r"""^
+                                (?P<pre_info>.*)?                       # Anything before unit_id
+                                (?P<unit_id>PAN\d{3})                   # unit_id   - PAN + 3 digits
+                                /(?P<camera_id>[a-gA-G0-9]{6})          # camera_id - 6 digits
+                                /?(?P<field_name>.*)?                   # Legacy field name - any
+                                /(?P<sequence_time>[0-9]{8}T[0-9]{6})   # Observation start time
+                                /(?P<image_time>[0-9]{8}T[0-9]{6})      # Image start time
+                                (?P<post_info>.*)?                      # Anything after (file ext)
+                                $""",
                                         re.VERBOSE)
 
 
 @dataclass
 class ObservationPathInfo:
-    """Parse the location path for an image."""
+    """Parse the location path for an image.
+
+    This is a small dataclass that offers some convenience methods for dealing
+    with a path based on the image id.
+
+    This would usually be instantiated via `path`:
+
+    ..doctest::
+
+        >>> from panoptes.pipeline.utils.metadata import ObservationPathInfo
+        >>> bucket_path = 'gs://panoptes-images-background/PAN012/Hd189733/358d0f/20180824T035917/20180824T040118.fits'
+        >>> path_info = ObservationPathInfo(path=bucket_path)
+
+        >>> path_info.id
+        'PAN012_358d0f_20180824T035917_20180824T040118'
+
+        >>> path_info.unit_id
+        'PAN012'
+
+        >>> path_info.sequence_id
+        'PAN012_358d0f_20180824T035917'
+
+        >>> path_info.image_id
+        'PAN012_358d0f_20180824T040118'
+
+        >>> path_info.as_path(base='/tmp', ext='.jpg')
+        '/tmp/PAN012/358d0f/20180824T035917/20180824T040118.jpg'
+
+        >>> ObservationPathInfo(path='foobar')
+        Traceback (most recent call last):
+          ...
+        ValueError: Invalid path received: self.path='foobar'
+
+
+    """
     unit_id: str = None
     camera_id: str = None
     field_name: str = None
-    sequence_time: Union[str, datetime] = None
-    image_time: Union[str, datetime] = None
-    path: InitVar[str] = None
+    sequence_time: Union[str, datetime, Time] = None
+    image_time: Union[str, datetime, Time] = None
+    path: Union[str, Path] = None
 
-    def __post_init__(self, path: str):
-        """Parse the path"""
-        path_match = PATH_MATCHER.match(path)
-        if path_match is not None:
+    def __post_init__(self):
+        """Parse the path when provided upon initialization."""
+        if self.path is not None:
+            path_match = PATH_MATCHER.match(self.path)
+            if path_match is None:
+                raise ValueError(f'Invalid path received: {self.path=}')
+
             self.unit_id = path_match.group('unit_id')
             self.camera_id = path_match.group('camera_id')
             self.field_name = path_match.group('field_name')
-            self.sequence_time = date_parse(path_match.group('sequence_time'))
-            self.image_time = date_parse(path_match.group('image_time'))
+            self.sequence_time = Time(parse_date(path_match.group('sequence_time')))
+            self.image_time = Time(parse_date(path_match.group('image_time')))
 
     @property
     def id(self):
         """Full path info joined with underscores"""
-        return self.get_id()
+        return self.get_full_id()
 
     @property
     def sequence_id(self) -> str:
         """The sequence id."""
-        return f'{self.unit_id}_{self.camera_id}_{self.sequence_time}'
+        return f'{self.unit_id}_{self.camera_id}_{flatten_time(self.sequence_time)}'
 
     @property
     def image_id(self) -> str:
         """The matched image id."""
-        return f'{self.unit_id}_{self.camera_id}_{self.sequence_time}'
+        return f'{self.unit_id}_{self.camera_id}_{flatten_time(self.sequence_time)}'
 
-    def as_path(self) -> Path:
+    def as_path(self, base: Union[Path, str] = None, ext: str = None) -> Path:
         """Return a Path object."""
-        return Path(self.unit_id, self.camera_id, self.sequence_time, self.image_time)
+        image_str = flatten_time(self.image_time)
+        if ext is not None:
+            image_str = f'{image_str}.{ext}'
 
-    def get_id(self, sep='_') -> str:
+        full_path = Path(self.unit_id, self.camera_id, flatten_time(self.sequence_time), image_str)
+
+        if base is not None:
+            full_path = base / full_path
+
+        return full_path
+
+    def get_full_id(self, sep='_') -> str:
         """Returns the full path id with the given separator."""
-        return f'{sep}'.join(['unit_id', 'camera_id', 'sequence_time', 'image_time'])
+        return f'{sep}'.join([
+            self.unit_id,
+            self.camera_id,
+            flatten_time(self.sequence_time),
+            flatten_time(self.image_time)
+        ])
 
 
 def get_metadata(sequence_id=None, fields=None, show_progress=False):
@@ -85,7 +144,7 @@ def get_metadata(sequence_id=None, fields=None, show_progress=False):
     Currently this only supports searching at the observation level, and
     so the function is a thin-wrapper around the `get_observation_metadata`.
 
-    >>> from panoptes.utils.data import get_metadata
+    >>> from panoptes.pipeline.utils.metadata import get_metadata
 
     >>> # Get all image metadata for the observation.
     >>> sequence_id = 'PAN001_14d3bd_20170405T100854'
@@ -201,7 +260,7 @@ def search_observations(
     Either a `coords` or `ra` and `dec` must be specified for search to work.
 
     >>> from astropy.coordinates import SkyCoord
-    >>> from panoptes.utils.data import search_observations
+    >>> from panoptes.pipeline.utils.metadata import search_observations
     >>> coords = SkyCoord.from_name('Andromeda Galaxy')
     >>> start_date = '2019-01-01'
     >>> end_date = '2019-12-31'
@@ -262,9 +321,9 @@ def search_observations(
         end_date = current_time()
 
     with suppress(TypeError):
-        start_date = date_parse(start_date).replace(tzinfo=None)
+        start_date = parse_date(start_date).replace(tzinfo=None)
     with suppress(TypeError):
-        end_date = date_parse(end_date).replace(tzinfo=None)
+        end_date = parse_date(end_date).replace(tzinfo=None)
 
     ra_max = (coords.ra + (radius * u.degree)).value
     ra_min = (coords.ra - (radius * u.degree)).value
@@ -370,3 +429,133 @@ def download_images(image_list, output_dir, overwrite=False, unpack=True, show_p
 
     logger.debug(f'Downloaded {len(fits_files)} files.')
     return fits_files
+
+
+def record_metadata(bucket_path: str,
+                    header: dict,
+                    current_state: ImageStatus = ImageStatus.RECEIVING,
+                    unit_collection: str = 'units',
+                    observation_collection: str = 'observations',
+                    image_collection: str = 'images',
+                    firestore_db: firestore.Client = None):
+    """Add FITS header info to firestore_db.
+
+    Note:
+        This function doesn't check header for proper entries and
+        assumes a large list of keywords. See source for details.
+
+    Returns:
+        str: The image_id.
+
+    Raises:
+        e: Description
+    """
+    firestore_db = firestore_db or firestore.Client()
+
+    print(f'Recording header metadata for {bucket_path=}')
+
+    path_info = ObservationPathInfo(path=bucket_path)
+    sequence_id = path_info.sequence_id
+    image_id = path_info.image_id
+
+    # Scrub all the entries
+    for k, v in header.items():
+        with suppress(AttributeError):
+            header[k] = v.strip()
+
+    print(f'Using headers: {header!r}')
+    try:
+        print(f'Getting document for observation {sequence_id}')
+        unit_collection_ref = firestore_db.collection((unit_collection,))
+        unit_doc_ref = unit_collection_ref.document(f'{path_info.unit_id}')
+        seq_doc_ref = unit_doc_ref.collection(observation_collection).document(sequence_id)
+        image_doc_ref = seq_doc_ref.collection(image_collection).document(image_id)
+
+        with suppress(KeyError, TypeError):
+            image_status = image_doc_ref.get(['status']).to_dict()['status']
+            if ImageStatus[image_status] >= current_state:
+                print(f'Skipping image with status of {ImageStatus[image_status].name}')
+                return True
+
+        print(f'Setting image {image_doc_ref.id} to {current_state.name}')
+        image_doc_ref.set(dict(status=current_state.name), merge=True)
+
+        # Add a units doc if it doesn't exist.
+        unit_message = dict(
+            name=header.get('OBSERVER', ''),
+            location=firestore.GeoPoint(header['LAT-OBS'],
+                                        header['LONG-OBS']),
+            elevation=float(header.get('ELEV-OBS')),
+            status='active'
+        )
+        unit_doc_ref.set(unit_message, merge=True)
+
+        exptime = header.get('EXPTIME')
+
+        print(f'Making new document for observation {sequence_id}')
+        seq_message = dict(
+            unit_id=path_info.unit_id,
+            camera_id=path_info.camera_id,
+            time=path_info.sequence_time,
+            exptime=exptime,
+            project=header.get('ORIGIN'),
+            software_version=header.get('CREATOR', ''),
+            field_name=header.get('FIELD', ''),
+            iso=header.get('ISO'),
+            ra=header.get('CRVAL1'),
+            dec=header.get('CRVAL2'),
+            status='receiving_files',
+            camera_serial_number=header.get('CAMSN'),
+            lens_serial_number=header.get('INTSN'),
+            num_images=firestore.Increment(1),
+            total_exptime=firestore.Increment(exptime),
+            received_time=firestore.SERVER_TIMESTAMP)
+        print(f"Adding new sequence: {seq_message!r}")
+        seq_doc_ref.set(seq_message, merge=True)
+
+        print(f"Adding image document for SEQ={sequence_id} IMG={image_id}")
+        measured_rggb = header.get('MEASRGGB').split(' ')
+
+        camera_date = parse_date(header.get('DATE-OBS', '')).replace(tzinfo=UTC)
+        file_date = parse_date(header.get('DATE', '')).replace(tzinfo=UTC)
+
+        image_message = dict(
+            unit_id=path_info.unit_id,
+            time=path_info.image_time,
+            status=ImageStatus(current_state + 1).name,
+            bias_subtracted=False,
+            background_subtracted=False,
+            plate_solved=False,
+            exptime=header.get('EXPTIME'),
+            airmass=header.get('AIRMASS'),
+            moonfrac=header.get('MOONFRAC'),
+            moonsep=header.get('MOONSEP'),
+            mount_ha=header.get('HA-MNT'),
+            mount_ra=header.get('RA-MNT'),
+            mount_dec=header.get('DEC-MNT'),
+            camera=dict(
+                temp=float(header.get('CAMTEMP', 'NA 999').split(' ')[0]),
+                colortemp=header.get('COLORTMP'),
+                circconf=float(header.get('CIRCCONF', 'NA 999').split(' ')[0]),
+                measured_ev=header.get('MEASEV'),
+                measured_ev2=header.get('MEASEV2'),
+                measured_r=float(measured_rggb[0]),
+                measured_g1=float(measured_rggb[1]),
+                measured_g2=float(measured_rggb[2]),
+                measured_b=float(measured_rggb[3]),
+                white_lvln=header.get('WHTLVLN'),
+                white_lvls=header.get('WHTLVLS'),
+                red_balance=header.get('REDBAL'),
+                blue_balance=header.get('BLUEBAL'),
+                camera_dateobs=camera_date,
+                file_creation_date=file_date,
+            ),
+            received_time=firestore.SERVER_TIMESTAMP
+        )
+        image_doc_ref.set(image_message, merge=True)
+
+    except Exception as e:
+        print(f'Error in adding record: {e!r}')
+        raise e
+
+    return image_doc_ref.id

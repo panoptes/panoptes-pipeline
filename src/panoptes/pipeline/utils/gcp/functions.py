@@ -8,7 +8,10 @@ def cloud_function_entry_point(raw_message: dict, context: Any,
                                operation: Callable[[str, Any], bool]):
     """Generic handler for GCP Cloud Function.
 
-    This method
+    This method will receive an `objectId` in the `attributes` key of `raw_message`
+    which corresponds to the location in the storage bucket. This bucket path
+    is called as the first parameter to the `operation` callable, with `attributes`
+    also passed by kwargs.
 
     Args:
         raw_message (dict): The Cloud Functions event payload.

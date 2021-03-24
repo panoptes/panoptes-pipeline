@@ -1,6 +1,7 @@
 import base64
-import sys
 from typing import Callable, Any
+
+from loguru import logger
 
 
 def cloud_function_entry_point(raw_message: dict, context: Any,
@@ -19,7 +20,7 @@ def cloud_function_entry_point(raw_message: dict, context: Any,
     try:
         message = base64.b64decode(raw_message['data']).decode('utf-8')
         attributes = raw_message['attributes']
-        print(f"Attributes: {attributes!r}")
+        logger.info(f"Attributes: {attributes!r}")
 
         bucket_path = attributes['objectId']
 
@@ -29,8 +30,6 @@ def cloud_function_entry_point(raw_message: dict, context: Any,
         success = operation(bucket_path, **attributes)
         if success is False:
             raise Exception('The process indicated failure but no other information.')
+        logger.success(f'Processed {bucket_path}')
     except Exception as e:
-        print(f'error: {e}')
-    finally:
-        # Flush the stdout to avoid log buffering.
-        sys.stdout.flush()
+        logger.error(f'error: {e}')

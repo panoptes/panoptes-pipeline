@@ -18,8 +18,9 @@ from astropy.coordinates import SkyCoord
 from astropy.time import Time
 from astropy.utils.data import download_file
 
+from loguru import logger
+
 from panoptes.utils.utils import listify
-from panoptes.utils.logging import logger
 from panoptes.utils.time import current_time, flatten_time
 from panoptes.utils.images import fits as fits_utils
 from panoptes.pipeline.utils.status import ImageStatus

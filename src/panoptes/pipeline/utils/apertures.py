@@ -4,9 +4,9 @@ import numpy as np
 import numpy.typing as npt
 from scipy import ndimage
 from astropy.stats import sigma_clip
+from loguru import logger
 
 from panoptes.utils.images import bayer
-from panoptes.utils.logging import logger
 
 
 def get_rectangle_aperture(stamp_size: Tuple[int, int], annulus_width: int = 2):

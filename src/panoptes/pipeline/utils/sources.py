@@ -2,13 +2,13 @@ import os
 import shutil
 import subprocess
 from pathlib import Path
+from loguru import logger
 
 from astropy import units as u
 from astropy.coordinates import SkyCoord
 from astropy.table import Table
 from panoptes.utils.images import fits as fits_utils
 from panoptes.utils.images import bayer
-from panoptes.utils.logging import logger
 from panoptes.pipeline.utils.gcp.bigquery import get_bq_clients
 
 

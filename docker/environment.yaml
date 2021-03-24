@@ -16,7 +16,6 @@ dependencies:
   - matplotlib-base
   - numpy
   - pandas
-  - papermill
   - pillow
   - pip
   - pyarrow

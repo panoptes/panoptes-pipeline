@@ -453,7 +453,7 @@ def record_metadata(bucket_path: str,
     """
     firestore_db = firestore_db or firestore.Client()
 
-    print(f'Recording header metadata for {bucket_path=}')
+    logger.info(f'Recording header metadata for {bucket_path=}')
 
     path_info = ObservationPathInfo(path=bucket_path)
     sequence_id = path_info.sequence_id
@@ -464,9 +464,9 @@ def record_metadata(bucket_path: str,
         with suppress(AttributeError):
             header[k] = v.strip()
 
-    print(f'Using headers: {header!r}')
+    logger.info(f'Using headers: {header!r}')
     try:
-        print(f'Getting document for observation {sequence_id}')
+        logger.info(f'Getting document for observation {sequence_id}')
         unit_collection_ref = firestore_db.collection((unit_collection,))
         unit_doc_ref = unit_collection_ref.document(f'{path_info.unit_id}')
         seq_doc_ref = unit_doc_ref.collection(observation_collection).document(sequence_id)
@@ -475,10 +475,10 @@ def record_metadata(bucket_path: str,
         with suppress(KeyError, TypeError):
             image_status = image_doc_ref.get(['status']).to_dict()['status']
             if ImageStatus[image_status] >= current_state:
-                print(f'Skipping image with status of {ImageStatus[image_status].name}')
+                logger.info(f'Skipping image with status of {ImageStatus[image_status].name}')
                 return True
 
-        print(f'Setting image {image_doc_ref.id} to {current_state.name}')
+        logger.info(f'Setting image {image_doc_ref.id} to {current_state.name}')
         image_doc_ref.set(dict(status=current_state.name), merge=True)
 
         # Add a units doc if it doesn't exist.
@@ -493,7 +493,7 @@ def record_metadata(bucket_path: str,
 
         exptime = header.get('EXPTIME')
 
-        print(f'Making new document for observation {sequence_id}')
+        logger.info(f'Making new document for observation {sequence_id}')
         seq_message = dict(
             unit_id=path_info.unit_id,
             camera_id=path_info.camera_id,
@@ -511,10 +511,10 @@ def record_metadata(bucket_path: str,
             num_images=firestore.Increment(1),
             total_exptime=firestore.Increment(exptime),
             received_time=firestore.SERVER_TIMESTAMP)
-        print(f"Adding new sequence: {seq_message!r}")
+        logger.info(f"Adding new sequence: {seq_message!r}")
         seq_doc_ref.set(seq_message, merge=True)
 
-        print(f"Adding image document for SEQ={sequence_id} IMG={image_id}")
+        logger.info(f"Adding image document for SEQ={sequence_id} IMG={image_id}")
         measured_rggb = header.get('MEASRGGB').split(' ')
 
         camera_date = parse_date(header.get('DATE-OBS', '')).replace(tzinfo=UTC)
@@ -556,7 +556,8 @@ def record_metadata(bucket_path: str,
         image_doc_ref.set(image_message, merge=True)
 
     except Exception as e:
-        print(f'Error in adding record: {e!r}')
+        logger.error(f'Error in adding record: {e!r}')
         raise e
 
+    logger.success(f'Recorded metadata for {bucket_path} with {image_doc_ref.id=}')
     return image_doc_ref.id

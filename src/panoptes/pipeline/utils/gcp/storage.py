@@ -1,4 +1,5 @@
 from google.cloud.storage import Bucket
+from loguru import logger
 
 
 def move_blob_to_bucket(blob_name: str, old_bucket: Bucket, new_bucket: Bucket,
@@ -12,7 +13,7 @@ def move_blob_to_bucket(blob_name: str, old_bucket: Bucket, new_bucket: Bucket,
         remove (bool, optional): If True (the default), file should be removed
             afterwards.
     """
-    print(f'Moving {blob_name} → {new_bucket}')
+    logger.info(f'Moving {blob_name} → {new_bucket}')
     old_bucket.copy_blob(old_bucket.get_blob(blob_name), new_bucket)
     if remove:
         old_bucket.delete_blob(blob_name)

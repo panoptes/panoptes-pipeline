@@ -135,53 +135,6 @@ class ObservationPathInfo:
         ])
 
 
-def get_metadata(sequence_id=None, fields=None, show_progress=False):
-    """Access PANOPTES data from the network.
-
-    NOTE: This is slated for removal soon.
-
-    This function is capable of searching for metadata of PANOPTES observations.
-
-    Currently this only supports searching at the observation level, and
-    so the function is a thin-wrapper around the `get_observation_metadata`.
-
-    >>> from panoptes.pipeline.utils.metadata import get_metadata
-
-    >>> # Get all image metadata for the observation.
-    >>> sequence_id = 'PAN001_14d3bd_20170405T100854'
-    >>> observation_df = get_metadata(sequence_id=sequence_id)
-
-    >>> type(observation_df)
-    <class 'pandas.core.frame.DataFrame'>
-
-    >>> print('Total exptime: ', observation_df.image_exptime.sum())
-    Total exptime:  7200.0
-
-    >>> # It's also possible to request certain fields
-    >>> airmass_df = get_metadata(sequence_id=sequence_id, fields=['image_airmass'])
-    >>> airmass_df.head()
-       image_airmass                    sequence_id                      time
-    0       1.174331  PAN001_14d3bd_20170405T100854 2017-04-05 10:10:20+00:00
-    1       1.182432  PAN001_14d3bd_20170405T100854 2017-04-05 10:13:09+00:00
-    2       1.190880  PAN001_14d3bd_20170405T100854 2017-04-05 10:15:59+00:00
-    3       1.199631  PAN001_14d3bd_20170405T100854 2017-04-05 10:18:49+00:00
-    4       1.208680  PAN001_14d3bd_20170405T100854 2017-04-05 10:21:40+00:00
-
-    Args:
-        sequence_id (str|list|None): The list of sequence_ids associated with an observation.
-        fields (list|None):  A list of fields to fetch from the database. If None,
-            returns all fields.
-        show_progress (bool): If True, show a progress bar, default False.
-
-    Returns:
-
-    """
-    # Pass request to `get_observation_metadata`.
-    if sequence_id is not None:
-        logger.debug(f'Getting metadata for {sequence_id}')
-        return get_observation_metadata(sequence_id, fields=fields, show_progress=show_progress)
-
-
 def get_observation_metadata(sequence_ids, fields=None, show_progress=False):
     """Get the metadata for the given sequence_id(s).
 
@@ -432,6 +385,91 @@ def download_images(image_list, output_dir, overwrite=False, unpack=True, show_p
     return fits_files
 
 
+def extract_metadata(bucket_path: str, header: dict) -> dict:
+    """Get the metadata from a FITS image."""
+    logger.info(f'Extracting header metadata for {bucket_path=}')
+
+    path_info = ObservationPathInfo(path=bucket_path)
+
+    # Scrub all the entries
+    for k, v in header.items():
+        with suppress(AttributeError):
+            header[k] = v.strip()
+
+    logger.info(f'Using headers: {header!r}')
+    try:
+        # Add a units doc if it doesn't exist.
+        unit_info = dict(
+            name=header.get('OBSERVER', ''),
+            latitude=header['LAT-OBS'],
+            longitude=header['LONG-OBS'],
+            elevation=float(header.get('ELEV-OBS')),
+            status='active'
+        )
+
+        exptime = header.get('EXPTIME')
+
+        sequence_info = dict(
+            unit_id=path_info.unit_id,
+            camera_id=path_info.camera_id,
+            time=path_info.sequence_time,
+            exptime=exptime,
+            project=header.get('ORIGIN'),
+            software_version=header.get('CREATOR', ''),
+            field_name=header.get('FIELD', ''),
+            iso=header.get('ISO'),
+            ra=header.get('CRVAL1'),
+            dec=header.get('CRVAL2'),
+            status='receiving_files',
+            camera_serial_number=header.get('CAMSN'),
+            lens_serial_number=header.get('INTSN'),
+        )
+
+        measured_rggb = header.get('MEASRGGB').split(' ')
+        camera_date = parse_date(header.get('DATE-OBS', '')).replace(tzinfo=UTC)
+        file_date = parse_date(header.get('DATE', '')).replace(tzinfo=UTC)
+
+        image_info = dict(
+            unit_id=path_info.unit_id,
+            time=path_info.image_time,
+            bias_subtracted=False,
+            background_subtracted=False,
+            plate_solved=False,
+            exptime=header.get('EXPTIME'),
+            airmass=header.get('AIRMASS'),
+            moonfrac=header.get('MOONFRAC'),
+            moonsep=header.get('MOONSEP'),
+            mount_ha=header.get('HA-MNT'),
+            mount_ra=header.get('RA-MNT'),
+            mount_dec=header.get('DEC-MNT'),
+            camera=dict(
+                temp=float(header.get('CAMTEMP', 'NA').split(' ')[0]),
+                colortemp=header.get('COLORTMP'),
+                circconf=float(header.get('CIRCCONF', 'NA').split(' ')[0]),
+                measured_ev=header.get('MEASEV'),
+                measured_ev2=header.get('MEASEV2'),
+                measured_r=float(measured_rggb[0]),
+                measured_g1=float(measured_rggb[1]),
+                measured_g2=float(measured_rggb[2]),
+                measured_b=float(measured_rggb[3]),
+                white_lvln=header.get('WHTLVLN'),
+                white_lvls=header.get('WHTLVLS'),
+                red_balance=header.get('REDBAL'),
+                blue_balance=header.get('BLUEBAL'),
+                camera_dateobs=camera_date,
+                file_creation_date=file_date,
+            ),
+        )
+
+        metadata = dict(unit=unit_info, sequence=sequence_info, image=image_info)
+
+    except Exception as e:
+        logger.error(f'Error in adding record: {e!r}')
+        raise e
+
+    return metadata
+
+
 def record_metadata(bucket_path: str,
                     header: dict,
                     current_state: ImageStatus = ImageStatus.RECEIVING,
@@ -453,16 +491,13 @@ def record_metadata(bucket_path: str,
     """
     firestore_db = firestore_db or firestore.Client()
 
+    metadata = extract_metadata(bucket_path=bucket_path, header=header)
+
     logger.info(f'Recording header metadata for {bucket_path=}')
 
     path_info = ObservationPathInfo(path=bucket_path)
     sequence_id = path_info.sequence_id
     image_id = path_info.image_id
-
-    # Scrub all the entries
-    for k, v in header.items():
-        with suppress(AttributeError):
-            header[k] = v.strip()
 
     logger.info(f'Using headers: {header!r}')
     try:
@@ -478,82 +513,21 @@ def record_metadata(bucket_path: str,
                 logger.info(f'Skipping image with status of {ImageStatus[image_status].name}')
                 return True
 
-        logger.info(f'Setting image {image_doc_ref.id} to {current_state.name}')
-        image_doc_ref.set(dict(status=current_state.name), merge=True)
-
         # Add a units doc if it doesn't exist.
-        unit_message = dict(
-            name=header.get('OBSERVER', ''),
-            location=firestore.GeoPoint(header['LAT-OBS'],
-                                        header['LONG-OBS']),
-            elevation=float(header.get('ELEV-OBS')),
-            status='active'
-        )
-        unit_doc_ref.set(unit_message, merge=True)
+        unit_doc_ref.set(metadata['unit'], merge=True)
 
-        exptime = header.get('EXPTIME')
+        # Increment counters on sequence data and add time stamp.
+        sequence_md = metadata['sequence']
+        sequence_md['num_images'] = firestore.Increment(1)
+        sequence_md['total_exptime'] = firestore.Increment(sequence_md['exptime'])
 
-        logger.info(f'Making new document for observation {sequence_id}')
-        seq_message = dict(
-            unit_id=path_info.unit_id,
-            camera_id=path_info.camera_id,
-            time=path_info.sequence_time,
-            exptime=exptime,
-            project=header.get('ORIGIN'),
-            software_version=header.get('CREATOR', ''),
-            field_name=header.get('FIELD', ''),
-            iso=header.get('ISO'),
-            ra=header.get('CRVAL1'),
-            dec=header.get('CRVAL2'),
-            status='receiving_files',
-            camera_serial_number=header.get('CAMSN'),
-            lens_serial_number=header.get('INTSN'),
-            num_images=firestore.Increment(1),
-            total_exptime=firestore.Increment(exptime),
-            received_time=firestore.SERVER_TIMESTAMP)
-        logger.info(f"Adding new sequence: {seq_message!r}")
-        seq_doc_ref.set(seq_message, merge=True)
+        seq_doc_ref.set(metadata['sequence'], merge=True)
 
-        logger.info(f"Adding image document for SEQ={sequence_id} IMG={image_id}")
-        measured_rggb = header.get('MEASRGGB').split(' ')
-
-        camera_date = parse_date(header.get('DATE-OBS', '')).replace(tzinfo=UTC)
-        file_date = parse_date(header.get('DATE', '')).replace(tzinfo=UTC)
-
-        image_message = dict(
-            unit_id=path_info.unit_id,
-            time=path_info.image_time,
-            status=ImageStatus(current_state + 1).name,
-            bias_subtracted=False,
-            background_subtracted=False,
-            plate_solved=False,
-            exptime=header.get('EXPTIME'),
-            airmass=header.get('AIRMASS'),
-            moonfrac=header.get('MOONFRAC'),
-            moonsep=header.get('MOONSEP'),
-            mount_ha=header.get('HA-MNT'),
-            mount_ra=header.get('RA-MNT'),
-            mount_dec=header.get('DEC-MNT'),
-            camera=dict(
-                temp=float(header.get('CAMTEMP', 'NA 999').split(' ')[0]),
-                colortemp=header.get('COLORTMP'),
-                circconf=float(header.get('CIRCCONF', 'NA 999').split(' ')[0]),
-                measured_ev=header.get('MEASEV'),
-                measured_ev2=header.get('MEASEV2'),
-                measured_r=float(measured_rggb[0]),
-                measured_g1=float(measured_rggb[1]),
-                measured_g2=float(measured_rggb[2]),
-                measured_b=float(measured_rggb[3]),
-                white_lvln=header.get('WHTLVLN'),
-                white_lvls=header.get('WHTLVLS'),
-                red_balance=header.get('REDBAL'),
-                blue_balance=header.get('BLUEBAL'),
-                camera_dateobs=camera_date,
-                file_creation_date=file_date,
-            ),
-            received_time=firestore.SERVER_TIMESTAMP
-        )
-        image_doc_ref.set(image_message, merge=True)
+        # Add status to image data.
+        image_md = metadata['image']
+        image_md['status'] = current_state.name
+        image_md['received_time'] = firestore.SERVER_TIMESTAMP
+        image_doc_ref.set(metadata['image'], merge=True)
 
     except Exception as e:
         logger.error(f'Error in adding record: {e!r}')

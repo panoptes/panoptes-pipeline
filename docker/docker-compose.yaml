@@ -1,0 +1,32 @@
+services:
+  pipeline-dev:
+    image: "${IMAGE_NAME:-gcr.io/panoptes-exp/panoptes-utils}:${TAG_NAME:-develop}"
+    container_name: pipeline-dev
+    hostname: pipeline-dev
+    build:
+      context: ../
+      dockerfile: ./docker/Dockerfile
+    init: true
+    tty: true
+    stdin_open: true
+    environment:
+      - "GOOGLE_APPLICATION_CREDENTIALS=/keys/panoptes-exp-ff16d224fd18.json"
+    ports:
+      - "6565:6565"
+    command: [ 'jupyter lab --no-browser --ip 0.0.0.0 --port 6565 --notebook-dir /panoptes-pipeline/' ]
+    volumes:
+      - local:/panoptes-pipeline/
+      - keys:/keys
+volumes:
+  local:
+    driver: local
+    driver_opts:
+      type: none
+      device: $PWD
+      o: bind
+  keys:
+    driver: local
+    driver_opts:
+      type: none
+      device: $HOME/panoptes/key
+      o: bind

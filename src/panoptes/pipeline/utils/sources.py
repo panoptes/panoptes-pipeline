@@ -2,6 +2,10 @@ import os
 import shutil
 import subprocess
 from pathlib import Path
+
+import numpy as np
+import pandas
+from astropy.wcs import WCS
 from loguru import logger
 
 from astropy import units as u
@@ -12,7 +16,7 @@ from panoptes.utils.images import bayer
 from panoptes.pipeline.utils.gcp.bigquery import get_bq_clients
 
 
-def get_stars_from_wcs(wcs, **kwargs):
+def get_stars_from_wcs(wcs: WCS, **kwargs) -> pandas.DataFrame:
     """Lookup star information from WCS footprint.
 
     Generates the correct layout for an SQL `POLYGON` that can be passed to
@@ -27,6 +31,10 @@ def get_stars_from_wcs(wcs, **kwargs):
     logger.debug(f'Looking up catalog stars for WCS: {wcs_footprint}')
     # Add the first entry to the end to complete polygon
     wcs_footprint.append(wcs_footprint[0])
+
+    # The longitude must be in -180 to 180 range
+    # scale_func = np.vectorize(lambda x: (x + 180) % 360 - 180)
+    # wcs_footprint = scale_func(wcs_footprint)
 
     poly = ','.join([f'{c[0]:.05} {c[1]:.05f}' for c in wcs_footprint])
 
@@ -90,14 +98,12 @@ def get_stars(
 
     column_mapping_str = ', '.join([f'{k} as {v}' for k, v in column_mapping.items()])
 
-    # Note that for how the BigQuery partition works, we need the parition one step
+    # Note that for how the BigQuery partition works, we need the partition one step
     # below the requested Vmag_max.
     sql = f"""
     SELECT {column_mapping_str} 
     FROM catalog.pic
     WHERE
-      gaia > '' AND
-      numcont < {numcont} AND
       vmag_partition BETWEEN {vmag_min} AND {vmag_max - 1}
       {sql_constraint}
     """
@@ -224,10 +230,8 @@ def get_catalog_match(point_sources,
                       wcs=None,
                       catalog_stars=None,
                       max_separation_arcsec=None,
-                      return_unmatched=False,
                       ra_column='measured_ra',
                       dec_column='measured_dec',
-                      origin=1,
                       **kwargs):
     """Match the point source positions to the catalog.
 
@@ -349,7 +353,8 @@ def get_catalog_match(point_sources,
     catalog_matches = get_xy_positions(wcs, catalog_matches)
 
     # Add the matches and their separation.
-    matched_sources = point_sources.join(catalog_matches.reset_index(drop=True))
+    matched_sources = point_sources.reset_index(drop=True).join(
+        catalog_matches.reset_index(drop=True))
 
     # All point sources so far are matched.
     matched_sources['status'] = 'matched'
@@ -364,12 +369,12 @@ def get_catalog_match(point_sources,
     #         point_sources = point_sources.append(unmatched)
 
     # Reorder columns so id cols are first then alpha.
-    new_column_order = sorted(list(matched_sources.columns))
-    id_cols = ['picid', 'unit_id', 'camera_id', 'time', 'gaia', 'twomass', 'status']
-    for i, col in enumerate(id_cols):
-        new_column_order.remove(col)
-        new_column_order.insert(i, col)
-    matched_sources = matched_sources.reindex(columns=new_column_order)
+    # new_column_order = sorted(list(matched_sources.columns))
+    # id_cols = ['picid', 'unit_id', 'camera_id', 'time', 'gaia', 'twomass', 'status']
+    # for i, col in enumerate(id_cols):
+    #     new_column_order.remove(col)
+    #     new_column_order.insert(i, col)
+    # matched_sources = matched_sources.reindex(columns=new_column_order)
 
     logger.debug(f'Point sources: {len(matched_sources)} for wcs={wcs.wcs.crval!r}')
 

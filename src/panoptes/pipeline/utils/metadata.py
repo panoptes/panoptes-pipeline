@@ -3,7 +3,7 @@ import re
 import shutil
 from contextlib import suppress
 import subprocess
-from dataclasses import dataclass, InitVar
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Pattern, Union
@@ -16,6 +16,7 @@ from tqdm.auto import tqdm
 from astropy import units as u
 from astropy.coordinates import SkyCoord
 from astropy.time import Time
+from astropy.io.fits.header import Header
 from astropy.utils.data import download_file
 
 from loguru import logger
@@ -51,7 +52,7 @@ class ObservationPathInfo:
 
     ..doctest::
 
-        >>> from panoptes.pipeline.utils.metadata import ObservationPathInfo
+        >>> from panoptes.pipeline.utils.extra import ObservationPathInfo
         >>> bucket_path = 'gs://panoptes-images-background/PAN012/Hd189733/358d0f/20180824T035917/20180824T040118.fits'
         >>> path_info = ObservationPathInfo(path=bucket_path)
 
@@ -94,8 +95,8 @@ class ObservationPathInfo:
             self.unit_id = path_match.group('unit_id')
             self.camera_id = path_match.group('camera_id')
             self.field_name = path_match.group('field_name')
-            self.sequence_time = Time(parse_date(path_match.group('sequence_time')))
-            self.image_time = Time(parse_date(path_match.group('image_time')))
+            self.sequence_time = parse_date(path_match.group('sequence_time'))
+            self.image_time = parse_date(path_match.group('image_time'))
 
     @property
     def id(self):
@@ -105,7 +106,7 @@ class ObservationPathInfo:
     @property
     def sequence_id(self) -> str:
         """The sequence id."""
-        return f'{self.unit_id}_{self.camera_id}_{flatten_time(self.sequence_time)}'
+        return f'{self.unit_id}_{self.camera_id}_{flatten_time(Time(self.sequence_time))}'
 
     @property
     def image_id(self) -> str:
@@ -133,6 +134,113 @@ class ObservationPathInfo:
             flatten_time(self.sequence_time),
             flatten_time(self.image_time)
         ])
+
+    @classmethod
+    def from_fits(cls, fits_file):
+        header = fits_utils.getheader(fits_file)
+        return cls.from_fits_header(header)
+
+    @classmethod
+    def from_fits_header(cls, header):
+        try:
+            new_instance = cls(path=header['FILENAME'])
+        except ValueError:
+            sequence_id = header['SEQID']
+            image_id = header['IMAGEID']
+            unit_id, camera_id, sequence_time = sequence_id.split('_')
+            _, _, image_time = image_id.split('_')
+
+            new_instance = cls(unit_id=unit_id,
+                               camera_id=camera_id,
+                               sequence_time=parse_date(sequence_time),
+                               image_time=parse_date(image_time))
+
+        return new_instance
+
+
+def extract_metadata(header: Header) -> dict:
+    """Get the metadata from a FITS image."""
+    path_info = ObservationPathInfo.from_fits_header(header)
+
+    try:
+        # Add a units doc if it doesn't exist.
+        unit_info = dict(
+            name=header.get('OBSERVER', ''),
+            latitude=header['LAT-OBS'],
+            longitude=header['LONG-OBS'],
+            elevation=float(header.get('ELEV-OBS')),
+            status='active'
+        )
+
+        exptime = header.get('EXPTIME')
+
+        sequence_info = dict(
+            unit_id=path_info.unit_id,
+            camera_id=header.get('INSTRUME'),
+            time=path_info.sequence_time,
+            exptime=exptime,
+            project=header.get('ORIGIN'),
+            software_version=header.get('CREATOR', ''),
+            field_name=header.get('FIELD', ''),
+            iso=header.get('ISO'),
+            ra=header.get('CRVAL1'),
+            dec=header.get('CRVAL2'),
+            status='receiving_files',
+            camera_serial_number=header.get('CAMSN'),
+            lens_serial_number=header.get('INTSN'),
+        )
+
+        measured_rggb = header.get('MEASRGGB').split(' ')
+        camera_date = parse_date(header.get('DATE-OBS', '')).replace(tzinfo=UTC)
+        file_date = parse_date(header.get('DATE', '')).replace(tzinfo=UTC)
+
+        image_info = dict(
+            unit_id=path_info.unit_id,
+            time=path_info.image_time,
+            bias_subtracted=False,
+            background_subtracted=False,
+            plate_solved=False,
+            exptime=header.get('EXPTIME'),
+            airmass=header.get('AIRMASS'),
+            moonfrac=header.get('MOONFRAC'),
+            moonsep=header.get('MOONSEP'),
+            mount_ha=header.get('HA-MNT'),
+            mount_ra=header.get('RA-MNT'),
+            mount_dec=header.get('DEC-MNT'),
+            sequence_id=path_info.sequence_id,
+            camera_id=path_info.camera_id
+        )
+
+        camera_info = dict(
+            temp=float(header.get('CAMTEMP', 'NA').split(' ')[0]),
+            colortemp=header.get('COLORTMP'),
+            circconf=float(header.get('CIRCCONF', 'NA').split(' ')[0]),
+            measured_ev=header.get('MEASEV'),
+            measured_ev2=header.get('MEASEV2'),
+            measured_r=float(measured_rggb[0]),
+            measured_g1=float(measured_rggb[1]),
+            measured_g2=float(measured_rggb[2]),
+            measured_b=float(measured_rggb[3]),
+            white_lvln=header.get('WHTLVLN'),
+            white_lvls=header.get('WHTLVLS'),
+            red_balance=header.get('REDBAL'),
+            blue_balance=header.get('BLUEBAL'),
+            camera_dateobs=camera_date,
+            file_creation_date=file_date,
+        ),
+
+        metadata = dict(
+            unit=unit_info,
+            sequence=sequence_info,
+            image=image_info,
+            camera=camera_info
+        )
+
+    except Exception as e:
+        logger.error(f'Error in adding record: {e!r}')
+        raise e
+
+    return metadata
 
 
 def get_observation_metadata(sequence_ids, fields=None, show_progress=False):
@@ -214,7 +322,7 @@ def search_observations(
     Either a `coords` or `ra` and `dec` must be specified for search to work.
 
     >>> from astropy.coordinates import SkyCoord
-    >>> from panoptes.pipeline.utils.metadata import search_observations
+    >>> from panoptes.pipeline.utils.extra import search_observations
     >>> coords = SkyCoord.from_name('Andromeda Galaxy')
     >>> start_date = '2019-01-01'
     >>> end_date = '2019-12-31'
@@ -385,93 +493,8 @@ def download_images(image_list, output_dir, overwrite=False, unpack=True, show_p
     return fits_files
 
 
-def extract_metadata(bucket_path: str, header: dict) -> dict:
-    """Get the metadata from a FITS image."""
-    logger.info(f'Extracting header metadata for {bucket_path=}')
-
-    path_info = ObservationPathInfo(path=bucket_path)
-
-    # Scrub all the entries
-    for k, v in header.items():
-        with suppress(AttributeError):
-            header[k] = v.strip()
-
-    logger.info(f'Using headers: {header!r}')
-    try:
-        # Add a units doc if it doesn't exist.
-        unit_info = dict(
-            name=header.get('OBSERVER', ''),
-            latitude=header['LAT-OBS'],
-            longitude=header['LONG-OBS'],
-            elevation=float(header.get('ELEV-OBS')),
-            status='active'
-        )
-
-        exptime = header.get('EXPTIME')
-
-        sequence_info = dict(
-            unit_id=path_info.unit_id,
-            camera_id=path_info.camera_id,
-            time=path_info.sequence_time,
-            exptime=exptime,
-            project=header.get('ORIGIN'),
-            software_version=header.get('CREATOR', ''),
-            field_name=header.get('FIELD', ''),
-            iso=header.get('ISO'),
-            ra=header.get('CRVAL1'),
-            dec=header.get('CRVAL2'),
-            status='receiving_files',
-            camera_serial_number=header.get('CAMSN'),
-            lens_serial_number=header.get('INTSN'),
-        )
-
-        measured_rggb = header.get('MEASRGGB').split(' ')
-        camera_date = parse_date(header.get('DATE-OBS', '')).replace(tzinfo=UTC)
-        file_date = parse_date(header.get('DATE', '')).replace(tzinfo=UTC)
-
-        image_info = dict(
-            unit_id=path_info.unit_id,
-            time=path_info.image_time,
-            bias_subtracted=False,
-            background_subtracted=False,
-            plate_solved=False,
-            exptime=header.get('EXPTIME'),
-            airmass=header.get('AIRMASS'),
-            moonfrac=header.get('MOONFRAC'),
-            moonsep=header.get('MOONSEP'),
-            mount_ha=header.get('HA-MNT'),
-            mount_ra=header.get('RA-MNT'),
-            mount_dec=header.get('DEC-MNT'),
-            camera=dict(
-                temp=float(header.get('CAMTEMP', 'NA').split(' ')[0]),
-                colortemp=header.get('COLORTMP'),
-                circconf=float(header.get('CIRCCONF', 'NA').split(' ')[0]),
-                measured_ev=header.get('MEASEV'),
-                measured_ev2=header.get('MEASEV2'),
-                measured_r=float(measured_rggb[0]),
-                measured_g1=float(measured_rggb[1]),
-                measured_g2=float(measured_rggb[2]),
-                measured_b=float(measured_rggb[3]),
-                white_lvln=header.get('WHTLVLN'),
-                white_lvls=header.get('WHTLVLS'),
-                red_balance=header.get('REDBAL'),
-                blue_balance=header.get('BLUEBAL'),
-                camera_dateobs=camera_date,
-                file_creation_date=file_date,
-            ),
-        )
-
-        metadata = dict(unit=unit_info, sequence=sequence_info, image=image_info)
-
-    except Exception as e:
-        logger.error(f'Error in adding record: {e!r}')
-        raise e
-
-    return metadata
-
-
 def record_metadata(bucket_path: str,
-                    header: dict,
+                    header: Header,
                     current_state: ImageStatus = ImageStatus.RECEIVING,
                     unit_collection: str = 'units',
                     observation_collection: str = 'observations',
@@ -491,7 +514,7 @@ def record_metadata(bucket_path: str,
     """
     firestore_db = firestore_db or firestore.Client()
 
-    metadata = extract_metadata(bucket_path=bucket_path, header=header)
+    metadata = extract_metadata(header)
 
     logger.info(f'Recording header metadata for {bucket_path=}')
 

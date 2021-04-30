@@ -1,7 +1,6 @@
 channels:
   - https://conda.anaconda.org/conda-forge
 dependencies:
-  - python>3.8
   - astropy
   - astroplan
   - altair
@@ -19,7 +18,8 @@ dependencies:
   - pillow
   - pip
   - pyarrow
+  - pyviz_comms
   - scipy
+  - xarray
   - pip:
       - google-cloud-firestore
-      - panoptes-utils[images,social,config]

@@ -52,7 +52,7 @@ class ObservationPathInfo:
 
     ..doctest::
 
-        >>> from panoptes.pipeline.utils.extra import ObservationPathInfo
+        >>> from panoptes.pipeline.utils.metadata import ObservationPathInfo
         >>> bucket_path = 'gs://panoptes-images-background/PAN012/Hd189733/358d0f/20180824T035917/20180824T040118.fits'
         >>> path_info = ObservationPathInfo(path=bucket_path)
 

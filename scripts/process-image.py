@@ -11,6 +11,7 @@ from astropy.wcs import WCS
 from panoptes.pipeline.utils import metadata, sources
 from panoptes.pipeline.utils.gcp.bigquery import get_bq_clients
 from panoptes.pipeline.utils.sources import get_stars_from_wcs, get_catalog_match
+from panoptes.pipeline.utils.status import ImageStatus
 from panoptes.utils.images import fits as fits_utils, bayer
 from panoptes.utils.serializers import to_json
 from photutils import segmentation
@@ -55,12 +56,6 @@ def main(
     header.remove('HISTORY', ignore_missing=True, remove_all=True)
     bad_headers = [h for h in header.keys() if h.startswith('_')]
     map(header.pop, bad_headers)
-
-    # Puts metadata into better structures.
-    metadata_headers = metadata.extract_metadata(header)
-    metadata_json_path = output_dir / 'metadata.json'
-    to_json(metadata_headers, filename=str(metadata_json_path))
-    typer.echo(f'Saved metadata to {metadata_json_path}')
 
     # Bias subtract.
     data = raw_data - camera_bias
@@ -116,7 +111,7 @@ def main(
                                                 skip_solved=False,
                                                 timeout=300)
     solved_path = solved_headers.pop('solved_fits_file')
-    typer.echo(f'Solving completed successfully for {reduced_filename}')
+    typer.echo(f'Solving completed successfully for {solved_path}')
 
     typer.echo(f'Getting stars from catalog')
     solved_wcs0 = WCS(solved_headers)
@@ -205,6 +200,13 @@ def main(
     matched_sources.to_csv(matched_path)
 
     typer.echo(f'Got positions for {len(matched_sources)}')
+
+    # Puts metadata into better structures.
+    metadata.record_metadata(url, header, current_state=ImageStatus.MATCHED)
+    metadata_headers = metadata.extract_metadata(header)
+    metadata_json_path = output_dir / 'metadata.json'
+    to_json(metadata_headers, filename=str(metadata_json_path))
+    typer.echo(f'Saved metadata to {metadata_json_path} and recorded in firestore.')
 
 
 if __name__ == '__main__':

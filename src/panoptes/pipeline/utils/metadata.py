@@ -1,8 +1,6 @@
-import os
 import re
-import shutil
+from enum import IntEnum
 from contextlib import suppress
-import subprocess
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -24,7 +22,23 @@ from loguru import logger
 from panoptes.utils.utils import listify
 from panoptes.utils.time import current_time, flatten_time
 from panoptes.utils.images import fits as fits_utils
-from panoptes.pipeline.utils.status import ImageStatus
+
+
+class SequenceStatus(IntEnum):
+    RECEIVING = 0
+    RECEIVED = 10
+
+
+class ImageStatus(IntEnum):
+    RECEIVING = 0
+    RECEIVED = 10
+    CALIBRATING = 20
+    CALIBRATED = 30
+    SOLVING = 40
+    SOLVED = 50
+    MATCHING = 60
+    MATCHED = 70
+
 
 OBS_BASE_URL = 'https://storage.googleapis.com/panoptes-observations'
 OBSERVATIONS_URL = 'https://storage.googleapis.com/panoptes-exp.appspot.com/observations.csv'
@@ -322,7 +336,7 @@ def search_observations(
     Either a `coords` or `ra` and `dec` must be specified for search to work.
 
     >>> from astropy.coordinates import SkyCoord
-    >>> from panoptes.pipeline.utils.extra import search_observations
+    >>> from panoptes.pipeline.utils.metadata import search_observations
     >>> coords = SkyCoord.from_name('Andromeda Galaxy')
     >>> start_date = '2019-01-01'
     >>> end_date = '2019-12-31'
@@ -456,41 +470,6 @@ def search_observations(
 
     logger.success(f'Returning {len(obs_df)} observations')
     return obs_df.reindex(columns=columns)
-
-
-def download_images(image_list, output_dir, overwrite=False, unpack=True, show_progress=True):
-    """Download images.
-
-    Temporary helper script that needs to be more robust.
-    """
-    os.makedirs(output_dir, exist_ok=True)
-
-    fits_files = list()
-
-    iterator = image_list
-    if show_progress:
-        iterator = tqdm(iterator, desc='Downloading images')
-
-    wget = shutil.which('wget')
-
-    for fits_file in iterator:
-        base = os.path.basename(fits_file)
-        unpacked = base.replace('.fz', '')
-
-        if not os.path.exists(f'{output_dir}/{base}') or overwrite:
-            if not os.path.exists(f'{output_dir}/{unpacked}') or overwrite:
-                download_cmd = [wget, '-q', fits_file, '-O', f'{output_dir}/{base}']
-                subprocess.run(download_cmd)
-
-        # Unpack the file if packed version exists locally.
-        if os.path.exists(f'{output_dir}/{base}') and unpack:
-            fits_utils.funpack(f'{output_dir}/{base}')
-
-        if os.path.exists(f'{output_dir}/{unpacked}'):
-            fits_files.append(f'{output_dir}/{unpacked}')
-
-    logger.debug(f'Downloaded {len(fits_files)} files.')
-    return fits_files
 
 
 def record_metadata(bucket_path: str,

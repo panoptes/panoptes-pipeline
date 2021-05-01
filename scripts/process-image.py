@@ -10,8 +10,7 @@ from astropy.wcs import WCS
 
 from panoptes.pipeline.utils import metadata, sources
 from panoptes.pipeline.utils.gcp.bigquery import get_bq_clients
-from panoptes.pipeline.utils.sources import get_stars_from_wcs, get_catalog_match
-from panoptes.pipeline.utils.status import ImageStatus
+from panoptes.pipeline.utils.metadata import ImageStatus
 from panoptes.utils.images import fits as fits_utils, bayer
 from panoptes.utils.serializers import to_json
 from photutils import segmentation
@@ -37,6 +36,7 @@ def main(
         detection_threshold: float = 5.0,
         num_detect_pixels: int = 4,
         effective_gain: float = 1.5,
+        use_firestore: bool = False,
 ):
     bq_client, bqstorage_client = get_bq_clients()
 
@@ -115,13 +115,13 @@ def main(
 
     typer.echo(f'Getting stars from catalog')
     solved_wcs0 = WCS(solved_headers)
-    catalog_sources = get_stars_from_wcs(solved_wcs0,
-                                         bq_client=bq_client,
-                                         bqstorage_client=bqstorage_client,
-                                         vmag_min=vmag_min,
-                                         vmag_max=vmag_max,
-                                         numcont=numcont,
-                                         )
+    catalog_sources = sources.get_stars_from_wcs(solved_wcs0,
+                                                 bq_client=bq_client,
+                                                 bqstorage_client=bqstorage_client,
+                                                 vmag_min=vmag_min,
+                                                 vmag_max=vmag_max,
+                                                 numcont=numcont,
+                                                 )
 
     typer.echo('Detecting sources in image')
     threshold = (detection_threshold * combined_rms_bg_data)
@@ -157,13 +157,13 @@ def main(
     detected_sources = detected_sources.rename(columns=lambda x: f'photutils_{x}')
 
     typer.echo(f'Matching sources to catalog for {len(detected_sources)} sources')
-    matched_sources = get_catalog_match(detected_sources,
-                                        wcs=solved_wcs0,
-                                        catalog_stars=catalog_sources,
-                                        ra_column='photutils_sky_centroid.ra',
-                                        dec_column='photutils_sky_centroid.dec',
-                                        max_separation_arcsec=None
-                                        )
+    matched_sources = sources.get_catalog_match(detected_sources,
+                                                wcs=solved_wcs0,
+                                                catalog_stars=catalog_sources,
+                                                ra_column='photutils_sky_centroid.ra',
+                                                dec_column='photutils_sky_centroid.dec',
+                                                max_separation_arcsec=None
+                                                )
 
     # Drop matches near border
     typer.echo(f'Filtering sources near edges')
@@ -202,7 +202,11 @@ def main(
     typer.echo(f'Got positions for {len(matched_sources)}')
 
     # Puts metadata into better structures.
-    metadata.record_metadata(url, header, current_state=ImageStatus.MATCHED)
+    if use_firestore:
+        try:
+            metadata.record_metadata(url, header, current_state=ImageStatus.MATCHED)
+        except Exception as e:
+            typer.secho(f'Error recording metadata: {e!r}', fg=typer.colors.YELLOW)
     metadata_headers = metadata.extract_metadata(header)
     metadata_json_path = output_dir / 'metadata.json'
     to_json(metadata_headers, filename=str(metadata_json_path))

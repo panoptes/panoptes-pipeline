@@ -1,6 +1,6 @@
 services:
   pipeline-dev:
-    image: "${IMAGE_NAME:-gcr.io/panoptes-exp/panoptes-utils}:${TAG_NAME:-develop}"
+    image: "${IMAGE_NAME:-gcr.io/panoptes-exp/panoptes-pipeline}:${TAG_NAME:-latest}"
     container_name: pipeline-dev
     hostname: pipeline-dev
     build:

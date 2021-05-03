@@ -20,7 +20,10 @@ from loguru import logger
 
 logger.remove()
 
+app = typer.Typer()
 
+
+@app.command()
 def main(
         url: str,
         output_dir: Path = 'output',
@@ -37,15 +40,15 @@ def main(
         num_detect_pixels: int = 4,
         effective_gain: float = 1.5,
         use_firestore: bool = False,
+        **kwargs
 ):
+    typer.echo(f'Starting processing for {url} in {output_dir!r}')
     bq_client, bqstorage_client = get_bq_clients()
 
     output_dir = Path(output_dir)
 
     if output_dir.exists() is False:
         output_dir.mkdir(exist_ok=True)
-
-    typer.echo(f'Starting processing for {url} in {output_dir}')
 
     # Load the image.
     typer.echo(f'Getting data')
@@ -212,6 +215,8 @@ def main(
     to_json(metadata_headers, filename=str(metadata_json_path))
     typer.echo(f'Saved metadata to {metadata_json_path} and recorded in firestore.')
 
+    return header['SEQID']
+
 
 if __name__ == '__main__':
-    typer.run(main)
+    app()

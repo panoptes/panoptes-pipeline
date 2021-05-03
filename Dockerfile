@@ -1,6 +1,6 @@
 ARG image_url=gcr.io/panoptes-exp/panoptes-pocs
 ARG image_tag=develop
-FROM ${image_url}:${image_tag} AS pipeline
+FROM ${image_url}:${image_tag} AS pipeline-base
 
 LABEL description="Development environment for working with the PIPELINE"
 LABEL maintainers="developers@projectpanoptes.org"
@@ -14,14 +14,21 @@ ENV LANG=C.UTF-8 LC_ALL=C.UTF-8
 
 USER "${userid}"
 
-ARG pip_install_name="."
-ARG pip_install_extras=""
+WORKDIR /build
+COPY --chown="${userid}:${userid}" . .
+RUN echo "Building wheel" && \
+    sudo chown -R "${userid}:${userid}" /build && \
+    python setup.py bdist_wheel
+
+FROM ${image_url}:${image_tag} AS pipeline
+
+ENV PYTHONUNBUFFERED True
 
 WORKDIR /panoptes-pipeline
-COPY --chown="${userid}:${userid}" . .
-RUN echo "Installing ${pip_install_name} module with ${pip_install_extras}" && \
+COPY --from=pipeline-base /build/dist/ /build/dist
+RUN echo "Installing module" && \
     sudo chown -R "${userid}:${userid}" /panoptes-pipeline && \
-    pip install -e "${pip_install_name}${pip_install_extras}" && \
+    pip install "$(ls /build/dist/*.whl)" && \
     # Cleanup
     pip cache purge && \
     conda clean -fay && \
@@ -31,5 +38,4 @@ RUN echo "Installing ${pip_install_name} module with ${pip_install_extras}" && \
     sudo apt-get --yes clean && \
     sudo rm -rf /var/lib/apt/lists/*
 
-ENTRYPOINT [ "/usr/bin/env", "python", "/panoptes-pipeline/scripts/process-image.py" ]
-CMD [ "--help" ]
+CMD [ "gunicorn --workers 1 --threads 8 --timeout 0 -k uvicorn.workers.UvicornWorker --bind :$PORT panoptes.pipeline.utils.services.preprocess:app" ]

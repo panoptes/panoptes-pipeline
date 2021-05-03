@@ -183,7 +183,6 @@ def extract_metadata(header: Header) -> dict:
             latitude=header['LAT-OBS'],
             longitude=header['LONG-OBS'],
             elevation=float(header.get('ELEV-OBS')),
-            status='active'
         )
 
         exptime = header.get('EXPTIME')
@@ -199,9 +198,6 @@ def extract_metadata(header: Header) -> dict:
             iso=header.get('ISO'),
             ra=header.get('CRVAL1'),
             dec=header.get('CRVAL2'),
-            status='receiving_files',
-            camera_serial_number=header.get('CAMSN'),
-            lens_serial_number=header.get('INTSN'),
         )
 
         measured_rggb = header.get('MEASRGGB').split(' ')
@@ -209,45 +205,41 @@ def extract_metadata(header: Header) -> dict:
         file_date = parse_date(header.get('DATE', '')).replace(tzinfo=UTC)
 
         image_info = dict(
-            unit_id=path_info.unit_id,
-            time=path_info.image_time,
-            bias_subtracted=False,
-            background_subtracted=False,
-            plate_solved=False,
-            exptime=header.get('EXPTIME'),
             airmass=header.get('AIRMASS'),
+            background_subtracted=False,
+            bias_subtracted=False,
+            camera=dict(
+                blue_balance=header.get('BLUEBAL'),
+                camera_id=path_info.camera_id,
+                circconf=float(header.get('CIRCCONF', 'NA').split(' ')[0]),
+                colortemp=header.get('COLORTMP'),
+                dateobs=camera_date,
+                lens_serial_number=header.get('INTSN'),
+                measured_ev=(header.get('MEASEV'), header.get('MEASEV2')),
+                measured_rggb=measured_rggb,
+                red_balance=header.get('REDBAL'),
+                serial_number=header.get('CAMSN'),
+                temp=float(header.get('CAMTEMP', 'NA').split(' ')[0]),
+                white_lvln=header.get('WHTLVLN'),
+                white_lvls=header.get('WHTLVLS'),
+            ),
+            exptime=exptime,
+            file_creation_date=file_date,
             moonfrac=header.get('MOONFRAC'),
             moonsep=header.get('MOONSEP'),
+            mount_dec=header.get('DEC-MNT'),
             mount_ha=header.get('HA-MNT'),
             mount_ra=header.get('RA-MNT'),
-            mount_dec=header.get('DEC-MNT'),
+            plate_solved=False,
             sequence_id=path_info.sequence_id,
-            camera_id=path_info.camera_id
-        )
-
-        camera_info = dict(
-            temp=float(header.get('CAMTEMP', 'NA').split(' ')[0]),
-            colortemp=header.get('COLORTMP'),
-            circconf=float(header.get('CIRCCONF', 'NA').split(' ')[0]),
-            measured_ev=header.get('MEASEV'),
-            measured_ev2=header.get('MEASEV2'),
-            measured_r=float(measured_rggb[0]),
-            measured_g1=float(measured_rggb[1]),
-            measured_g2=float(measured_rggb[2]),
-            measured_b=float(measured_rggb[3]),
-            white_lvln=header.get('WHTLVLN'),
-            white_lvls=header.get('WHTLVLS'),
-            red_balance=header.get('REDBAL'),
-            blue_balance=header.get('BLUEBAL'),
-            camera_dateobs=camera_date,
-            file_creation_date=file_date,
+            time=path_info.image_time,
+            unit_id=path_info.unit_id,
         ),
 
         metadata = dict(
             unit=unit_info,
             sequence=sequence_info,
             image=image_info,
-            camera=camera_info
         )
 
     except Exception as e:

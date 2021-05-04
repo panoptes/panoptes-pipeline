@@ -1,11 +1,13 @@
 import re
+import traceback
 from enum import IntEnum
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Pattern, Union
+from typing import Pattern, Union, Optional
 
+import pytz
 from dateutil.parser import parse as parse_date
 from dateutil.tz import UTC
 import pandas as pd
@@ -109,8 +111,8 @@ class ObservationPathInfo:
             self.unit_id = path_match.group('unit_id')
             self.camera_id = path_match.group('camera_id')
             self.field_name = path_match.group('field_name')
-            self.sequence_time = parse_date(path_match.group('sequence_time'))
-            self.image_time = parse_date(path_match.group('image_time'))
+            self.sequence_time = Time(parse_date(path_match.group('sequence_time')))
+            self.image_time = Time(parse_date(path_match.group('image_time')))
 
     @property
     def id(self):
@@ -120,12 +122,12 @@ class ObservationPathInfo:
     @property
     def sequence_id(self) -> str:
         """The sequence id."""
-        return f'{self.unit_id}_{self.camera_id}_{flatten_time(Time(self.sequence_time))}'
+        return f'{self.unit_id}_{self.camera_id}_{flatten_time(self.sequence_time)}'
 
     @property
     def image_id(self) -> str:
         """The matched image id."""
-        return f'{self.unit_id}_{self.camera_id}_{flatten_time(self.sequence_time)}'
+        return f'{self.unit_id}_{self.camera_id}_{flatten_time(self.image_time)}'
 
     def as_path(self, base: Union[Path, str] = None, ext: str = None) -> Path:
         """Return a Path object."""
@@ -166,8 +168,8 @@ class ObservationPathInfo:
 
             new_instance = cls(unit_id=unit_id,
                                camera_id=camera_id,
-                               sequence_time=parse_date(sequence_time),
-                               image_time=parse_date(image_time))
+                               sequence_time=Time(parse_date(sequence_time)),
+                               image_time=Time(parse_date(image_time)))
 
         return new_instance
 
@@ -190,7 +192,7 @@ def extract_metadata(header: Header) -> dict:
         sequence_info = dict(
             unit_id=path_info.unit_id,
             camera_id=header.get('INSTRUME'),
-            time=path_info.sequence_time,
+            time=path_info.sequence_time.to_datetime(timezone=pytz.UTC),
             exptime=exptime,
             project=header.get('ORIGIN'),
             software_version=header.get('CREATOR', ''),
@@ -206,8 +208,6 @@ def extract_metadata(header: Header) -> dict:
 
         image_info = dict(
             airmass=header.get('AIRMASS'),
-            background_subtracted=False,
-            bias_subtracted=False,
             camera=dict(
                 blue_balance=header.get('BLUEBAL'),
                 camera_id=path_info.camera_id,
@@ -215,11 +215,15 @@ def extract_metadata(header: Header) -> dict:
                 colortemp=header.get('COLORTMP'),
                 dateobs=camera_date,
                 lens_serial_number=header.get('INTSN'),
-                measured_ev=(header.get('MEASEV'), header.get('MEASEV2')),
-                measured_rggb=measured_rggb,
+                measured_ev=header.get('MEASEV'),
+                measured_ev2=header.get('MEASEV2'),
+                measured_r=measured_rggb[0],
+                measured_g1=measured_rggb[1],
+                measured_g2=measured_rggb[2],
+                measured_b=measured_rggb[3],
                 red_balance=header.get('REDBAL'),
-                serial_number=header.get('CAMSN'),
-                temp=float(header.get('CAMTEMP', 'NA').split(' ')[0]),
+                serial_number=str(header.get('CAMSN')),
+                temperature=float(header.get('CAMTEMP', 'NA').split(' ')[0]),
                 white_lvln=header.get('WHTLVLN'),
                 white_lvls=header.get('WHTLVLS'),
             ),
@@ -230,11 +234,10 @@ def extract_metadata(header: Header) -> dict:
             mount_dec=header.get('DEC-MNT'),
             mount_ha=header.get('HA-MNT'),
             mount_ra=header.get('RA-MNT'),
-            plate_solved=False,
             sequence_id=path_info.sequence_id,
-            time=path_info.image_time,
+            time=path_info.image_time.to_datetime(timezone=pytz.UTC),
             unit_id=path_info.unit_id,
-        ),
+        )
 
         metadata = dict(
             unit=unit_info,
@@ -246,6 +249,7 @@ def extract_metadata(header: Header) -> dict:
         logger.error(f'Error in adding record: {e!r}')
         raise e
 
+    logger.success(f'Metadata extracted from header')
     return metadata
 
 
@@ -464,13 +468,15 @@ def search_observations(
     return obs_df.reindex(columns=columns)
 
 
-def record_metadata(bucket_path: str,
-                    header: Header,
-                    current_state: ImageStatus = ImageStatus.RECEIVING,
-                    unit_collection: str = 'units',
-                    observation_collection: str = 'observations',
-                    image_collection: str = 'images',
-                    firestore_db: firestore.Client = None):
+def record_metadata(
+        bucket_path: str,
+        metadata: Optional[dict] = None,
+        header: Optional[Header] = None,
+        current_state: ImageStatus = ImageStatus.RECEIVING,
+        unit_collection: str = 'units',
+        observation_collection: str = 'observations',
+        image_collection: str = 'images',
+        firestore_db: firestore.Client = None) -> str:
     """Add FITS header info to firestore_db.
 
     Note:
@@ -483,20 +489,20 @@ def record_metadata(bucket_path: str,
     Raises:
         e: Description
     """
+    print(f'Recording header metadata in firestore for {bucket_path=}')
+
     firestore_db = firestore_db or firestore.Client()
 
-    metadata = extract_metadata(header)
-
-    logger.info(f'Recording header metadata for {bucket_path=}')
+    print(f'Getting metadata')
+    metadata = metadata or extract_metadata(header)
 
     path_info = ObservationPathInfo(path=bucket_path)
     sequence_id = path_info.sequence_id
     image_id = path_info.image_id
 
-    logger.info(f'Using headers: {header!r}')
     try:
-        logger.info(f'Getting document for observation {sequence_id}')
-        unit_collection_ref = firestore_db.collection((unit_collection,))
+        print(f'Getting document for observation {sequence_id}')
+        unit_collection_ref = firestore_db.collection(unit_collection)
         unit_doc_ref = unit_collection_ref.document(f'{path_info.unit_id}')
         seq_doc_ref = unit_doc_ref.collection(observation_collection).document(sequence_id)
         image_doc_ref = seq_doc_ref.collection(image_collection).document(image_id)
@@ -504,8 +510,8 @@ def record_metadata(bucket_path: str,
         with suppress(KeyError, TypeError):
             image_status = image_doc_ref.get(['status']).to_dict()['status']
             if ImageStatus[image_status] >= current_state:
-                logger.info(f'Skipping image with status of {ImageStatus[image_status].name}')
-                return True
+                print(f'Skipping image with status of {ImageStatus[image_status].name}')
+                raise FileExistsError('Already processed')
 
         # Add a units doc if it doesn't exist.
         unit_doc_ref.set(metadata['unit'], merge=True)
@@ -519,13 +525,14 @@ def record_metadata(bucket_path: str,
 
         # Add status to image data.
         image_md = metadata['image']
+        print(f'Image metadata: {image_md!r}')
         image_md['status'] = current_state.name
         image_md['received_time'] = firestore.SERVER_TIMESTAMP
         image_doc_ref.set(metadata['image'], merge=True)
 
     except Exception as e:
-        logger.error(f'Error in adding record: {e!r}')
+        print(f'Error in adding record: {traceback.format_exc()!r}')
         raise e
 
-    logger.success(f'Recorded metadata for {bucket_path} with {image_doc_ref.id=}')
+    print(f'Recorded metadata for {bucket_path} with {image_doc_ref.id=}')
     return image_doc_ref.id

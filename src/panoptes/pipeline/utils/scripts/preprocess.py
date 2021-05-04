@@ -205,17 +205,22 @@ def main(
     typer.echo(f'Got positions for {len(matched_sources)}')
 
     # Puts metadata into better structures.
-    if use_firestore:
-        try:
-            metadata.record_metadata(url, header, current_state=ImageStatus.MATCHED)
-        except Exception as e:
-            typer.secho(f'Error recording metadata: {e!r}', fg=typer.colors.YELLOW)
     metadata_headers = metadata.extract_metadata(header)
     metadata_json_path = output_dir / 'metadata.json'
     to_json(metadata_headers, filename=str(metadata_json_path))
-    typer.echo(f'Saved metadata to {metadata_json_path} and recorded in firestore.')
+    typer.echo(f'Saved metadata to {metadata_json_path}.')
 
-    return header['SEQID']
+    if use_firestore:
+        try:
+            typer.echo(f'Saving metadata to firestore')
+            image_id = metadata.record_metadata(url,
+                                                metadata=metadata_headers,
+                                                current_state=ImageStatus.MATCHED)
+            typer.echo(f'Saved metadata to firestore with id={image_id}')
+        except Exception as e:
+            typer.secho(f'Error recording metadata: {e!r}', fg=typer.colors.YELLOW)
+
+    return metadata.ObservationPathInfo.from_fits_header(header).get_full_id(sep='/')
 
 
 if __name__ == '__main__':

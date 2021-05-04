@@ -24,8 +24,8 @@ def index(raw_message: dict):
     print(f'Received {raw_message}')
     with tempfile.TemporaryDirectory() as tmp_dir:
         try:
-            full_image_id = cloud_function_entry_point(raw_message['message'],
-                                                       preprocess_main,
+            full_image_id = cloud_function_entry_point(raw_message=raw_message['message'],
+                                                       operation=preprocess_main,
                                                        output_dir=tmp_dir,
                                                        use_firestore=True)
         except Exception as e:

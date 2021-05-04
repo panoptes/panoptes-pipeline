@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from google.cloud import storage
 
 from panoptes.pipeline.utils.gcp.functions import cloud_function_entry_point
-from panoptes.pipeline.utils.scripts.preprocess import main as preprocess_main
+from panoptes.pipeline.utils.scripts.prepare import main as preprocess_main
 
 app = FastAPI()
 storage_client = storage.Client()

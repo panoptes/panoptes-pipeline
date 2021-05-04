@@ -11,8 +11,10 @@ gcloud builds submit --tag "gcr.io/${PROJECT_ID}/${TOPIC}:${BASE_TAG}" .
 
 echo "Deploying to Cloud Run"
 gcloud run deploy "${TOPIC}" \
+  --region "us-west1" \
   --image "gcr.io/${PROJECT_ID}/${TOPIC}:${BASE_TAG}" \
   --no-allow-unauthenticated \
   --platform managed \
-  --memory "4Gi" \
-  --region "us-west1"
+  --memory "8Gi" \
+  --max-instances 100 \
+  --concurrency 2

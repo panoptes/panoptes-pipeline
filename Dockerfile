@@ -38,4 +38,4 @@ RUN echo "Installing module" && \
     sudo apt-get --yes clean && \
     sudo rm -rf /var/lib/apt/lists/*
 
-CMD [ "gunicorn --workers 1 --threads 8 --timeout 0 -k uvicorn.workers.UvicornWorker --bind :$PORT panoptes.pipeline.utils.services.preprocess:app" ]
+CMD [ "gunicorn --workers 1 --threads 8 --timeout 0 -k uvicorn.workers.UvicornWorker --bind :$PORT panoptes.pipeline.utils.services.prepare:app" ]

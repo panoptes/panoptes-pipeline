@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Tuple
 
 import numpy as np
+import pandas as pd
 import typer
 from astropy import convolution
 from astropy.io import fits
@@ -43,7 +44,7 @@ def main(
         use_firestore: bool = False,
         **kwargs
 ):
-    if re.search(r'\d{8}T\d{6}\.fits[\.fz]+$', url) is None:
+    if re.search(r'\d{8}T\d{6}\.fits[.fz]+$', url) is None:
         raise RuntimeError(f'Need a FITS file, got {url}')
 
     typer.echo(f'Starting processing for {url} in {output_dir!r}')
@@ -53,6 +54,12 @@ def main(
 
     if output_dir.exists() is False:
         output_dir.mkdir(exist_ok=True)
+
+    reduced_filename = output_dir / 'calibrated.fits'
+    background_filename = output_dir / 'background.fits'
+    residual_filename = output_dir / 'background-residual.fits'
+    metadata_json_path = output_dir / 'metadata.json'
+    matched_path = output_dir / 'matched-sources.csv'
 
     # Load the image.
     typer.echo(f'Getting data')
@@ -95,19 +102,16 @@ def main(
     # Save reduced data and background.
     hdu0 = fits.PrimaryHDU(reduced_data, header=header)
     hdu0.scale('float32')
-    reduced_filename = output_dir / 'calibrated.fits'
     fits.HDUList(hdu0).writeto(reduced_filename)
     typer.echo(f'Saved {reduced_filename}')
 
     hdu1 = fits.PrimaryHDU(combined_bg_data, header=header)
     hdu1.scale('float32')
-    background_filename = output_dir / 'background.fits'
     fits.HDUList(hdu1).writeto(background_filename)
     typer.echo(f'Saved {background_filename}')
 
     hdu2 = fits.PrimaryHDU(combined_rms_bg_data, header=header)
     hdu2.scale('float32')
-    residual_filename = output_dir / 'background-residual.fits'
     fits.HDUList(hdu2).writeto(residual_filename)
     typer.echo(f'Saved {residual_filename}')
 
@@ -203,18 +207,23 @@ def main(
     matched_sources = matched_sources.merge(stamp_positions,
                                             left_index=True,
                                             right_index=True)
-    matched_path = output_dir / 'matched-sources.csv'
-    matched_sources.to_csv(matched_path)
 
-    typer.echo(f'Got positions for {len(matched_sources)}')
+    num_sources = len(matched_sources)
+    typer.echo(f'Got positions for {num_sources}')
 
     # Puts metadata into better structures.
     metadata_headers = metadata.extract_metadata(header)
-    metadata_headers['image']['num_sources'] = len(matched_sources)
-        
-    metadata_json_path = output_dir / 'metadata.json'
+    metadata_headers['image']['matched_sources'] = num_sources
+
     to_json(metadata_headers, filename=str(metadata_json_path))
     typer.echo(f'Saved metadata to {metadata_json_path}.')
+
+    # Add metadata to matched sources (via json normalization).
+    metadata_series = pd.json_normalize(metadata_headers, sep='_').iloc[0]
+    matched_sources = matched_sources.assign(**metadata_series)
+    matched_sources.set_index(['picid']).to_csv(matched_path, index=True)
+
+    # TODO send to bigquery.
 
     if use_firestore:
         try:

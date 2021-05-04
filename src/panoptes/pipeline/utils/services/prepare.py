@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from google.cloud import storage
 
 from panoptes.pipeline.utils.gcp.functions import cloud_function_entry_point
-from panoptes.pipeline.utils.scripts.prepare import main as preprocess_main
+from panoptes.pipeline.utils.scripts.prepare import main as prepare_main
 
 app = FastAPI()
 storage_client = storage.Client()
@@ -24,8 +24,8 @@ def index(raw_message: dict):
     print(f'Received {raw_message}')
     with tempfile.TemporaryDirectory() as tmp_dir:
         try:
-            full_image_id = cloud_function_entry_point(raw_message=raw_message['message'],
-                                                       operation=preprocess_main,
+            full_image_id = cloud_function_entry_point(raw_message['message'],
+                                                       prepare_main,
                                                        output_dir=tmp_dir,
                                                        use_firestore=True)
         except Exception as e:

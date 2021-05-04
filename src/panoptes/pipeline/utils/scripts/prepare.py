@@ -40,7 +40,9 @@ def main(
         detection_threshold: float = 5.0,
         num_detect_pixels: int = 4,
         effective_gain: float = 1.5,
+        max_catalog_separation: int = 50,
         use_firestore: bool = False,
+        use_bigquery: bool = False,
         **kwargs
 ):
     if re.search(r'\d{8}T\d{6}\.fits[\.fz]+$', url) is None:
@@ -169,7 +171,7 @@ def main(
                                                 catalog_stars=catalog_sources,
                                                 ra_column='photutils_sky_centroid.ra',
                                                 dec_column='photutils_sky_centroid.dec',
-                                                max_separation_arcsec=None
+                                                max_separation_arcsec=max_catalog_separation
                                                 )
 
     # Drop matches near border
@@ -211,7 +213,7 @@ def main(
     # Puts metadata into better structures.
     metadata_headers = metadata.extract_metadata(header)
     metadata_headers['image']['num_sources'] = len(matched_sources)
-        
+
     metadata_json_path = output_dir / 'metadata.json'
     to_json(metadata_headers, filename=str(metadata_json_path))
     typer.echo(f'Saved metadata to {metadata_json_path}.')
@@ -225,6 +227,9 @@ def main(
             typer.echo(f'Saved metadata to firestore with id={image_id}')
         except Exception as e:
             typer.secho(f'Error recording metadata: {e!r}', fg=typer.colors.YELLOW)
+
+    if use_bigquery:
+        typer.echo('Pretend upload to bigquery here.')
 
     return metadata.ObservationPathInfo.from_fits_header(header).get_full_id(sep='/')
 

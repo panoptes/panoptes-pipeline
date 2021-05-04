@@ -1,18 +1,12 @@
-import os
-import shutil
-import subprocess
-from pathlib import Path
-from loguru import logger
-
+import pandas
 from astropy import units as u
 from astropy.coordinates import SkyCoord
-from astropy.table import Table
-from panoptes.utils.images import fits as fits_utils
-from panoptes.utils.images import bayer
+from astropy.wcs import WCS
+from loguru import logger
 from panoptes.pipeline.utils.gcp.bigquery import get_bq_clients
 
 
-def get_stars_from_wcs(wcs, **kwargs):
+def get_stars_from_wcs(wcs: WCS, **kwargs) -> pandas.DataFrame:
     """Lookup star information from WCS footprint.
 
     Generates the correct layout for an SQL `POLYGON` that can be passed to
@@ -27,6 +21,10 @@ def get_stars_from_wcs(wcs, **kwargs):
     logger.debug(f'Looking up catalog stars for WCS: {wcs_footprint}')
     # Add the first entry to the end to complete polygon
     wcs_footprint.append(wcs_footprint[0])
+
+    # The longitude must be in -180 to 180 range
+    # scale_func = np.vectorize(lambda x: (x + 180) % 360 - 180)
+    # wcs_footprint = scale_func(wcs_footprint)
 
     poly = ','.join([f'{c[0]:.05} {c[1]:.05f}' for c in wcs_footprint])
 
@@ -90,14 +88,12 @@ def get_stars(
 
     column_mapping_str = ', '.join([f'{k} as {v}' for k, v in column_mapping.items()])
 
-    # Note that for how the BigQuery partition works, we need the parition one step
+    # Note that for how the BigQuery partition works, we need the partition one step
     # below the requested Vmag_max.
     sql = f"""
     SELECT {column_mapping_str} 
     FROM catalog.pic
     WHERE
-      gaia > '' AND
-      numcont < {numcont} AND
       vmag_partition BETWEEN {vmag_min} AND {vmag_max - 1}
       {sql_constraint}
     """
@@ -118,116 +114,12 @@ def get_stars(
     return results
 
 
-def lookup_point_sources(fits_file,
-                         catalog_match=False,
-                         force_new=False,
-                         wcs=None,
-                         **kwargs
-                         ):
-    """Extract point sources from image.
-
-    This function will extract the sources from the image using the given method
-    (currently only `source-extractor`). This is returned as a `pandas.DataFrame`. If
-    `catalog_match=True` then the resulting sources will be matched against the
-    PANOPTES catalog, which is a filtered version of the TESS Input Catalog. See
-    `get_catalog_match` for details and column list.
-
-    `source-extractor` will return the following columns:
-
-    * ALPHA_J2000   ->  measured_ra
-    * DELTA_J2000   ->  measured_dec
-    * XPEAK_IMAGE   ->  measured_x
-    * YPEAK_IMAGE   ->  measured_y
-    * X_IMAGE       ->  measured_x_image
-    * Y_IMAGE       ->  measured_y_image
-    * ELLIPTICITY   ->  measured_ellipticity
-    * THETA_IMAGE   ->  measured_theta_image
-    * FLUX_BEST     ->  measured_flux_best
-    * FLUXERR_BEST  ->  measured_fluxerr_best
-    * FLUX_MAX      ->  measured_flux_max
-    * FLUX_GROWTH   ->  measured_flux_growth
-    * MAG_BEST      ->  measured_mag_best
-    * MAGERR_BEST   ->  measured_magerr_best
-    * FWHM_IMAGE    ->  measured_fwhm_image
-    * BACKGROUND    ->  measured_background
-    * FLAGS         ->  measured_flags
-
-    .. note::
-
-        Sources within a certain `trim_size` (default 10) of the image edges will be automatically pruned.
-
-    >>> from panoptes.utils.stars import lookup_point_sources
-    >>> fits_fn = getfixture('solved_fits_file')
-
-    >>> point_sources = lookup_point_sources(fits_fn)
-    >>> point_sources.describe()
-             measured_ra    measured_dec  ...    measured_background    measured_flags
-    count     473.000000      473.000000  ...             473.000000        473.000000
-    mean      303.284052       46.011116  ...            2218.525156          1.143763
-    std         0.810261        0.582264  ...               4.545206          3.130030
-    min       301.794797       45.038730  ...            2205.807000          0.000000
-    25%       302.598079       45.503276  ...            2215.862000          0.000000
-    50%       303.243873       46.021710  ...            2218.392000          0.000000
-    75%       303.982358       46.497813  ...            2221.577000          0.000000
-    max       304.637887       47.015707  ...            2229.050000         27.000000
-    ...
-    >>> type(point_sources)
-    <class 'pandas.core.frame.DataFrame'>
-
-    Args:
-        fits_file (str, optional): Path to FITS file to search for stars.
-        catalog_match (bool, optional): If `get_catalog_match` should be called after
-            looking up sources. Default False. If True, the `args` and `kwargs` will
-            be passed to `get_catalog_match`.
-        wcs (`astropy.wcs.WCS`|None): A WCS file to use. Default is `None`, in which
-            the WCS comes from the `fits_file`.
-        force_new (bool, optional): Force a new catalog to be created,
-            defaults to False.
-        **kwargs: Passed to `get_catalog_match` when `catalog_match=True`.
-
-    Raises:
-        Exception: Raised for any exception.
-
-    Returns:
-        `pandas.DataFrame`: A dataframe contained the sources.
-
-    """
-    if catalog_match:
-        if wcs is None:
-            wcs = fits_utils.getwcs(fits_file)
-        assert wcs is not None and wcs.is_celestial, logger.warning("Need a valid WCS")
-
-    logger.debug(f"Looking up sources for {fits_file}")
-
-    try:
-        logger.debug(f"Running source-extractor on {fits_file}")
-        point_sources = extract_sources(fits_file, force_new=force_new, **kwargs)
-    except Exception as e:
-        raise Exception(f"Problem with source-extractor: {e!r} {fits_file}")
-
-    if catalog_match:
-        logger.debug(f'Doing catalog match against stars for fits_file={fits_file}')
-        try:
-            catalog_matches = get_catalog_match(point_sources, wcs=wcs, **kwargs)
-            logger.debug(f'Done with catalog match for {fits_file}')
-        except Exception as e:  # pragma: no cover
-            logger.error(f'Error in catalog match, returning unmatched results: {e!r} {fits_file}')
-        else:
-            logger.debug(f'Point sources: {len(point_sources)} {len(catalog_matches)} {fits_file}')
-            return catalog_matches
-    else:
-        logger.debug(f'Point sources: {len(point_sources)} {fits_file}')
-        return point_sources
-
-
 def get_catalog_match(point_sources,
                       wcs=None,
                       catalog_stars=None,
                       max_separation_arcsec=None,
-                      return_unmatched=False,
                       ra_column='measured_ra',
                       dec_column='measured_dec',
-                      origin=1,
                       **kwargs):
     """Match the point source positions to the catalog.
 
@@ -349,7 +241,8 @@ def get_catalog_match(point_sources,
     catalog_matches = get_xy_positions(wcs, catalog_matches)
 
     # Add the matches and their separation.
-    matched_sources = point_sources.join(catalog_matches.reset_index(drop=True))
+    matched_sources = point_sources.reset_index(drop=True).join(
+        catalog_matches.reset_index(drop=True))
 
     # All point sources so far are matched.
     matched_sources['status'] = 'matched'
@@ -364,12 +257,12 @@ def get_catalog_match(point_sources,
     #         point_sources = point_sources.append(unmatched)
 
     # Reorder columns so id cols are first then alpha.
-    new_column_order = sorted(list(matched_sources.columns))
-    id_cols = ['picid', 'unit_id', 'camera_id', 'time', 'gaia', 'twomass', 'status']
-    for i, col in enumerate(id_cols):
-        new_column_order.remove(col)
-        new_column_order.insert(i, col)
-    matched_sources = matched_sources.reindex(columns=new_column_order)
+    # new_column_order = sorted(list(matched_sources.columns))
+    # id_cols = ['picid', 'unit_id', 'camera_id', 'time', 'gaia', 'twomass', 'status']
+    # for i, col in enumerate(id_cols):
+    #     new_column_order.remove(col)
+    #     new_column_order.insert(i, col)
+    # matched_sources = matched_sources.reindex(columns=new_column_order)
 
     logger.debug(f'Point sources: {len(matched_sources)} for wcs={wcs.wcs.crval!r}')
 
@@ -397,130 +290,3 @@ def get_xy_positions(wcs_input, catalog_df, ra_column='catalog_ra', dec_column='
     catalog_df['catalog_wcs_y_int'] = catalog_df.catalog_wcs_y.astype(int)
 
     return catalog_df
-
-
-def extract_sources(fits_file,
-                    measured_params=None,
-                    trim_size=10,
-                    trim_column='peak_image',
-                    force_new=False,
-                    img_dimensions=(3476, 5208),
-                    extractor_config='resources/source-extractor/panoptes.conf',
-                    extractor_params='resources/source-extractor/panoptes.params',
-                    *args, **kwargs):
-    # Write the source-extractor catalog to a file
-    base_dir = os.path.dirname(fits_file)
-    source_dir = os.path.join(base_dir, 'source-extractor')
-    os.makedirs(source_dir, exist_ok=True)
-
-    image_time = os.path.splitext(os.path.basename(fits_file))[0]
-
-    catalog_filename = os.path.join(source_dir, f'point_sources_{image_time}.cat')
-    logger.debug(f"Point source catalog: {catalog_filename}")
-
-    if not extractor_config.startswith('/'):
-        extractor_config_path = str(get_project_root() / extractor_config)
-    else:
-        extractor_config_path = str(extractor_config)
-    logger.debug(f"Extractor config: {extractor_config_path}")
-
-    if not extractor_params.startswith('/'):
-        extractor_params_path = str(get_project_root() / extractor_params)
-    else:
-        extractor_params_path = str(extractor_params)
-    logger.debug(f"Extractor config: {extractor_params_path}")
-
-    if not os.path.exists(catalog_filename) or force_new:
-        logger.debug("No catalog found, building from source-extractor")
-        # Build catalog of point sources
-        source_extractor = shutil.which('sextractor') or shutil.which('source-extractor')
-
-        assert source_extractor is not None, 'source-extractor not found'
-
-        # source-extractor can't handle compressed data.
-        if fits_file.endswith('.fz'):
-            fits_file = fits_utils.funpack(fits_file)
-
-        if measured_params is None:
-            measured_params = [
-                '-c', extractor_config_path,
-                '-PARAMETERS_NAME', extractor_params_path,
-                '-CATALOG_NAME', catalog_filename,
-            ]
-        else:
-            measured_params.extend(['-CATALOG_NAME', catalog_filename])
-
-        logger.debug("Running source-extractor...")
-        cmd = [source_extractor, *measured_params, fits_file]
-        logger.debug(cmd)
-
-        try:
-            subprocess.run(cmd,
-                           stdout=subprocess.PIPE,
-                           stderr=subprocess.PIPE,
-                           timeout=60,
-                           check=True)
-        except subprocess.CalledProcessError as e:
-            raise Exception(f"Problem running source-extractor: {e.stderr}\n\n{e.stdout}")
-
-    # Read catalog
-    logger.debug(f'Building detected source table with {catalog_filename}')
-    point_sources = Table.read(catalog_filename, format='ascii.sextractor')
-
-    # Filter point sources near edge
-    # w, h = data[0].shape
-    logger.debug('Trimming sources near edge')
-    w, h = img_dimensions
-    trim_column = trim_column.upper()
-    top = point_sources[f'Y{trim_column}'] > trim_size
-    bottom = point_sources[f'Y{trim_column}'] < w - trim_size
-    left = point_sources[f'X{trim_column}'] > trim_size
-    right = point_sources[f'X{trim_column}'] < h - trim_size
-
-    # Do the trim and convert to pandas.
-    point_sources = point_sources[top & bottom & right & left].to_pandas()
-
-    # Rename all the columns at once.
-    #     point_sources.columns = [f'measured_{c.lower()}' for c in point_sources.columns]
-    point_sources.columns = [
-        'measured_ra',
-        'measured_dec',
-        'measured_x_image',
-        'measured_y_image',
-        'measured_x_peak',
-        'measured_y_peak',
-        'measured_ellipticity',
-        'measured_theta_image',
-        'measured_flux_auto',
-        'measured_fluxerr_auto',
-        'measured_mag_auto',
-        'measured_magerr_auto',
-        'measured_fwhm_image',
-        'measured_background',
-        'measured_flags',
-    ]
-
-    # Get the pixel color for the peak.
-    def get_color(row):
-        return bayer.get_pixel_color(row.measured_x_peak, row.measured_y_peak)
-
-    point_sources['measured_peak_color'] = point_sources.apply(lambda row: get_color(row), axis=1)
-
-    # Change dtypes
-    point_sources['measured_peak_color'] = point_sources['measured_peak_color'].astype('category')
-    point_sources['measured_flags'] = point_sources['measured_flags'].astype('category')
-
-    # Add the image id to the front
-    image_id = fits_utils.getval(fits_file, 'IMAGEID')
-    unit_id, camera_id, obstime = image_id.split('_')
-    point_sources['unit_id'] = unit_id
-    point_sources['camera_id'] = camera_id
-    point_sources['time'] = obstime
-
-    logger.debug(f'Returning {len(point_sources)} sources from source-extractor')
-    return point_sources
-
-
-def get_project_root() -> Path:
-    """Ugh."""
-    return Path(__file__).parent.parent.parent.parent.parent

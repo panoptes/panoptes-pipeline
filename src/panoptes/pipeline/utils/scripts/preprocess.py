@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 from typing import Tuple
 
@@ -42,6 +43,9 @@ def main(
         use_firestore: bool = False,
         **kwargs
 ):
+    if re.search(r'\d{8}T\d{6}\.fits[\.fz]+$', url) is None:
+        raise RuntimeError(f'Need a FITS file, got {url}')
+
     typer.echo(f'Starting processing for {url} in {output_dir!r}')
     bq_client, bqstorage_client = get_bq_clients()
 

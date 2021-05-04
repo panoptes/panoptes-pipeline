@@ -7,7 +7,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Pattern, Union, Optional
 
-import pytz
 from dateutil.parser import parse as parse_date
 from dateutil.tz import UTC
 import pandas as pd
@@ -192,7 +191,7 @@ def extract_metadata(header: Header) -> dict:
         sequence_info = dict(
             unit_id=path_info.unit_id,
             camera_id=header.get('INSTRUME'),
-            time=path_info.sequence_time.to_datetime(timezone=pytz.UTC),
+            time=path_info.sequence_time.to_datetime(timezone=UTC),
             exptime=exptime,
             project=header.get('ORIGIN'),
             software_version=header.get('CREATOR', ''),
@@ -217,10 +216,10 @@ def extract_metadata(header: Header) -> dict:
                 lens_serial_number=header.get('INTSN'),
                 measured_ev=header.get('MEASEV'),
                 measured_ev2=header.get('MEASEV2'),
-                measured_r=measured_rggb[0],
-                measured_g1=measured_rggb[1],
-                measured_g2=measured_rggb[2],
-                measured_b=measured_rggb[3],
+                measured_r=float(measured_rggb[0]),
+                measured_g1=float(measured_rggb[1]),
+                measured_g2=float(measured_rggb[2]),
+                measured_b=float(measured_rggb[3]),
                 red_balance=header.get('REDBAL'),
                 serial_number=str(header.get('CAMSN')),
                 temperature=float(header.get('CAMTEMP', 'NA').split(' ')[0]),
@@ -235,7 +234,7 @@ def extract_metadata(header: Header) -> dict:
             mount_ha=header.get('HA-MNT'),
             mount_ra=header.get('RA-MNT'),
             sequence_id=path_info.sequence_id,
-            time=path_info.image_time.to_datetime(timezone=pytz.UTC),
+            time=path_info.image_time.to_datetime(timezone=UTC),
             unit_id=path_info.unit_id,
         )
 

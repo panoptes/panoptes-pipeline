@@ -1,3 +1,4 @@
+import re
 from typing import Callable, Any
 
 
@@ -25,7 +26,15 @@ def cloud_function_entry_point(raw_message: dict,
     if bucket_path is None:
         raise Exception(f'No file requested')
 
-    output = operation(bucket_path, **attributes, **kwargs)
+    # Make sure file has valid signature.
+    if re.search(r'\d{8}T\d{6}\.fits[\.fz]+$', bucket_path) is None:
+        raise RuntimeError(f'Need a FITS file, got {bucket_path}')
+
+    bucket = attributes['bucketId']
+    public_bucket_path = f'https://storage.googleapis.com/{bucket}/{bucket_path}'
+
+    print(f'Processing {public_bucket_path}')
+    output = operation(public_bucket_path, **attributes, **kwargs)
     if output is None or output is False:
         raise Exception('The process indicated failure but no other information.')
 

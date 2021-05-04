@@ -210,6 +210,8 @@ def main(
 
     # Puts metadata into better structures.
     metadata_headers = metadata.extract_metadata(header)
+    metadata_headers['image']['num_sources'] = len(matched_sources)
+        
     metadata_json_path = output_dir / 'metadata.json'
     to_json(metadata_headers, filename=str(metadata_json_path))
     typer.echo(f'Saved metadata to {metadata_json_path}.')

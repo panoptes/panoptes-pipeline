@@ -1,3 +1,4 @@
+import hashlib
 import re
 from pathlib import Path
 from typing import Tuple
@@ -22,9 +23,6 @@ from loguru import logger
 
 from google.cloud import bigquery
 
-# Construct a BigQuery client object.
-client = bigquery.Client()
-bq_table_id = "panoptes-exp.observations.matched_sources"
 logger.remove()
 app = typer.Typer()
 
@@ -48,18 +46,28 @@ def main(
         max_catalog_separation: int = 50,
         use_firestore: bool = False,
         use_bigquery: bool = False,
+        bq_table_id: str = 'panoptes-exp.observations.matched_sources',
+        force: bool = False,
         **kwargs
 ):
+    processing_id = hashlib.md5(url).hexdigest()
+
+    # Print helper so log messages can be tracked to processing run.
+    def _print(string, **kwargs):
+        _print(f'{processing_id} {string}', **kwargs)
+
     if re.search(r'\d{8}T\d{6}\.fits[.fz]+$', url) is None:
         raise RuntimeError(f'Need a FITS file, got {url}')
 
-    typer.echo(f'Starting processing for {url} in {output_dir!r}')
+    _print(f'Starting processing for {url} in {output_dir!r}')
+
+    already_processed = False
+
     bq_client, bqstorage_client = get_bq_clients()
 
+    # Set up output directory and filenames.
     output_dir = Path(output_dir)
-
-    if output_dir.exists() is False:
-        output_dir.mkdir(exist_ok=True)
+    output_dir.mkdir(exist_ok=True)
 
     reduced_filename = output_dir / 'calibrated.fits'
     background_filename = output_dir / 'background.fits'
@@ -68,8 +76,15 @@ def main(
     matched_path = output_dir / 'matched-sources.csv'
 
     # Load the image.
-    typer.echo(f'Getting data')
+    _print(f'Getting data')
     raw_data, header = fits_utils.getdata(url, header=True)
+
+    # Puts metadata into better structures.
+    _print(f'Getting metadata')
+    metadata_headers = metadata.extract_metadata(header)
+
+    # Get the path info.
+    path_info = metadata.ObservationPathInfo.from_fits_header(header)
 
     # Clear out bad headers.
     header.remove('COMMENT', ignore_missing=True, remove_all=True)
@@ -85,7 +100,7 @@ def main(
     data = np.ma.masked_greater_equal(data, saturation)
 
     # Get RGB background data.
-    typer.echo(f'Getting background for the RGB channels')
+    _print(f'Getting background for the RGB channels')
     rgb_background = bayer.get_rgb_background(data=data,
                                               mask=data.mask,
                                               return_separate=True,
@@ -109,28 +124,28 @@ def main(
     hdu0 = fits.PrimaryHDU(reduced_data, header=header)
     hdu0.scale('float32')
     fits.HDUList(hdu0).writeto(reduced_filename)
-    typer.echo(f'Saved {reduced_filename}')
+    _print(f'Saved {reduced_filename}')
 
     hdu1 = fits.PrimaryHDU(combined_bg_data, header=header)
     hdu1.scale('float32')
     fits.HDUList(hdu1).writeto(background_filename)
-    typer.echo(f'Saved {background_filename}')
+    _print(f'Saved {background_filename}')
 
     hdu2 = fits.PrimaryHDU(combined_rms_bg_data, header=header)
     hdu2.scale('float32')
     fits.HDUList(hdu2).writeto(residual_filename)
-    typer.echo(f'Saved {residual_filename}')
+    _print(f'Saved {residual_filename}')
 
     # Plate solve reduced data.
     # TODO Make get_solve_field accept raw data or open file.
-    typer.echo(f'Plate solving {reduced_filename}')
+    _print(f'Plate solving {reduced_filename}')
     solved_headers = fits_utils.get_solve_field(str(reduced_filename),
                                                 skip_solved=False,
                                                 timeout=300)
     solved_path = solved_headers.pop('solved_fits_file')
-    typer.echo(f'Solving completed successfully for {solved_path}')
+    _print(f'Solving completed successfully for {solved_path}')
 
-    typer.echo(f'Getting stars from catalog')
+    _print(f'Getting stars from catalog')
     solved_wcs0 = WCS(solved_headers)
     catalog_sources = sources.get_stars_from_wcs(solved_wcs0,
                                                  bq_client=bq_client,
@@ -140,19 +155,19 @@ def main(
                                                  numcont=numcont,
                                                  )
 
-    typer.echo('Detecting sources in image')
+    _print('Detecting sources in image')
     threshold = (detection_threshold * combined_rms_bg_data)
     kernel = convolution.Gaussian2DKernel(2 * gaussian_fwhm_to_sigma)
     kernel.normalize()
     image_segments = segmentation.detect_sources(reduced_data, threshold, npixels=num_detect_pixels,
                                                  filter_kernel=kernel)
-    typer.echo(f'De-blending image segments')
+    _print(f'De-blending image segments')
     deblended_segments = segmentation.deblend_sources(reduced_data, image_segments,
                                                       npixels=num_detect_pixels,
                                                       filter_kernel=kernel, nlevels=32,
                                                       contrast=0.01)
 
-    typer.echo(f'Calculating total error for data using gain={effective_gain}')
+    _print(f'Calculating total error for data using gain={effective_gain}')
     error = calc_total_error(reduced_data, combined_rms_bg_data, effective_gain)
 
     table_cols = [
@@ -163,7 +178,7 @@ def main(
         'kron_radius',
         'perimeter'
     ]
-    typer.echo('Building source catalog for deblended_segments')
+    _print('Building source catalog for deblended_segments')
     source_catalog = segmentation.SourceCatalog(data,
                                                 deblended_segments,
                                                 background=combined_bg_data,
@@ -180,7 +195,7 @@ def main(
         'photutils_sky_centroid.dec': 'photutils_sky_centroid_dec',
     })
 
-    typer.echo(f'Matching sources to catalog for {len(detected_sources)} sources')
+    _print(f'Matching sources to catalog for {len(detected_sources)} sources')
     matched_sources = sources.get_catalog_match(detected_sources,
                                                 wcs=solved_wcs0,
                                                 catalog_stars=catalog_sources,
@@ -190,7 +205,7 @@ def main(
                                                 )
 
     # Drop matches near border
-    typer.echo(f'Filtering sources near edges')
+    _print(f'Filtering sources near edges')
     image_width, image_height = reduced_data.shape
     matched_sources = matched_sources.query(
         'catalog_wcs_x_int > 10 and '
@@ -198,14 +213,14 @@ def main(
         'catalog_wcs_y_int > 10 and '
         f'catalog_wcs_x_int < {image_height - 10}'
     )
-    typer.echo(f'Found {len(matched_sources)} matching sources')
+    _print(f'Found {len(matched_sources)} matching sources')
 
     # There should not be too many duplicates at this point and they are returned in order
     # of catalog separation, so we take the first.
     duplicates = matched_sources.duplicated('picid', keep='first')
-    typer.echo(f'Found {len(matched_sources[duplicates])} duplicate sources')
+    _print(f'Found {len(matched_sources[duplicates])} duplicate sources')
     matched_sources = matched_sources[~duplicates]
-    typer.echo(f'Found {len(matched_sources)} matching sources after removing duplicates')
+    _print(f'Found {len(matched_sources)} matching sources after removing duplicates')
 
     # Add some binned fields that we can use for table partitioning.
     matched_sources['catalog_dec_bin'] = matched_sources.catalog_dec.astype('int')
@@ -233,14 +248,14 @@ def main(
                                             right_index=True)
 
     num_sources = len(matched_sources)
-    typer.echo(f'Got positions for {num_sources}')
+    _print(f'Got positions for {num_sources}')
 
-    # Puts metadata into better structures.
-    metadata_headers = metadata.extract_metadata(header)
+    # Add num sources to metadata.
     metadata_headers['image']['matched_sources'] = num_sources
 
+    _print(f'Saving metadata to json file {metadata_json_path}')
     to_json(metadata_headers, filename=str(metadata_json_path))
-    typer.echo(f'Saved metadata to {metadata_json_path}.')
+    _print(f'Saved metadata to {metadata_json_path}.')
 
     # Add metadata to matched sources (via json normalization).
     metadata_series = pd.json_normalize(metadata_headers, sep='_').iloc[0]
@@ -249,27 +264,33 @@ def main(
 
     if use_firestore:
         try:
-            typer.echo(f'Saving metadata to firestore')
+            _print(f'Saving metadata to firestore')
             image_id = metadata.record_metadata(url,
                                                 metadata=metadata_headers,
                                                 current_state=ImageStatus.MATCHED)
-            typer.echo(f'Saved metadata to firestore with id={image_id}')
+            _print(f'Saved metadata to firestore with id={image_id}')
+        except FileExistsError:
+            _print(f'File has already been processed, skipping', fg=typer.colors.YELLOW)
+            already_processed = True
         except Exception as e:
-            typer.secho(f'Error recording metadata: {e!r}', fg=typer.colors.YELLOW)
+            _print(f'Error recording metadata: {e!r}', fg=typer.colors.RED)
 
-    if use_bigquery:
-        typer.echo(f'Uploading to BigQuery table {bq_table_id}')
+    if use_bigquery and not already_processed:
+        _print(f'Uploading to BigQuery table {bq_table_id}')
         job_config = bigquery.LoadJobConfig(
-            source_format=bigquery.SourceFormat.CSV, skip_leading_rows=1, autodetect=True,
+            source_format=bigquery.SourceFormat.PARQUET, skip_leading_rows=1, autodetect=True,
         )
-        job = client.load_table_from_dataframe(matched_sources, bq_table_id, job_config=job_config)
+        job = bq_client.load_table_from_dataframe(matched_sources, bq_table_id,
+                                                  job_config=job_config)
         job.result()  # Start and wait for the job to complete.
         if job.error_result:
-            typer.echo(f'Errors while loading BQ job: {job.error_result!r}')
+            _print(f'Errors while loading BQ job: {job.error_result!r}', fg=typer.colors.RED)
         else:
-            typer.echo(f'Finished uploading {job.output_rows} to BigQuery table {bq_table_id}')
+            _print(f'Finished uploading {job.output_rows} to BigQuery table {bq_table_id}',
+                   fg=typer.colors.GREEN)
 
-    return metadata.ObservationPathInfo.from_fits_header(header).get_full_id(sep='/')
+    # Return a path-like string.
+    return path_info.get_full_id(sep='/')
 
 
 if __name__ == '__main__':

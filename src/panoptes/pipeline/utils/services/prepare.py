@@ -20,11 +20,11 @@ async def root():
 
 
 @app.post('/prepare')
-def index(raw_message: dict):
-    print(f'Received {raw_message}')
+def index(message_envelope: dict):
+    print(f'Received {message_envelope}')
     with tempfile.TemporaryDirectory() as tmp_dir:
         try:
-            full_image_id = cloud_function_entry_point(raw_message['message'],
+            full_image_id = cloud_function_entry_point(message_envelope['message'],
                                                        prepare_main,
                                                        output_dir=tmp_dir,
                                                        use_firestore=True,

@@ -38,7 +38,6 @@ def get_stars(
         shape=None,
         vmag_min=4,
         vmag_max=17,
-        numcont=4,
         bq_client=None,
         bqstorage_client=None,
         column_mapping=None,

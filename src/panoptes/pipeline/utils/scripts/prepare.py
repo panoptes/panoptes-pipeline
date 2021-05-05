@@ -10,7 +10,8 @@ from astropy import convolution
 from astropy.io import fits
 from astropy.stats import gaussian_fwhm_to_sigma
 from astropy.wcs import WCS
-
+from google.cloud import bigquery, firestore
+from loguru import logger
 from panoptes.pipeline.utils import metadata, sources
 from panoptes.pipeline.utils.gcp.bigquery import get_bq_clients
 from panoptes.pipeline.utils.metadata import ImageStatus
@@ -18,10 +19,6 @@ from panoptes.utils.images import fits as fits_utils, bayer
 from panoptes.utils.serializers import to_json
 from photutils import segmentation
 from photutils.utils import calc_total_error
-
-from loguru import logger
-
-from google.cloud import bigquery
 
 logger.remove()
 app = typer.Typer()
@@ -50,7 +47,7 @@ def main(
         force: bool = False,
         **kwargs
 ):
-    processing_id = hashlib.md5(url).hexdigest()
+    processing_id = kwargs.get('objectGeneration', hashlib.md5(url).hexdigest())
 
     # Print helper so log messages can be tracked to processing run.
     def _print(string, **kwargs):
@@ -63,7 +60,9 @@ def main(
 
     already_processed = False
 
+    # BQ client.
     bq_client, bqstorage_client = get_bq_clients()
+    firestore_db = firestore.Client()
 
     # Set up output directory and filenames.
     output_dir = Path(output_dir)
@@ -91,6 +90,27 @@ def main(
     header.remove('HISTORY', ignore_missing=True, remove_all=True)
     bad_headers = [h for h in header.keys() if h.startswith('_')]
     map(header.pop, bad_headers)
+
+    # Record the received data and check for duplicates.
+    if use_firestore:
+        try:
+            _print(f'Saving metadata to firestore')
+            image_id = metadata.record_metadata(url,
+                                                metadata=metadata_headers,
+                                                current_state=ImageStatus.MATCHED,
+                                                firestore_db=firestore_db
+                                                )
+            _print(f'Saved metadata to firestore with id={image_id}')
+        except FileExistsError:
+            _print(f'File has already been processed, skipping', fg=typer.colors.YELLOW)
+            already_processed = True
+        except Exception as e:
+            _print(f'Error recording metadata: {e!r}', fg=typer.colors.RED)
+            return
+
+    if already_processed and force is False:
+        _print(f'File has already been processed and {force=}, so skipping.')
+        return
 
     # Bias subtract.
     data = raw_data - camera_bias
@@ -251,7 +271,8 @@ def main(
     _print(f'Got positions for {num_sources}')
 
     # Add num sources to metadata.
-    metadata_headers['image']['matched_sources'] = num_sources
+    _print(f'Adding num_sources to {image_id} record.')
+    firestore_db.document(image_id).set({'num_sources': num_sources}, merge=True)
 
     _print(f'Saving metadata to json file {metadata_json_path}')
     to_json(metadata_headers, filename=str(metadata_json_path))
@@ -262,20 +283,7 @@ def main(
     matched_sources = matched_sources.assign(**metadata_series)
     matched_sources.set_index(['picid']).to_csv(matched_path, index=True)
 
-    if use_firestore:
-        try:
-            _print(f'Saving metadata to firestore')
-            image_id = metadata.record_metadata(url,
-                                                metadata=metadata_headers,
-                                                current_state=ImageStatus.MATCHED)
-            _print(f'Saved metadata to firestore with id={image_id}')
-        except FileExistsError:
-            _print(f'File has already been processed, skipping', fg=typer.colors.YELLOW)
-            already_processed = True
-        except Exception as e:
-            _print(f'Error recording metadata: {e!r}', fg=typer.colors.RED)
-
-    if use_bigquery and not already_processed:
+    if use_bigquery:
         _print(f'Uploading to BigQuery table {bq_table_id}')
         job_config = bigquery.LoadJobConfig(
             source_format=bigquery.SourceFormat.PARQUET, skip_leading_rows=1, autodetect=True,

@@ -512,18 +512,21 @@ def record_metadata(
                 print(f'Skipping image with status of {ImageStatus[image_status].name}')
                 raise FileExistsError('Already processed')
 
-        # Add a units doc if it doesn't exist.
+        unit_md = metadata['unit']
+        sequence_md = metadata['sequence']
+        image_md = metadata['image']
+
+        # Update unit info.
+        unit_md['num_images'] = firestore.Increment(1)
+        unit_md['total_exptime'] = firestore.Increment(sequence_md['exptime'])
         unit_doc_ref.set(metadata['unit'], merge=True)
 
-        # Increment counters on sequence data and add time stamp.
-        sequence_md = metadata['sequence']
+        # Update sequence info.
         sequence_md['num_images'] = firestore.Increment(1)
         sequence_md['total_exptime'] = firestore.Increment(sequence_md['exptime'])
-
         seq_doc_ref.set(metadata['sequence'], merge=True)
 
-        # Add status to image data.
-        image_md = metadata['image']
+        # Update image info.
         print(f'Image metadata: {image_md!r}')
         image_md['status'] = current_state.name
         image_md['received_time'] = firestore.SERVER_TIMESTAMP

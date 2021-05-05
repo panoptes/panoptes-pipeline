@@ -27,7 +27,9 @@ def index(raw_message: dict):
             full_image_id = cloud_function_entry_point(raw_message['message'],
                                                        prepare_main,
                                                        output_dir=tmp_dir,
-                                                       use_firestore=True)
+                                                       use_firestore=True,
+                                                       use_biqquery=True,
+                                                       )
         except Exception as e:
             print(f'Problem preparing an image: {e!r}')
             return {'success': False, 'error': f'{e!r}'}

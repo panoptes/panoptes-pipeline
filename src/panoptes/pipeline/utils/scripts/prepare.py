@@ -20,8 +20,12 @@ from photutils.utils import calc_total_error
 
 from loguru import logger
 
-logger.remove()
+from google.cloud import bigquery
 
+# Construct a BigQuery client object.
+client = bigquery.Client()
+bq_table_id = "panoptes-exp.observations.stars"
+logger.remove()
 app = typer.Typer()
 
 
@@ -34,8 +38,8 @@ def main(
         filter_size: Tuple[int, int] = (3, 3),
         stamp_size: Tuple[int, int] = (10, 10),
         saturation: float = 11535.0,  # ADU after bias subtraction.
-        vmag_min: float = 7,
-        vmag_max: float = 12,
+        vmag_min: float = 6,
+        vmag_max: float = 14,
         numcont: int = 5,
         localbkg_width: int = 2,
         detection_threshold: float = 5.0,
@@ -99,7 +103,7 @@ def main(
                                         for bg
                                         in rgb_background]).sum(0).filled(0).astype(np.float32)
 
-    reduced_data = (data - combined_bg_data).data
+    reduced_data = (data - combined_bg_data).data.astype('float')
 
     # Save reduced data and background.
     hdu0 = fits.PrimaryHDU(reduced_data, header=header)
@@ -155,6 +159,7 @@ def main(
         'background_mean',
         'cxx', 'cxy', 'cyy',
         'fwhm',
+        'gini',
         'kron_radius',
         'perimeter'
     ]
@@ -165,7 +170,7 @@ def main(
                                                 error=error,
                                                 wcs=solved_wcs0,
                                                 localbkg_width=localbkg_width)
-    source_cols = source_catalog.default_columns + table_cols
+    source_cols = sorted(source_catalog.default_columns + table_cols)
     detected_sources = source_catalog.to_table(columns=source_cols).to_pandas().dropna()
     detected_sources = detected_sources.rename(columns=lambda x: f'photutils_{x}')
 
@@ -188,6 +193,17 @@ def main(
         f'catalog_wcs_x_int < {image_height - 10}'
     )
     typer.echo(f'Found {len(matched_sources)} matching sources')
+
+    # There should not be too many duplicates at this point and they are returned in order
+    # of catalog separation, so we take the first.
+    duplicates = matched_sources.duplicated('picid', keep='first')
+    typer.echo(f'Found {len(matched_sources[duplicates])} duplicate sources')
+    matched_sources = matched_sources[~duplicates]
+    typer.echo(f'Found {len(matched_sources)} matching sources after removing duplicates')
+
+    # Add some binned fields that we can use for table partitioning.
+    matched_sources['catalog_dec_bin'] = matched_sources.catalog_dec.astype('int')
+    matched_sources['catalog_ra_bin'] = matched_sources.catalog_ra.astype('int')
 
     # Get the xy positions according to the catalog and the wcs.
     stamp_positions = sources.get_xy_positions(solved_wcs0, matched_sources)
@@ -217,7 +233,6 @@ def main(
     metadata_headers = metadata.extract_metadata(header)
     metadata_headers['image']['matched_sources'] = num_sources
 
-
     to_json(metadata_headers, filename=str(metadata_json_path))
     typer.echo(f'Saved metadata to {metadata_json_path}.')
 
@@ -239,7 +254,14 @@ def main(
             typer.secho(f'Error recording metadata: {e!r}', fg=typer.colors.YELLOW)
 
     if use_bigquery:
-        typer.echo('Pretend upload to bigquery here.')
+        typer.echo(f'Uploading to BigQuery table {bq_table_id}')
+        job_config = bigquery.LoadJobConfig(
+            source_format=bigquery.SourceFormat.CSV, skip_leading_rows=1, autodetect=True,
+        )
+        with open(matched_path, "rb") as source_file:
+            job = client.load_table_from_file(source_file, bq_table_id, job_config=job_config)
+        job.result()  # Waits for the job to complete.
+        typer.echo(f'Finished uploading to BigQuery table {bq_table_id}')
 
     return metadata.ObservationPathInfo.from_fits_header(header).get_full_id(sep='/')
 

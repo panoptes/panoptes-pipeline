@@ -488,6 +488,8 @@ def record_metadata(
     Raises:
         e: Description
     """
+    # TODO support batch operation.
+
     print(f'Recording header metadata in firestore for {bucket_path=}')
 
     firestore_db = firestore_db or firestore.Client()

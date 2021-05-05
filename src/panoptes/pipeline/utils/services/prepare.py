@@ -28,7 +28,7 @@ def index(raw_message: dict):
                                                        prepare_main,
                                                        output_dir=tmp_dir,
                                                        use_firestore=True,
-                                                       use_biqquery=True,
+                                                       use_bigquery=True,
                                                        )
         except Exception as e:
             print(f'Problem preparing an image: {e!r}')

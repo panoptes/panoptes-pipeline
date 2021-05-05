@@ -24,7 +24,7 @@ from google.cloud import bigquery
 
 # Construct a BigQuery client object.
 client = bigquery.Client()
-bq_table_id = "panoptes-exp.observations.stars"
+bq_table_id = "panoptes-exp.observations.matched_sources"
 logger.remove()
 app = typer.Typer()
 

@@ -172,14 +172,20 @@ def main(
                                                 localbkg_width=localbkg_width)
     source_cols = sorted(source_catalog.default_columns + table_cols)
     detected_sources = source_catalog.to_table(columns=source_cols).to_pandas().dropna()
+
+    # Clean up some column names.
     detected_sources = detected_sources.rename(columns=lambda x: f'photutils_{x}')
+    detected_sources = detected_sources.rename(columns={
+        'photutils_sky_centroid.ra': 'photutils_sky_centroid_ra',
+        'photutils_sky_centroid.dec': 'photutils_sky_centroid_dec',
+    })
 
     typer.echo(f'Matching sources to catalog for {len(detected_sources)} sources')
     matched_sources = sources.get_catalog_match(detected_sources,
                                                 wcs=solved_wcs0,
                                                 catalog_stars=catalog_sources,
-                                                ra_column='photutils_sky_centroid.ra',
-                                                dec_column='photutils_sky_centroid.dec',
+                                                ra_column='photutils_sky_centroid_ra',
+                                                dec_column='photutils_sky_centroid_dec',
                                                 max_separation_arcsec=max_catalog_separation
                                                 )
 
@@ -258,10 +264,12 @@ def main(
         job_config = bigquery.LoadJobConfig(
             source_format=bigquery.SourceFormat.CSV, skip_leading_rows=1, autodetect=True,
         )
-        with open(matched_path, "rb") as source_file:
-            job = client.load_table_from_file(source_file, bq_table_id, job_config=job_config)
-        job.result()  # Waits for the job to complete.
-        typer.echo(f'Finished uploading to BigQuery table {bq_table_id}')
+        job = client.load_table_from_dataframe(matched_sources, bq_table_id, job_config=job_config)
+        job.result()  # Start and wait for the job to complete.
+        if job.error_result:
+            typer.echo(f'Errors while loading BQ job: {job.error_result!r}')
+        else:
+            typer.echo(f'Finished uploading {job.output_rows} to BigQuery table {bq_table_id}')
 
     return metadata.ObservationPathInfo.from_fits_header(header).get_full_id(sep='/')
 

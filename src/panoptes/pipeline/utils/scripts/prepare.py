@@ -103,7 +103,7 @@ def main(
                                         for bg
                                         in rgb_background]).sum(0).filled(0).astype(np.float32)
 
-    reduced_data = (data - combined_bg_data).data.astype('float')
+    reduced_data = (data - combined_bg_data).data.astype(np.float32)
 
     # Save reduced data and background.
     hdu0 = fits.PrimaryHDU(reduced_data, header=header)
@@ -246,8 +246,6 @@ def main(
     metadata_series = pd.json_normalize(metadata_headers, sep='_').iloc[0]
     matched_sources = matched_sources.assign(**metadata_series)
     matched_sources.set_index(['picid']).to_csv(matched_path, index=True)
-
-    # TODO send to bigquery.
 
     if use_firestore:
         try:

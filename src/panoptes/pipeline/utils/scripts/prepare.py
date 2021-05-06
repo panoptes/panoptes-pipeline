@@ -1,5 +1,6 @@
 import hashlib
 import re
+from copy import deepcopy
 from pathlib import Path
 from typing import Tuple
 
@@ -44,21 +45,23 @@ def main(
         use_firestore: bool = False,
         use_bigquery: bool = False,
         bq_table_id: str = 'panoptes-exp.observations.matched_sources',
-        force: bool = False,
+        force_new: bool = False,
         **kwargs
 ):
-    processing_id = kwargs.get('objectGeneration', hashlib.md5(url).hexdigest())
+    processing_id = hashlib.md5(url.encode()).hexdigest()
+
+    def _print(string, **print_kwargs):
+        typer.secho(f'{processing_id} {string}', **print_kwargs)
+
+    _print('Starting preparation')
 
     # Print helper so log messages can be tracked to processing run.
-    def _print(string, **kwargs):
-        _print(f'{processing_id} {string}', **kwargs)
+    _print('Setting up print functions')
 
+    _print(f'Checking if got a fits file at {url}')
     if re.search(r'\d{8}T\d{6}\.fits[.fz]+$', url) is None:
         raise RuntimeError(f'Need a FITS file, got {url}')
-
     _print(f'Starting processing for {url} in {output_dir!r}')
-
-    already_processed = False
 
     # BQ client.
     bq_client, bqstorage_client = get_bq_clients()
@@ -92,25 +95,29 @@ def main(
     map(header.pop, bad_headers)
 
     # Record the received data and check for duplicates.
+    image_id = None
     if use_firestore:
         try:
             _print(f'Saving metadata to firestore')
             image_id = metadata.record_metadata(url,
-                                                metadata=metadata_headers,
+                                                metadata=deepcopy(metadata_headers),
                                                 current_state=ImageStatus.MATCHED,
-                                                firestore_db=firestore_db
+                                                firestore_db=firestore_db,
+                                                force_new=force_new
                                                 )
             _print(f'Saved metadata to firestore with id={image_id}')
         except FileExistsError:
-            _print(f'File has already been processed, skipping', fg=typer.colors.YELLOW)
-            already_processed = True
+            if force_new is False:
+                _print(f'File has already been processed, skipping', fg=typer.colors.YELLOW)
+                raise FileExistsError
+            else:
+                _print(f'File has been processed previously, but {force_new=} so proceeding.')
         except Exception as e:
             _print(f'Error recording metadata: {e!r}', fg=typer.colors.RED)
             return
 
-    if already_processed and force is False:
-        _print(f'File has already been processed and {force=}, so skipping.')
-        return
+    if image_id is None:
+        raise RuntimeError('Missing image_id for some reason. Giving up.')
 
     # Bias subtract.
     data = raw_data - camera_bias
@@ -239,7 +246,14 @@ def main(
     # of catalog separation, so we take the first.
     duplicates = matched_sources.duplicated('picid', keep='first')
     _print(f'Found {len(matched_sources[duplicates])} duplicate sources')
+
+    # Filter out duplicates.
     matched_sources = matched_sources[~duplicates]
+
+    # Mark which ones were duplicated.
+    matched_sources['catalog_duplicate'] = False
+    matched_sources.picid.isin(matched_sources[duplicates].picid)['catalog_duplicate'] = True
+
     _print(f'Found {len(matched_sources)} matching sources after removing duplicates')
 
     # Add some binned fields that we can use for table partitioning.
@@ -272,9 +286,11 @@ def main(
 
     # Add num sources to metadata.
     _print(f'Adding num_sources to {image_id} record.')
+    metadata_headers['image']['num_sources'] = num_sources
+
     firestore_db.document(image_id).set({'num_sources': num_sources}, merge=True)
 
-    _print(f'Saving metadata to json file {metadata_json_path}')
+    _print(f'Saving metadata to json file {metadata_json_path}: {metadata_headers!r}')
     to_json(metadata_headers, filename=str(metadata_json_path))
     _print(f'Saved metadata to {metadata_json_path}.')
 
@@ -282,11 +298,12 @@ def main(
     metadata_series = pd.json_normalize(metadata_headers, sep='_').iloc[0]
     matched_sources = matched_sources.assign(**metadata_series)
     matched_sources.set_index(['picid']).to_csv(matched_path, index=True)
+    _print(f'Matched sources saved to {matched_path}')
 
     if use_bigquery:
         _print(f'Uploading to BigQuery table {bq_table_id}')
         job_config = bigquery.LoadJobConfig(
-            source_format=bigquery.SourceFormat.PARQUET, skip_leading_rows=1, autodetect=True,
+            source_format=bigquery.SourceFormat.CSV, skip_leading_rows=1, autodetect=True,
         )
         job = bq_client.load_table_from_dataframe(matched_sources, bq_table_id,
                                                   job_config=job_config)

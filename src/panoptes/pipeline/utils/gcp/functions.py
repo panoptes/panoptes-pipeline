@@ -27,7 +27,7 @@ def cloud_function_entry_point(raw_message: dict,
         raise Exception(f'No file requested')
 
     # Make sure file has valid signature.
-    if re.search(r'\d{8}T\d{6}\.fits[\.fz]+$', bucket_path) is None:
+    if re.search(r'\d{8}T\d{6}\.fits[.fz]+$', bucket_path) is None:
         raise RuntimeError(f'Need a FITS file, got {bucket_path}')
 
     bucket = attributes['bucketId']

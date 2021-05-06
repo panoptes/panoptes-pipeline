@@ -475,6 +475,7 @@ def record_metadata(
         unit_collection: str = 'units',
         observation_collection: str = 'observations',
         image_collection: str = 'images',
+        force_new: bool = False,
         firestore_db: firestore.Client = None) -> str:
     """Add FITS header info to firestore_db.
 
@@ -510,7 +511,7 @@ def record_metadata(
 
         with suppress(KeyError, TypeError):
             image_status = image_doc_ref.get(['status']).to_dict()['status']
-            if ImageStatus[image_status] >= current_state:
+            if ImageStatus[image_status] >= current_state and force_new is False:
                 print(f'Skipping image with status of {ImageStatus[image_status].name}')
                 raise FileExistsError('Already processed')
 
@@ -521,22 +522,22 @@ def record_metadata(
         # Update unit info.
         unit_md['num_images'] = firestore.Increment(1)
         unit_md['total_exptime'] = firestore.Increment(sequence_md['exptime'])
-        unit_doc_ref.set(metadata['unit'], merge=True)
+        unit_doc_ref.set(unit_md, merge=True)
 
         # Update sequence info.
         sequence_md['num_images'] = firestore.Increment(1)
         sequence_md['total_exptime'] = firestore.Increment(sequence_md['exptime'])
-        seq_doc_ref.set(metadata['sequence'], merge=True)
+        seq_doc_ref.set(sequence_md, merge=True)
 
         # Update image info.
         print(f'Image metadata: {image_md!r}')
         image_md['status'] = current_state.name
         image_md['received_time'] = firestore.SERVER_TIMESTAMP
-        image_doc_ref.set(metadata['image'], merge=True)
+        image_doc_ref.set(image_md, merge=True)
 
     except Exception as e:
         print(f'Error in adding record: {traceback.format_exc()!r}')
         raise e
 
     print(f'Recorded metadata for {bucket_path} with {image_doc_ref.id=}')
-    return image_doc_ref.id
+    return image_doc_ref.path

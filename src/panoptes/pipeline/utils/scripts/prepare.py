@@ -252,7 +252,8 @@ def main(
 
     # Mark which ones were duplicated.
     matched_sources['catalog_duplicate'] = False
-    matched_sources.picid.isin(matched_sources[duplicates].picid)['catalog_duplicate'] = True
+    dupes = matched_sources.picid.isin(matched_sources[duplicates].picid)
+    matched_sources[dupes]['catalog_duplicate_removed'] = True
 
     _print(f'Found {len(matched_sources)} matching sources after removing duplicates')
 

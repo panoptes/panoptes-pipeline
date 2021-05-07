@@ -236,12 +236,12 @@ def main(
 
     # Drop matches near border
     _print(f'Filtering sources near edges')
-    image_width, image_height = reduced_data.shape
+    image_height, image_width = reduced_data.shape
     matched_sources = matched_sources.query(
         'catalog_wcs_x_int > 10 and '
         f'catalog_wcs_x_int < {image_width - 10} and '
         'catalog_wcs_y_int > 10 and '
-        f'catalog_wcs_x_int < {image_height - 10}'
+        f'catalog_wcs_y_int < {image_height - 10}'
     )
     _print(f'Found {len(matched_sources)} matching sources')
 

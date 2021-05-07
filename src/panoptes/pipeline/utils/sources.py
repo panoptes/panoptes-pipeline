@@ -22,10 +22,6 @@ def get_stars_from_wcs(wcs: WCS, **kwargs) -> pandas.DataFrame:
     # Add the first entry to the end to complete polygon
     wcs_footprint.append(wcs_footprint[0])
 
-    # The longitude must be in -180 to 180 range
-    # scale_func = np.vectorize(lambda x: (x + 180) % 360 - 180)
-    # wcs_footprint = scale_func(wcs_footprint)
-
     poly = ','.join([f'{c[0]:.05} {c[1]:.05f}' for c in wcs_footprint])
 
     logger.debug(f'Using poly={poly} for get_stars')

@@ -142,7 +142,8 @@ def main(
                                         for bg
                                         in rgb_background]).sum(0).filled(0).astype(np.float32)
 
-    reduced_data = (data - combined_bg_data).data.astype(np.float32)
+    reduced_data_object = (data - combined_bg_data)
+    reduced_data = reduced_data_object.data.astype(np.float32)
 
     # Save reduced data and background.
     hdu0 = fits.PrimaryHDU(reduced_data, header=header)
@@ -183,12 +184,16 @@ def main(
     threshold = (detection_threshold * combined_rms_bg_data)
     kernel = convolution.Gaussian2DKernel(2 * gaussian_fwhm_to_sigma)
     kernel.normalize()
-    image_segments = segmentation.detect_sources(reduced_data, threshold, npixels=num_detect_pixels,
+    image_segments = segmentation.detect_sources(reduced_data,
+                                                 threshold,
+                                                 npixels=num_detect_pixels,
                                                  filter_kernel=kernel)
     _print(f'De-blending image segments')
-    deblended_segments = segmentation.deblend_sources(reduced_data, image_segments,
+    deblended_segments = segmentation.deblend_sources(reduced_data,
+                                                      image_segments,
                                                       npixels=num_detect_pixels,
-                                                      filter_kernel=kernel, nlevels=32,
+                                                      filter_kernel=kernel,
+                                                      nlevels=32,
                                                       contrast=0.01)
 
     _print(f'Calculating total error for data using gain={effective_gain}')
@@ -203,10 +208,11 @@ def main(
         'perimeter'
     ]
     _print('Building source catalog for deblended_segments')
-    source_catalog = segmentation.SourceCatalog(data,
+    source_catalog = segmentation.SourceCatalog(reduced_data,
                                                 deblended_segments,
                                                 background=combined_bg_data,
                                                 error=error,
+                                                mask=reduced_data_object.mask,
                                                 wcs=solved_wcs0,
                                                 localbkg_width=localbkg_width)
     source_cols = sorted(source_catalog.default_columns + table_cols)

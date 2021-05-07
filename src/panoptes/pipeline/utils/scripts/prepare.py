@@ -42,8 +42,6 @@ def main(
         num_detect_pixels: int = 4,
         effective_gain: float = 1.5,
         max_catalog_separation: int = 50,
-        use_firestore: bool = False,
-        use_bigquery: bool = False,
         bq_table_id: str = 'panoptes-exp.observations.matched_sources',
         force_new: bool = False,
         **kwargs
@@ -96,25 +94,24 @@ def main(
 
     # Record the received data and check for duplicates.
     image_id = None
-    if use_firestore:
-        try:
-            _print(f'Saving metadata to firestore')
-            image_id = metadata.record_metadata(url,
-                                                metadata=deepcopy(metadata_headers),
-                                                current_state=ImageStatus.MATCHED,
-                                                firestore_db=firestore_db,
-                                                force_new=force_new
-                                                )
-            _print(f'Saved metadata to firestore with id={image_id}')
-        except FileExistsError:
-            if force_new is False:
-                _print(f'File has already been processed, skipping', fg=typer.colors.YELLOW)
-                raise FileExistsError
-            else:
-                _print(f'File has been processed previously, but {force_new=} so proceeding.')
-        except Exception as e:
-            _print(f'Error recording metadata: {e!r}', fg=typer.colors.RED)
-            return
+    try:
+        _print(f'Saving metadata to firestore')
+        image_id = metadata.record_metadata(url,
+                                            metadata=deepcopy(metadata_headers),
+                                            current_state=ImageStatus.RECEIVED,
+                                            firestore_db=firestore_db,
+                                            force_new=force_new
+                                            )
+        _print(f'Saved metadata to firestore with id={image_id}')
+    except FileExistsError:
+        if force_new is False:
+            _print(f'File has already been processed, skipping', fg=typer.colors.YELLOW)
+            raise FileExistsError
+        else:
+            _print(f'File has been processed previously, but {force_new=} so proceeding.')
+    except Exception as e:
+        _print(f'Error recording metadata: {e!r}', fg=typer.colors.RED)
+        return
 
     if image_id is None:
         raise RuntimeError('Missing image_id for some reason. Giving up.')
@@ -247,13 +244,13 @@ def main(
     duplicates = matched_sources.duplicated('picid', keep='first')
     _print(f'Found {len(matched_sources[duplicates])} duplicate sources')
 
-    # Filter out duplicates.
-    matched_sources = matched_sources[~duplicates]
-
     # Mark which ones were duplicated.
-    matched_sources['catalog_duplicate'] = False
     dupes = matched_sources.picid.isin(matched_sources[duplicates].picid)
-    matched_sources[dupes]['catalog_duplicate_removed'] = True
+    matched_sources.loc[:, 'catalog_match_duplicate'] = False
+    matched_sources.loc[dupes, 'catalog_match_duplicate'] = True
+
+    # Filter out duplicates.
+    matched_sources = matched_sources.loc[~duplicates].copy()
 
     _print(f'Found {len(matched_sources)} matching sources after removing duplicates')
 
@@ -285,11 +282,14 @@ def main(
     num_sources = len(matched_sources)
     _print(f'Got positions for {num_sources}')
 
-    # Add num sources to metadata.
-    _print(f'Adding num_sources to {image_id} record.')
+    # Update some of the firestore record.
+    _print(f'Adding firestore record.')
     metadata_headers['image']['num_sources'] = num_sources
 
-    firestore_db.document(image_id).set({'num_sources': num_sources}, merge=True)
+    firestore_db.document(image_id).set({
+        'num_sources': num_sources,
+        'status': ImageStatus.MATCHED.name,
+    }, merge=True)
 
     _print(f'Saving metadata to json file {metadata_json_path}: {metadata_headers!r}')
     to_json(metadata_headers, filename=str(metadata_json_path))
@@ -301,19 +301,18 @@ def main(
     matched_sources.set_index(['picid']).to_csv(matched_path, index=True)
     _print(f'Matched sources saved to {matched_path}')
 
-    if use_bigquery:
-        _print(f'Uploading to BigQuery table {bq_table_id}')
-        job_config = bigquery.LoadJobConfig(
-            source_format=bigquery.SourceFormat.CSV, skip_leading_rows=1, autodetect=True,
-        )
-        job = bq_client.load_table_from_dataframe(matched_sources, bq_table_id,
-                                                  job_config=job_config)
-        job.result()  # Start and wait for the job to complete.
-        if job.error_result:
-            _print(f'Errors while loading BQ job: {job.error_result!r}', fg=typer.colors.RED)
-        else:
-            _print(f'Finished uploading {job.output_rows} to BigQuery table {bq_table_id}',
-                   fg=typer.colors.GREEN)
+    _print(f'Uploading to BigQuery table {bq_table_id}')
+    job_config = bigquery.LoadJobConfig(
+        source_format=bigquery.SourceFormat.CSV, skip_leading_rows=1, autodetect=True,
+    )
+    job = bq_client.load_table_from_dataframe(matched_sources, bq_table_id,
+                                              job_config=job_config)
+    job.result()  # Start and wait for the job to complete.
+    if job.error_result:
+        _print(f'Errors while loading BQ job: {job.error_result!r}', fg=typer.colors.RED)
+    else:
+        _print(f'Finished uploading {job.output_rows} to BigQuery table {bq_table_id}',
+               fg=typer.colors.GREEN)
 
     # Return a path-like string.
     return path_info.get_full_id(sep='/')

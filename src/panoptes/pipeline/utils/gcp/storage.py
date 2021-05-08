@@ -2,14 +2,17 @@ import os
 import shutil
 import subprocess
 
+import google.cloud.storage
 from google.cloud.storage import Bucket
 from loguru import logger
 from panoptes.utils.images import fits as fits_utils
 from tqdm.auto import tqdm
 
 
-def move_blob_to_bucket(blob_name: str, old_bucket: Bucket, new_bucket: Bucket,
-                        remove: bool = True):
+def move_blob_to_bucket(blob_name: str,
+                        old_bucket: Bucket,
+                        new_bucket: Bucket,
+                        remove: bool = True) -> google.cloud.storage.Blob:
     """Copy and optionally remove the blob from old to new bucket.
 
     Args:
@@ -20,15 +23,17 @@ def move_blob_to_bucket(blob_name: str, old_bucket: Bucket, new_bucket: Bucket,
             afterwards.
     """
     logger.info(f'Moving {blob_name} → {new_bucket}')
-    old_bucket.copy_blob(old_bucket.get_blob(blob_name), new_bucket)
+    new_blob = old_bucket.copy_blob(old_bucket.get_blob(blob_name), new_bucket)
     if remove:
         old_bucket.delete_blob(blob_name)
 
+    return new_blob
 
-def copy_blob_to_bucket(*args, **kwargs):
+
+def copy_blob_to_bucket(*args, **kwargs) -> google.cloud.storage.Blob:
     """A thin-wrapper around `move_blob_to_bucket` that sets `remove=False`."""
     kwargs['remove'] = False
-    move_blob_to_bucket(*args, **kwargs)
+    return move_blob_to_bucket(*args, **kwargs)
 
 
 def download_images(image_list, output_dir, overwrite=False, unpack=True, show_progress=True):

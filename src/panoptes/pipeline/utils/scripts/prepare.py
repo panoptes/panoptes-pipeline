@@ -172,6 +172,7 @@ def main(
 
     _print(f'Getting stars from catalog')
     solved_wcs0 = WCS(solved_headers)
+    # Todo: adjust vmag based on exptime.
     catalog_sources = sources.get_stars_from_wcs(solved_wcs0,
                                                  bq_client=bq_client,
                                                  bqstorage_client=bqstorage_client,

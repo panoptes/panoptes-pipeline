@@ -5,28 +5,34 @@ from astropy.wcs import WCS
 from panoptes.pipeline.utils.gcp.bigquery import get_bq_clients
 
 
-def get_stars_from_wcs(wcs: WCS, **kwargs) -> pandas.DataFrame:
+def get_stars_from_wcs(wcs: WCS, degree_padding: float = 0.25, **kwargs) -> pandas.DataFrame:
     """Lookup star information from WCS footprint.
 
     Generates the correct layout for an SQL `POLYGON` that can be passed to
     :py:func:`get_stars`.
 
     Args:
-        wcs (`astropy.wcs.WCS` or array): A valid (i.e. `wcs.is_celestial`) World Coordinate System object.
+        wcs (astropy.wcs.WCS): A valid (i.e. `wcs.is_celestial`) World Coordinate System object.
+        degree_padding (float): The padding (in degrees) to add around the WCS for searching, default 0.25 degrees.
         **kwargs: Optional keywords to pass to :py:func:`get_stars`.
 
     """
     wcs_footprint = wcs.calc_footprint()
     print(f'Looking up catalog stars for WCS: {wcs_footprint}')
 
-    ras = wcs_footprint[:, 0]
-    decs = wcs_footprint[:, 1]
+    ll, ul, ur, lr = wcs_footprint
+
+    ra_above = min(ul[0], ur[0]) - degree_padding
+    ra_below = max(ll[0], lr[0]) + degree_padding
+
+    dec_above = min(ul[1], ur[1]) - degree_padding
+    dec_below = max(ll[1], lr[1]) + degree_padding
 
     limits = dict(
-        ra_max=max(ras),
-        ra_min=min(ras),
-        dec_max=max(decs),
-        dec_min=min(decs),
+        ra_max=ra_below,
+        ra_min=ra_above,
+        dec_max=dec_below,
+        dec_min=dec_above,
     )
 
     print(f'Using {limits=} for get_stars')
@@ -96,8 +102,7 @@ def get_stars(
         vmag_partition BETWEEN {vmag_min} AND {vmag_max - 1}
     """
 
-    if verbose:
-        print(f'{sql=}')
+    print(f'{sql=}')
 
     if bq_client is None or bqstorage_client is None:
         bq_client, bqstorage_client = get_bq_clients()

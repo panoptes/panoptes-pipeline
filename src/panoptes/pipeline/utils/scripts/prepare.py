@@ -9,7 +9,7 @@ import pandas as pd
 import typer
 from astropy import convolution
 from astropy.io import fits
-from astropy.stats import gaussian_fwhm_to_sigma
+from astropy.stats import gaussian_fwhm_to_sigma, sigma_clipped_stats
 from astropy.wcs import WCS
 from google.cloud import bigquery, firestore
 from loguru import logger
@@ -202,7 +202,11 @@ def main(
 
     table_cols = [
         'background_mean',
+        'background_centroid',
+        'background_sum',
         'cxx', 'cxy', 'cyy',
+        'eccentricity',
+        'equivalent_radius',
         'fwhm',
         'gini',
         'kron_radius',
@@ -289,6 +293,8 @@ def main(
     num_sources = len(matched_sources)
     _print(f'Got positions for {num_sources}')
 
+    fwhm_mean, fwhm_median, fwhm_std = sigma_clipped_stats(matched_sources.photutils_fwhm)
+
     # Update some of the firestore record.
     _print(f'Adding firestore record.')
     metadata_headers['image']['num_sources'] = num_sources
@@ -296,6 +302,8 @@ def main(
     firestore_db.document(image_id).set({
         'num_sources': num_sources,
         'status': ImageStatus.MATCHED.name,
+        'fwhm_median': fwhm_median,
+        'fwhm_std': fwhm_std,
     }, merge=True)
 
     _print(f'Saving metadata to json file {metadata_json_path}: {metadata_headers!r}')

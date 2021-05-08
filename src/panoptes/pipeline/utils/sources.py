@@ -90,6 +90,12 @@ def get_stars(
 
     column_mapping_str = ', '.join([f'{k} as {v}' for k, v in column_mapping.items()])
 
+    # The Right Ascension can wrap around from 360° to 0°, so we have to specifically check.
+    if shape['ra_min'] > shape['ra_max']:
+        ra_constraint = 'OR'
+    else:
+        ra_constraint = 'AND'
+
     # Note that for how the BigQuery partition works, we need the partition one step
     # below the requested Vmag_max.
     sql = f"""
@@ -97,7 +103,7 @@ def get_stars(
     FROM catalog.pic
     WHERE
         dec >= {shape['dec_min']} AND dec <= {shape['dec_max']} AND
-        ra >= {shape['ra_min']} AND ra <= {shape['ra_max']} AND
+        ra >= {shape["ra_min"]} {ra_constraint} ra <= {shape["ra_max"]} AND
         vmag_partition BETWEEN {vmag_min} AND {vmag_max - 1}
     """
 

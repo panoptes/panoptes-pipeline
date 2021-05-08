@@ -1,3 +1,4 @@
+import numpy as np
 import pandas
 from astropy import units as u
 from astropy.coordinates import SkyCoord
@@ -5,7 +6,7 @@ from astropy.wcs import WCS
 from panoptes.pipeline.utils.gcp.bigquery import get_bq_clients
 
 
-def get_stars_from_wcs(wcs: WCS, degree_padding: float = 0.25, **kwargs) -> pandas.DataFrame:
+def get_stars_from_wcs(wcs: WCS, **kwargs) -> pandas.DataFrame:
     """Lookup star information from WCS footprint.
 
     Generates the correct layout for an SQL `POLYGON` that can be passed to
@@ -13,7 +14,6 @@ def get_stars_from_wcs(wcs: WCS, degree_padding: float = 0.25, **kwargs) -> pand
 
     Args:
         wcs (astropy.wcs.WCS): A valid (i.e. `wcs.is_celestial`) World Coordinate System object.
-        degree_padding (float): The padding (in degrees) to add around the WCS for searching, default 0.25 degrees.
         **kwargs: Optional keywords to pass to :py:func:`get_stars`.
 
     """
@@ -22,11 +22,11 @@ def get_stars_from_wcs(wcs: WCS, degree_padding: float = 0.25, **kwargs) -> pand
 
     ll, ul, ur, lr = wcs_footprint
 
-    ra_above = min(ul[0], ur[0]) - degree_padding
-    ra_below = max(ll[0], lr[0]) + degree_padding
+    ra_above = np.floor(min(ul[0], ur[0]))
+    ra_below = np.ceil(max(ll[0], lr[0]))
 
-    dec_above = min(ul[1], ur[1]) - degree_padding
-    dec_below = max(ll[1], lr[1]) + degree_padding
+    dec_above = np.floor(min(ul[1], ur[1]))
+    dec_below = np.ceil(max(ll[1], lr[1]))
 
     limits = dict(
         ra_max=ra_below,
@@ -49,7 +49,6 @@ def get_stars(
         bqstorage_client=None,
         column_mapping=None,
         return_dataframe=True,
-        verbose=False,
         **kwargs):
     """Look star information from the TESS catalog.
 
@@ -97,8 +96,8 @@ def get_stars(
     SELECT {column_mapping_str} 
     FROM catalog.pic
     WHERE
-        dec BETWEEN {shape['dec_min']} AND {shape['dec_max']} AND
-        ra BETWEEN {shape['ra_min']} AND {shape['ra_max']} AND
+        dec >= {shape['dec_min']} AND dec <= {shape['dec_max']} AND
+        ra >= {shape['ra_min']} AND ra <= {shape['ra_max']} AND
         vmag_partition BETWEEN {vmag_min} AND {vmag_max - 1}
     """
 

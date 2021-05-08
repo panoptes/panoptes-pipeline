@@ -181,18 +181,16 @@ def extract_metadata(header: Header) -> dict:
         # Add a units doc if it doesn't exist.
         unit_info = dict(
             name=header.get('OBSERVER', ''),
-            latitude=header['LAT-OBS'],
-            longitude=header['LONG-OBS'],
+            latitude=header.get('LAT-OBS'),
+            longitude=header.get('LONG-OBS'),
             elevation=float(header.get('ELEV-OBS')),
         )
-
-        exptime = header.get('EXPTIME')
 
         sequence_info = dict(
             unit_id=path_info.unit_id,
             camera_id=header.get('INSTRUME'),
             time=path_info.sequence_time.to_datetime(timezone=UTC),
-            exptime=exptime,
+            exptime=header.get('EXPTIME'),
             project=header.get('ORIGIN'),
             software_version=header.get('CREATOR', ''),
             field_name=header.get('FIELD', ''),
@@ -201,9 +199,9 @@ def extract_metadata(header: Header) -> dict:
             dec=header.get('CRVAL2'),
         )
 
-        measured_rggb = header.get('MEASRGGB').split(' ')
-        camera_date = parse_date(header.get('DATE-OBS', '')).replace(tzinfo=UTC)
-        file_date = parse_date(header.get('DATE', '')).replace(tzinfo=UTC)
+        measured_rggb = header.get('MEASRGGB', '0 0 0 0').split(' ')
+        camera_date = parse_date(header.get('DATE-OBS', path_info.image_time)).replace(tzinfo=UTC)
+        file_date = parse_date(header.get('DATE', path_info.image_time)).replace(tzinfo=UTC)
 
         image_info = dict(
             airmass=header.get('AIRMASS'),
@@ -222,11 +220,11 @@ def extract_metadata(header: Header) -> dict:
                 measured_b=float(measured_rggb[3]),
                 red_balance=header.get('REDBAL'),
                 serial_number=str(header.get('CAMSN')),
-                temperature=float(header.get('CAMTEMP', 'NA').split(' ')[0]),
+                temperature=float(header.get('CAMTEMP', 0).split(' ')[0]),
                 white_lvln=header.get('WHTLVLN'),
                 white_lvls=header.get('WHTLVLS'),
             ),
-            exptime=exptime,
+            exptime=header.get('EXPTIME'),
             file_creation_date=file_date,
             moonfrac=header.get('MOONFRAC'),
             moonsep=header.get('MOONSEP'),

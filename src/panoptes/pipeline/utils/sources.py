@@ -1,8 +1,8 @@
+import numpy as np
 import pandas
 from astropy import units as u
 from astropy.coordinates import SkyCoord
 from astropy.wcs import WCS
-from loguru import logger
 from panoptes.pipeline.utils.gcp.bigquery import get_bq_clients
 
 
@@ -13,32 +13,38 @@ def get_stars_from_wcs(wcs: WCS, **kwargs) -> pandas.DataFrame:
     :py:func:`get_stars`.
 
     Args:
-        wcs (`astropy.wcs.WCS` or array): A valid (i.e. `wcs.is_celestial`) World Coordinate System object.
+        wcs (astropy.wcs.WCS): A valid (i.e. `wcs.is_celestial`) World Coordinate System object.
         **kwargs: Optional keywords to pass to :py:func:`get_stars`.
 
     """
-    wcs_footprint = wcs.calc_footprint().tolist()
-    logger.debug(f'Looking up catalog stars for WCS: {wcs_footprint}')
-    # Add the first entry to the end to complete polygon
-    wcs_footprint.append(wcs_footprint[0])
+    wcs_footprint = wcs.calc_footprint()
+    print(f'Looking up catalog stars for WCS: {wcs_footprint}')
 
-    # The longitude must be in -180 to 180 range
-    # scale_func = np.vectorize(lambda x: (x + 180) % 360 - 180)
-    # wcs_footprint = scale_func(wcs_footprint)
+    ll, ul, ur, lr = wcs_footprint
 
-    poly = ','.join([f'{c[0]:.05} {c[1]:.05f}' for c in wcs_footprint])
+    ra_above = np.floor(min(ul[0], ur[0]))
+    ra_below = np.ceil(max(ll[0], lr[0]))
 
-    logger.debug(f'Using poly={poly} for get_stars')
-    catalog_stars = get_stars(shape=poly, **kwargs)
+    dec_above = np.floor(min(ul[1], ur[1]))
+    dec_below = np.ceil(max(ll[1], lr[1]))
+
+    limits = dict(
+        ra_max=ra_below,
+        ra_min=ra_above,
+        dec_max=dec_below,
+        dec_min=dec_above,
+    )
+
+    print(f'Using {limits=} for get_stars')
+    catalog_stars = get_stars(shape=limits, **kwargs)
 
     return catalog_stars
 
 
 def get_stars(
         shape=None,
-        vmag_min=4,
-        vmag_max=17,
-        numcont=4,
+        vmag_min=7,
+        vmag_max=14,
         bq_client=None,
         bqstorage_client=None,
         column_mapping=None,
@@ -49,7 +55,7 @@ def get_stars(
     https://outerspace.stsci.edu/display/TESS/TIC+v8+and+CTL+v8.xx+Data+Release+Notes
 
     Args:
-        shape (str, optional): A string representation of an SQL shape, e.g. `POLYGON`.
+        shape (dict): A dictionary containing the keys `ra_min`, `ra_max`, `dec_min`, `dec_max`.
         vmag_min (int, optional): Minimum Vmag to include, default 4 inclusive.
         vmag_max (int, optional): Maximum Vmag to include, default 17 non-inclusive.
         bq_client (`google.cloud.bigquery.Client`): The BigQuery Client connection.
@@ -59,12 +65,8 @@ def get_stars(
         `pandas.DataFrame`: Dataframe containing the results.
 
     """
-    if shape is not None:
-        sql_constraint = f"AND ST_CONTAINS(ST_GEOGFROMTEXT('POLYGON(({shape}))'), coords)"
-
     column_mapping = column_mapping or {
         "id": "picid",
-        #         "twomass": "twomass",
         "gaia": "gaia",
         "ra": "catalog_ra",
         "dec": "catalog_dec",
@@ -88,15 +90,24 @@ def get_stars(
 
     column_mapping_str = ', '.join([f'{k} as {v}' for k, v in column_mapping.items()])
 
+    # The Right Ascension can wrap around from 360° to 0°, so we have to specifically check.
+    if shape['ra_min'] > shape['ra_max']:
+        ra_constraint = 'OR'
+    else:
+        ra_constraint = 'AND'
+
     # Note that for how the BigQuery partition works, we need the partition one step
     # below the requested Vmag_max.
     sql = f"""
     SELECT {column_mapping_str} 
     FROM catalog.pic
     WHERE
-      vmag_partition BETWEEN {vmag_min} AND {vmag_max - 1}
-      {sql_constraint}
+        dec >= {shape['dec_min']} AND dec <= {shape['dec_max']} AND
+        ra >= {shape["ra_min"]} {ra_constraint} ra <= {shape["ra_max"]} AND
+        vmag_partition BETWEEN {vmag_min} AND {vmag_max - 1}
     """
+
+    print(f'{sql=}')
 
     if bq_client is None or bqstorage_client is None:
         bq_client, bqstorage_client = get_bq_clients()
@@ -106,10 +117,10 @@ def get_stars(
         results = bq_client.query(sql)
         if return_dataframe:
             results = results.result().to_dataframe(bqstorage_client=bqstorage_client)
-            logger.debug(
+            print(
                 f'Found {len(results)} in Vmag=[{vmag_min}, {vmag_max}) and bounds=[{shape}]')
     except Exception as e:
-        logger.warning(e)
+        print(e)
 
     return results
 
@@ -206,12 +217,12 @@ def get_catalog_match(point_sources,
     assert point_sources is not None
 
     if catalog_stars is None:
-        logger.debug(f'Looking up stars for wcs={wcs.wcs.crval}')
+        print(f'Looking up stars for wcs={wcs.wcs.crval}')
         # Lookup stars in catalog
         catalog_stars = get_stars_from_wcs(wcs, **kwargs)
 
     if catalog_stars is None:
-        logger.debug('No catalog matches, returning table without ids')
+        print('No catalog matches, returning table without ids')
         return point_sources
 
     # Get coords for catalog stars
@@ -229,10 +240,10 @@ def get_catalog_match(point_sources,
     )
 
     # Do catalog matching
-    logger.debug(
+    print(
         f'Matching {len(catalog_coords)} catalog stars to {len(stars_coords)} detected stars')
     idx, d2d, d3d = stars_coords.match_to_catalog_sky(catalog_coords)
-    logger.debug(f'Got {len(idx)} matched sources (includes duplicates) for wcs={wcs.wcs.crval}')
+    print(f'Got {len(idx)} matched sources (includes duplicates) for wcs={wcs.wcs.crval}')
 
     catalog_matches = catalog_stars.iloc[idx].copy()
     catalog_matches['catalog_sep'] = d2d.to_value(u.arcsec)
@@ -250,7 +261,7 @@ def get_catalog_match(point_sources,
 
     # Sources that didn't match.
     #     if return_unmatched:
-    #         logger.debug(f'Adding unmatched sources to table for wcs={wcs.wcs.crval!r}')
+    #         print(f'Adding unmatched sources to table for wcs={wcs.wcs.crval!r}')
     #         unmatched = catalog_stars.iloc[catalog_stars.index.difference(idx)].copy()
 
     #         unmatched['status'] = 'unmatched'
@@ -264,14 +275,14 @@ def get_catalog_match(point_sources,
     #     new_column_order.insert(i, col)
     # matched_sources = matched_sources.reindex(columns=new_column_order)
 
-    logger.debug(f'Point sources: {len(matched_sources)} for wcs={wcs.wcs.crval!r}')
+    print(f'Point sources: {len(matched_sources)} for wcs={wcs.wcs.crval!r}')
 
     # Remove catalog matches that are too far away.
     if max_separation_arcsec is not None:
-        logger.debug(f'Removing matches > {max_separation_arcsec} arcsec from catalog.')
+        print(f'Removing matches > {max_separation_arcsec} arcsec from catalog.')
         matched_sources = matched_sources.query('catalog_sep <= @max_separation_arcsec')
 
-    logger.debug(f'Returning matched sources: {len(matched_sources)} for wcs={wcs.wcs.crval!r}')
+    print(f'Returning matched sources: {len(matched_sources)} for wcs={wcs.wcs.crval!r}')
     return matched_sources
 
 

@@ -17,4 +17,4 @@ gcloud run deploy "${TOPIC}" \
   --platform managed \
   --memory "8Gi" \
   --max-instances 100 \
-  --concurrency 2
+  --concurrency 1

@@ -180,27 +180,30 @@ def extract_metadata(header: Header) -> dict:
     try:
         # Add a units doc if it doesn't exist.
         unit_info = dict(
-            name=header.get('OBSERVER', ''),
+            name=path_info.unit_id,
             latitude=header.get('LAT-OBS'),
             longitude=header.get('LONG-OBS'),
             elevation=float(header.get('ELEV-OBS')),
         )
 
+        camera_date = parse_date(header.get('DATE-OBS', path_info.image_time)).replace(tzinfo=UTC)
         sequence_info = dict(
-            unit_id=path_info.unit_id,
-            camera_id=header.get('INSTRUME'),
             time=path_info.sequence_time.to_datetime(timezone=UTC),
-            exptime=header.get('EXPTIME'),
-            project=header.get('ORIGIN'),
+            exptime=float(header.get('EXPTIME')),
             software_version=header.get('CREATOR', ''),
             field_name=header.get('FIELD', ''),
             iso=header.get('ISO'),
             ra=header.get('CRVAL1'),
             dec=header.get('CRVAL2'),
+            camera=dict(
+                uid=path_info.camera_id,
+                dateobs=camera_date,
+                lens_serial_number=header.get('INTSN'),
+                serial_number=str(header.get('CAMSN')),
+            ),
         )
 
         measured_rggb = header.get('MEASRGGB', '0 0 0 0').split(' ')
-        camera_date = parse_date(header.get('DATE-OBS', path_info.image_time)).replace(tzinfo=UTC)
         if 'DATE' in header:
             file_date = parse_date(header.get('DATE')).replace(tzinfo=UTC)
         else:
@@ -209,34 +212,28 @@ def extract_metadata(header: Header) -> dict:
         image_info = dict(
             airmass=header.get('AIRMASS'),
             camera=dict(
-                blue_balance=header.get('BLUEBAL'),
-                camera_id=path_info.camera_id,
+                blue_balance=float(header.get('BLUEBAL')),
                 circconf=float(header.get('CIRCCONF', '0.').split(' ')[0]),
-                colortemp=header.get('COLORTMP'),
-                dateobs=camera_date,
-                lens_serial_number=header.get('INTSN'),
-                measured_ev=header.get('MEASEV'),
-                measured_ev2=header.get('MEASEV2'),
+                colortemp=float(header.get('COLORTMP')),
+                measured_ev=float(header.get('MEASEV')),
+                measured_ev2=float(header.get('MEASEV2')),
                 measured_r=float(measured_rggb[0]),
                 measured_g1=float(measured_rggb[1]),
                 measured_g2=float(measured_rggb[2]),
                 measured_b=float(measured_rggb[3]),
-                red_balance=header.get('REDBAL'),
-                serial_number=str(header.get('CAMSN')),
+                red_balance=float(header.get('REDBAL')),
                 temperature=float(header.get('CAMTEMP', 0).split(' ')[0]),
                 white_lvln=header.get('WHTLVLN'),
                 white_lvls=header.get('WHTLVLS'),
             ),
-            exptime=header.get('EXPTIME'),
+            exptime=float(header.get('EXPTIME')),
             file_creation_date=file_date,
-            moonfrac=header.get('MOONFRAC'),
-            moonsep=header.get('MOONSEP'),
+            moonfrac=float(header.get('MOONFRAC')),
+            moonsep=float(header.get('MOONSEP')),
             mount_dec=header.get('DEC-MNT'),
             mount_ha=header.get('HA-MNT'),
             mount_ra=header.get('RA-MNT'),
-            sequence_id=path_info.sequence_id,
             time=path_info.image_time.to_datetime(timezone=UTC),
-            unit_id=path_info.unit_id,
         )
 
         metadata = dict(

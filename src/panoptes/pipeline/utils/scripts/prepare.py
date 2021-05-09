@@ -313,6 +313,18 @@ def main(
     # Add metadata to matched sources (via json normalization).
     metadata_series = pd.json_normalize(metadata_headers, sep='_').iloc[0]
     matched_sources = matched_sources.assign(**metadata_series)
+
+    # Remove some duplicated information.
+    columns_to_drop = [
+        'sequence_project',
+        'sequence_unit_id',
+        'sequence_camera_id',
+        'image_sequence_id',
+        'image_image_camera_id',
+    ]
+    matched_sources.drop(columns=columns_to_drop)
+
+    # Write dataframe to csv.
     matched_sources.set_index(['picid']).to_csv(matched_path, index=True)
     _print(f'Matched sources saved to {matched_path}')
 
@@ -320,7 +332,7 @@ def main(
     job_config = bigquery.LoadJobConfig(
         source_format=bigquery.SourceFormat.CSV,
         ignore_unknown_values=True,
-        write_disposition=bigquery.WriteDisposition.WRITE_APPEND
+        write_disposition=bigquery.WriteDisposition.WRITE_APPEND,
     )
 
     try:

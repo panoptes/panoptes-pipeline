@@ -186,7 +186,6 @@ def extract_metadata(header: Header) -> dict:
             elevation=float(header.get('ELEV-OBS')),
         )
 
-        camera_date = parse_date(header.get('DATE-OBS', path_info.image_time)).replace(tzinfo=UTC)
         sequence_info = dict(
             time=path_info.sequence_time.to_datetime(timezone=UTC),
             exptime=float(header.get('EXPTIME')),
@@ -197,7 +196,6 @@ def extract_metadata(header: Header) -> dict:
             dec=header.get('CRVAL2'),
             camera=dict(
                 uid=path_info.camera_id,
-                dateobs=camera_date,
                 lens_serial_number=header.get('INTSN'),
                 serial_number=str(header.get('CAMSN')),
             ),
@@ -208,10 +206,12 @@ def extract_metadata(header: Header) -> dict:
             file_date = parse_date(header.get('DATE')).replace(tzinfo=UTC)
         else:
             file_date = path_info.image_time.to_datetime(timezone=UTC)
+        camera_date = parse_date(header.get('DATE-OBS', path_info.image_time)).replace(tzinfo=UTC)
 
         image_info = dict(
             airmass=header.get('AIRMASS'),
             camera=dict(
+                dateobs=camera_date,
                 blue_balance=float(header.get('BLUEBAL')),
                 circconf=float(header.get('CIRCCONF', '0.').split(' ')[0]),
                 colortemp=float(header.get('COLORTMP')),

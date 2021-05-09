@@ -42,7 +42,7 @@ def main(
         num_detect_pixels: int = 4,
         effective_gain: float = 1.5,
         max_catalog_separation: int = 50,
-        bq_table_id: str = 'panoptes-exp.observations.detected_sources',
+        bq_table_id: str = 'panoptes-exp.observations.matched_sources',
         force_new: bool = False,
         **kwargs
 ):

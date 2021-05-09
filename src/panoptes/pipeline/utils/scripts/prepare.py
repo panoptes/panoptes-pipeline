@@ -322,7 +322,7 @@ def main(
         'image_sequence_id',
         'image_image_camera_id',
     ]
-    matched_sources.drop(columns=columns_to_drop)
+    matched_sources.drop(columns=columns_to_drop, errors='ignore')
 
     # Write dataframe to csv.
     matched_sources.set_index(['picid']).to_csv(matched_path, index=True)

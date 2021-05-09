@@ -57,12 +57,12 @@ def index(message_envelope: dict):
         else:
             return_dict = {'success': True, 'location': f'gs://{asset_bucket.name}/{full_image_id}'}
 
-        # Upload any assets to storage bucket.
-        for f in Path(tmp_dir).glob('*'):
-            bucket_path = f'{full_image_id}/{f.name}'
-            blob = asset_bucket.blob(bucket_path)
-            print(f'Uploading {bucket_path}')
-            blob.upload_from_filename(f.absolute())
+            # Upload any assets to storage bucket.
+            for f in Path(tmp_dir).glob('*'):
+                bucket_path = f'{full_image_id}/{f.name}'
+                blob = asset_bucket.blob(bucket_path)
+                print(f'Uploading {bucket_path}')
+                blob.upload_from_filename(f.absolute())
 
         # Success.
         return return_dict

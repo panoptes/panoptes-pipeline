@@ -201,14 +201,17 @@ def extract_metadata(header: Header) -> dict:
 
         measured_rggb = header.get('MEASRGGB', '0 0 0 0').split(' ')
         camera_date = parse_date(header.get('DATE-OBS', path_info.image_time)).replace(tzinfo=UTC)
-        file_date = parse_date(header.get('DATE', path_info.image_time)).replace(tzinfo=UTC)
+        if 'DATE' in header:
+            file_date = parse_date(header.get('DATE')).replace(tzinfo=UTC)
+        else:
+            file_date = path_info.image_time.to_datetime(timezone=UTC)
 
         image_info = dict(
             airmass=header.get('AIRMASS'),
             camera=dict(
                 blue_balance=header.get('BLUEBAL'),
                 camera_id=path_info.camera_id,
-                circconf=float(header.get('CIRCCONF', 'NA').split(' ')[0]),
+                circconf=float(header.get('CIRCCONF', '0.').split(' ')[0]),
                 colortemp=header.get('COLORTMP'),
                 dateobs=camera_date,
                 lens_serial_number=header.get('INTSN'),

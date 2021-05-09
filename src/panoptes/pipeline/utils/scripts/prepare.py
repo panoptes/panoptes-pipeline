@@ -320,14 +320,18 @@ def main(
     job_config = bigquery.LoadJobConfig(
         source_format=bigquery.SourceFormat.CSV, skip_leading_rows=1, autodetect=True,
     )
-    job = bq_client.load_table_from_dataframe(matched_sources, bq_table_id,
-                                              job_config=job_config)
-    job.result()  # Start and wait for the job to complete.
-    if job.error_result:
-        _print(f'Errors while loading BQ job: {job.error_result!r}', fg=typer.colors.RED)
-    else:
-        _print(f'Finished uploading {job.output_rows} to BigQuery table {bq_table_id}',
-               fg=typer.colors.GREEN)
+
+    try:
+        job = bq_client.load_table_from_dataframe(matched_sources, bq_table_id,
+                                                  job_config=job_config)
+        job.result()  # Start and wait for the job to complete.
+        if job.error_result:
+            _print(f'Errors while loading BQ job: {job.error_result!r}', fg=typer.colors.RED)
+        else:
+            _print(f'Finished uploading {job.output_rows} to BigQuery table {bq_table_id}',
+                   fg=typer.colors.GREEN)
+    except Exception as e:
+        _print(f'Error inserting into BigQuery: {e!r}')
 
     # Return a path-like string.
     return path_info.get_full_id(sep='/')

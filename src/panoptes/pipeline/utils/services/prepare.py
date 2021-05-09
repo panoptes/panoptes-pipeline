@@ -13,7 +13,7 @@ from panoptes.pipeline.utils.gcp.storage import move_blob_to_bucket
 
 app = FastAPI()
 storage_client = storage.Client()
-output_bucket = storage_client.get_bucket(os.getenv('OUTPUT_BUCKET', 'panoptes-images-processed'))
+outgoing_bucket = storage_client.get_bucket(os.getenv('OUTPUT_BUCKET', 'panoptes-images-processed'))
 incoming_bucket = storage_client.get_bucket(os.getenv('INPUT_BUCKET', 'panoptes-images-incoming'))
 error_bucket = storage_client.get_bucket(os.getenv('ERROR_BUCKET', 'panoptes-images-error'))
 
@@ -30,6 +30,9 @@ def index(message_envelope: dict):
     message = message_envelope['message']
     bucket_path = message['attributes']['objectId']
 
+    # Put things in the outgoing bucket unless errors below.
+    asset_bucket = outgoing_bucket
+
     with tempfile.TemporaryDirectory() as tmp_dir:
         try:
             # Make sure file has valid signature, i.e. we need a FITS here.
@@ -38,19 +41,28 @@ def index(message_envelope: dict):
 
             full_image_id = cloud_function_entry_point(message, prepare_main, output_dir=tmp_dir)
         except Exception as e:
-            print(f'Problem preparing an image: {e!r}')
+            print(f'Problem preparing an image for {bucket_path}: {e!r}')
+            return_dict = {'success': False, 'error': f'{e!r}'}
+
+            # Put assets in error bucket
+            asset_bucket = error_bucket
 
             # Move to error bucket.
-            new_blob = move_blob_to_bucket(bucket_path, incoming_bucket, error_bucket)
+            try:
+                new_blob = move_blob_to_bucket(bucket_path, outgoing_bucket, error_bucket)
+                return_dict['error_bucket_path'] = new_blob.path
+            except Exception as e2:
+                print(f'Error moving {bucket_path} to {error_bucket} from {incoming_bucket}')
+                return_dict['error_2'] = f'{e2!r}'
+        else:
+            return_dict = {'success': True, 'location': f'gs://{asset_bucket.name}/{full_image_id}'}
 
-            return {'success': False, 'error': f'{e!r}', 'error_bucket_path': new_blob.path}
-
-        # Upload assets to storage bucket.
+        # Upload any assets to storage bucket.
         for f in Path(tmp_dir).glob('*'):
             bucket_path = f'{full_image_id}/{f.name}'
-            blob = output_bucket.blob(bucket_path)
+            blob = asset_bucket.blob(bucket_path)
             print(f'Uploading {bucket_path}')
             blob.upload_from_filename(f.absolute())
 
-        # Success
-        return {'success': True, 'location': f'gs://{output_bucket.name}/{full_image_id}'}
+        # Success.
+        return return_dict

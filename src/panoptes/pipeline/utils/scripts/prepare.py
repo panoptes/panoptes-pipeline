@@ -42,7 +42,7 @@ def main(
         num_detect_pixels: int = 4,
         effective_gain: float = 1.5,
         max_catalog_separation: int = 50,
-        bq_table_id: str = 'panoptes-exp.observations.matched_sources',
+        bq_table_id: str = 'panoptes-exp.observations.detected_sources',
         force_new: bool = False,
         **kwargs
 ):
@@ -318,7 +318,9 @@ def main(
 
     _print(f'Uploading to BigQuery table {bq_table_id}')
     job_config = bigquery.LoadJobConfig(
-        source_format=bigquery.SourceFormat.CSV, skip_leading_rows=1, autodetect=True,
+        source_format=bigquery.SourceFormat.CSV,
+        ignore_unknown_values=True,
+        write_disposition=bigquery.WriteDisposition.WRITE_APPEND
     )
 
     try:

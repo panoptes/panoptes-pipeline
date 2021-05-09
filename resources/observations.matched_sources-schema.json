@@ -1,554 +1,512 @@
-{
-  "clustering": {
-    "fields": [
-      "catalog_dec_bin",
-      "catalog_ra_bin",
-      "catalog_vmag_bin"
-    ]
-  },
-  "creationTime": "1620512831624",
-  "etag": "u3f3Fit9nIsoApSkdqE9xQ==",
-  "id": "panoptes-exp:observations.matched_sources",
-  "kind": "bigquery#table",
-  "lastModifiedTime": "1620520739617",
-  "location": "US",
-  "numBytes": "0",
-  "numLongTermBytes": "0",
-  "numRows": "0",
-  "schema": {
-    "fields": [
-      {
-        "mode": "NULLABLE",
-        "name": "picid",
-        "type": "INTEGER"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "photutils_area",
-        "type": "FLOAT"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "photutils_background_centroid",
-        "type": "FLOAT"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "photutils_background_mean",
-        "type": "FLOAT"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "photutils_background_sum",
-        "type": "FLOAT"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "photutils_bbox_xmax",
-        "type": "INTEGER"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "photutils_bbox_xmin",
-        "type": "INTEGER"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "photutils_bbox_ymax",
-        "type": "INTEGER"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "photutils_bbox_ymin",
-        "type": "INTEGER"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "photutils_cxx",
-        "type": "FLOAT"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "photutils_cxy",
-        "type": "FLOAT"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "photutils_cyy",
-        "type": "FLOAT"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "photutils_eccentricity",
-        "type": "FLOAT"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "photutils_equivalent_radius",
-        "type": "FLOAT"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "photutils_fwhm",
-        "type": "FLOAT"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "photutils_gini",
-        "type": "FLOAT"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "photutils_kron_flux",
-        "type": "FLOAT"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "photutils_kron_fluxerr",
-        "type": "FLOAT"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "photutils_kron_radius",
-        "type": "FLOAT"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "photutils_label",
-        "type": "INTEGER"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "photutils_local_background",
-        "type": "FLOAT"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "photutils_max_value",
-        "type": "FLOAT"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "photutils_min_value",
-        "type": "FLOAT"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "photutils_orientation",
-        "type": "FLOAT"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "photutils_perimeter",
-        "type": "FLOAT"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "photutils_segment_flux",
-        "type": "FLOAT"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "photutils_segment_fluxerr",
-        "type": "FLOAT"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "photutils_semimajor_sigma",
-        "type": "FLOAT"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "photutils_semiminor_sigma",
-        "type": "FLOAT"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "photutils_sky_centroid_ra",
-        "type": "FLOAT"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "photutils_sky_centroid_dec",
-        "type": "FLOAT"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "photutils_xcentroid",
-        "type": "FLOAT"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "photutils_ycentroid",
-        "type": "FLOAT"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "gaia",
-        "type": "INTEGER"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "catalog_ra",
-        "type": "FLOAT"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "catalog_dec",
-        "type": "FLOAT"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "catalog_vmag",
-        "type": "FLOAT"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "catalog_vmag_bin",
-        "type": "INTEGER"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "catalog_vmag_err",
-        "type": "FLOAT"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "catalog_tmag",
-        "type": "FLOAT"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "catalog_tmag_err",
-        "type": "FLOAT"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "catalog_gaiamag",
-        "type": "FLOAT"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "catalog_gaiamag_err",
-        "type": "FLOAT"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "catalog_gaiabp_err",
-        "type": "FLOAT"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "catalog_gaiabp",
-        "type": "FLOAT"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "catalog_gaiarp_err",
-        "type": "FLOAT"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "catalog_gaiarp",
-        "type": "FLOAT"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "catalog_numcont",
-        "type": "FLOAT"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "catalog_contratio",
-        "type": "FLOAT"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "catalog_sep",
-        "type": "FLOAT"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "catalog_wcs_x",
-        "type": "FLOAT"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "catalog_wcs_y",
-        "type": "FLOAT"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "catalog_wcs_x_int",
-        "type": "INTEGER"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "catalog_wcs_y_int",
-        "type": "INTEGER"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "status",
-        "type": "STRING"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "catalog_match_duplicate",
-        "type": "BOOLEAN"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "catalog_dec_bin",
-        "type": "INTEGER"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "catalog_ra_bin",
-        "type": "INTEGER"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "stamp_y_min",
-        "type": "INTEGER"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "stamp_y_max",
-        "type": "INTEGER"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "stamp_x_min",
-        "type": "INTEGER"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "stamp_x_max",
-        "type": "INTEGER"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "unit_name",
-        "type": "STRING"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "unit_latitude",
-        "type": "FLOAT"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "unit_longitude",
-        "type": "FLOAT"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "unit_elevation",
-        "type": "FLOAT"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "sequence_unit_id",
-        "type": "STRING"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "sequence_camera_id",
-        "type": "STRING"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "sequence_time",
-        "type": "TIMESTAMP"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "sequence_exptime",
-        "type": "INTEGER"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "sequence_project",
-        "type": "STRING"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "sequence_software_version",
-        "type": "STRING"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "sequence_field_name",
-        "type": "STRING"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "sequence_iso",
-        "type": "INTEGER"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "sequence_ra",
-        "type": "FLOAT"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "sequence_dec",
-        "type": "FLOAT"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "image_airmass",
-        "type": "FLOAT"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "image_camera_blue_balance",
-        "type": "FLOAT"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "image_camera_camera_id",
-        "type": "STRING"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "image_camera_circconf",
-        "type": "FLOAT"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "image_camera_colortemp",
-        "type": "INTEGER"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "image_camera_dateobs",
-        "type": "TIMESTAMP"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "image_camera_lens_serial_number",
-        "type": "STRING"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "image_camera_measured_ev",
-        "type": "FLOAT"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "image_camera_measured_ev2",
-        "type": "FLOAT"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "image_camera_measured_r",
-        "type": "FLOAT"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "image_camera_measured_g1",
-        "type": "FLOAT"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "image_camera_measured_g2",
-        "type": "FLOAT"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "image_camera_measured_b",
-        "type": "FLOAT"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "image_camera_red_balance",
-        "type": "FLOAT"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "image_camera_serial_number",
-        "type": "INTEGER"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "image_camera_temperature",
-        "type": "FLOAT"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "image_camera_white_lvln",
-        "type": "INTEGER"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "image_camera_white_lvls",
-        "type": "INTEGER"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "image_exptime",
-        "type": "INTEGER"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "image_file_creation_date",
-        "type": "TIMESTAMP"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "image_moonfrac",
-        "type": "FLOAT"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "image_moonsep",
-        "type": "FLOAT"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "image_mount_dec",
-        "type": "FLOAT"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "image_mount_ha",
-        "type": "FLOAT"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "image_mount_ra",
-        "type": "FLOAT"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "image_sequence_id",
-        "type": "STRING"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "image_time",
-        "type": "TIMESTAMP"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "image_unit_id",
-        "type": "STRING"
-      },
-      {
-        "mode": "NULLABLE",
-        "name": "image_num_sources",
-        "type": "INTEGER"
-      }
-    ]
-  },
-  "selfLink": "https://bigquery.googleapis.com/bigquery/v2/projects/panoptes-exp/datasets/observations/tables/matched_sources",
-  "tableReference": {
-    "datasetId": "observations",
-    "projectId": "panoptes-exp",
-    "tableId": "matched_sources"
-  },
-  "type": "TABLE"
-}
+[
+    {
+      "mode": "NULLABLE",
+      "name": "picid",
+      "type": "INTEGER"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "photutils_area",
+      "type": "FLOAT"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "photutils_background_centroid",
+      "type": "FLOAT"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "photutils_background_mean",
+      "type": "FLOAT"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "photutils_background_sum",
+      "type": "FLOAT"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "photutils_bbox_xmax",
+      "type": "INTEGER"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "photutils_bbox_xmin",
+      "type": "INTEGER"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "photutils_bbox_ymax",
+      "type": "INTEGER"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "photutils_bbox_ymin",
+      "type": "INTEGER"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "photutils_cxx",
+      "type": "FLOAT"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "photutils_cxy",
+      "type": "FLOAT"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "photutils_cyy",
+      "type": "FLOAT"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "photutils_eccentricity",
+      "type": "FLOAT"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "photutils_equivalent_radius",
+      "type": "FLOAT"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "photutils_fwhm",
+      "type": "FLOAT"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "photutils_gini",
+      "type": "FLOAT"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "photutils_kron_flux",
+      "type": "FLOAT"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "photutils_kron_fluxerr",
+      "type": "FLOAT"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "photutils_kron_radius",
+      "type": "FLOAT"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "photutils_label",
+      "type": "INTEGER"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "photutils_local_background",
+      "type": "FLOAT"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "photutils_max_value",
+      "type": "FLOAT"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "photutils_min_value",
+      "type": "FLOAT"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "photutils_orientation",
+      "type": "FLOAT"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "photutils_perimeter",
+      "type": "FLOAT"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "photutils_segment_flux",
+      "type": "FLOAT"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "photutils_segment_fluxerr",
+      "type": "FLOAT"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "photutils_semimajor_sigma",
+      "type": "FLOAT"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "photutils_semiminor_sigma",
+      "type": "FLOAT"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "photutils_sky_centroid_ra",
+      "type": "FLOAT"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "photutils_sky_centroid_dec",
+      "type": "FLOAT"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "photutils_xcentroid",
+      "type": "FLOAT"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "photutils_ycentroid",
+      "type": "FLOAT"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "gaia",
+      "type": "INTEGER"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "catalog_ra",
+      "type": "FLOAT"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "catalog_dec",
+      "type": "FLOAT"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "catalog_vmag",
+      "type": "FLOAT"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "catalog_vmag_bin",
+      "type": "INTEGER"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "catalog_vmag_err",
+      "type": "FLOAT"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "catalog_tmag",
+      "type": "FLOAT"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "catalog_tmag_err",
+      "type": "FLOAT"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "catalog_gaiamag",
+      "type": "FLOAT"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "catalog_gaiamag_err",
+      "type": "FLOAT"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "catalog_gaiabp_err",
+      "type": "FLOAT"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "catalog_gaiabp",
+      "type": "FLOAT"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "catalog_gaiarp_err",
+      "type": "FLOAT"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "catalog_gaiarp",
+      "type": "FLOAT"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "catalog_numcont",
+      "type": "FLOAT"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "catalog_contratio",
+      "type": "FLOAT"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "catalog_sep",
+      "type": "FLOAT"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "catalog_wcs_x",
+      "type": "FLOAT"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "catalog_wcs_y",
+      "type": "FLOAT"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "catalog_wcs_x_int",
+      "type": "INTEGER"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "catalog_wcs_y_int",
+      "type": "INTEGER"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "status",
+      "type": "STRING"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "catalog_match_duplicate",
+      "type": "BOOLEAN"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "catalog_dec_bin",
+      "type": "INTEGER"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "catalog_ra_bin",
+      "type": "INTEGER"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "stamp_y_min",
+      "type": "INTEGER"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "stamp_y_max",
+      "type": "INTEGER"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "stamp_x_min",
+      "type": "INTEGER"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "stamp_x_max",
+      "type": "INTEGER"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "unit_name",
+      "type": "STRING"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "unit_latitude",
+      "type": "FLOAT"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "unit_longitude",
+      "type": "FLOAT"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "unit_elevation",
+      "type": "FLOAT"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "sequence_unit_id",
+      "type": "STRING"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "sequence_camera_id",
+      "type": "STRING"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "sequence_time",
+      "type": "TIMESTAMP"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "sequence_exptime",
+      "type": "FLOAT"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "sequence_software_version",
+      "type": "STRING"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "sequence_field_name",
+      "type": "STRING"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "sequence_iso",
+      "type": "INTEGER"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "sequence_ra",
+      "type": "FLOAT"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "sequence_dec",
+      "type": "FLOAT"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "image_airmass",
+      "type": "FLOAT"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "image_camera_blue_balance",
+      "type": "FLOAT"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "image_camera_camera_id",
+      "type": "STRING"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "image_camera_circconf",
+      "type": "FLOAT"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "image_camera_colortemp",
+      "type": "FLOAT"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "image_camera_dateobs",
+      "type": "TIMESTAMP"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "image_camera_lens_serial_number",
+      "type": "STRING"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "image_camera_measured_ev",
+      "type": "FLOAT"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "image_camera_measured_ev2",
+      "type": "FLOAT"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "image_camera_measured_r",
+      "type": "FLOAT"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "image_camera_measured_g1",
+      "type": "FLOAT"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "image_camera_measured_g2",
+      "type": "FLOAT"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "image_camera_measured_b",
+      "type": "FLOAT"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "image_camera_red_balance",
+      "type": "FLOAT"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "image_camera_serial_number",
+      "type": "STRING"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "image_camera_temperature",
+      "type": "FLOAT"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "image_camera_white_lvln",
+      "type": "INTEGER"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "image_camera_white_lvls",
+      "type": "INTEGER"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "image_exptime",
+      "type": "FLOAT"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "image_file_creation_date",
+      "type": "TIMESTAMP"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "image_moonfrac",
+      "type": "FLOAT"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "image_moonsep",
+      "type": "FLOAT"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "image_mount_dec",
+      "type": "FLOAT"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "image_mount_ha",
+      "type": "FLOAT"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "image_mount_ra",
+      "type": "FLOAT"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "image_time",
+      "type": "TIMESTAMP"
+    },
+    {
+      "mode": "NULLABLE",
+      "name": "image_num_sources",
+      "type": "INTEGER"
+    }
+  ]

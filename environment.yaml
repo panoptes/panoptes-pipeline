@@ -1,0 +1,22 @@
+channels:
+  - https://conda.anaconda.org/conda-forge
+dependencies:
+  - astropy
+  - bottleneck
+  - fastapi
+  - google-cloud-bigquery
+  - google-cloud-bigquery-storage[pandas,pyarrow]
+  - google-cloud-storage
+  - matplotlib-base
+  - numpy
+  - numexpr
+  - pandas
+  - photutils
+  - pip
+  - pytables
+  - scikit-learn
+  - scipy
+  - uvicorn
+  - pip:
+      - "git+https://github.com/panoptes/panoptes-utils@develop#egg=panoptes-utils[config,images,social]"
+      - google-cloud-firestore

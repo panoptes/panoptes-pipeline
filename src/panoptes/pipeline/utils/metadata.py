@@ -194,11 +194,6 @@ def extract_metadata(header: Header) -> dict:
             iso=header.get('ISO'),
             ra=header.get('CRVAL1'),
             dec=header.get('CRVAL2'),
-            camera=dict(
-                uid=path_info.camera_id,
-                lens_serial_number=header.get('INTSN'),
-                serial_number=str(header.get('CAMSN')),
-            ),
         )
 
         measured_rggb = header.get('MEASRGGB', '0 0 0 0').split(' ')
@@ -211,6 +206,9 @@ def extract_metadata(header: Header) -> dict:
         image_info = dict(
             airmass=header.get('AIRMASS'),
             camera=dict(
+                uid=path_info.camera_id,
+                lens_serial_number=header.get('INTSN'),
+                serial_number=str(header.get('CAMSN')),
                 dateobs=camera_date,
                 blue_balance=float(header.get('BLUEBAL')),
                 circconf=float(header.get('CIRCCONF', '0.').split(' ')[0]),

@@ -11,7 +11,7 @@ from astropy import convolution
 from astropy.io import fits
 from astropy.stats import gaussian_fwhm_to_sigma, sigma_clipped_stats
 from astropy.wcs import WCS
-from google.cloud import bigquery, firestore
+from google.cloud import firestore
 from loguru import logger
 from panoptes.pipeline.utils import metadata, sources
 from panoptes.pipeline.utils.gcp.bigquery import get_bq_clients
@@ -20,13 +20,14 @@ from panoptes.utils.images import fits as fits_utils, bayer
 from panoptes.utils.serializers import to_json
 from photutils import segmentation
 from photutils.utils import calc_total_error
+from tqdm.auto import tqdm
 
 logger.remove()
 app = typer.Typer()
 
 
 @app.command()
-def main(
+def process(
         url: str,
         output_dir: Path = 'output',
         camera_bias: float = 2048.,
@@ -42,7 +43,6 @@ def main(
         num_detect_pixels: int = 4,
         effective_gain: float = 1.5,
         max_catalog_separation: int = 50,
-        bq_table_id: str = 'panoptes-exp.observations.matched_sources',
         force_new: bool = False,
         **kwargs
 ):
@@ -74,6 +74,7 @@ def main(
     residual_filename = output_dir / 'background-residual.fits'
     metadata_json_path = output_dir / 'metadata.json'
     matched_path = output_dir / 'matched-sources.csv'
+    stamps_path = output_dir / 'postage-stamps.csv'
 
     # Load the image.
     _print(f'Getting data')
@@ -162,7 +163,6 @@ def main(
     _print(f'Saved {residual_filename}')
 
     # Plate solve reduced data.
-    # TODO Make get_solve_field accept raw data or open file.
     _print(f'Plate solving {reduced_filename}')
     solved_headers = fits_utils.get_solve_field(str(reduced_filename),
                                                 skip_solved=False,
@@ -286,6 +286,27 @@ def main(
                                     2: 'stamp_x_min',
                                     3: 'stamp_x_max'}, inplace=True)
 
+    total_stamp_size = stamp_size[0] * stamp_size[1]
+
+    psc_data = []
+    for picid, rows in tqdm(stamp_positions, total=len(stamp_positions)):
+        info = rows.iloc[0]
+        row_slice = slice(int(info.stamp_y_min), int(info.stamp_y_max))
+        col_slice = slice(int(info.stamp_x_min), int(info.stamp_x_max))
+        psc0 = reduced_data[row_slice, col_slice].reshape(-1)
+
+        # Make sure stamp is correct size (errors at edges).
+        if psc0.shape == total_stamp_size:
+            df0 = pd.DataFrame(psc0)
+            df0.columns = [f'pixel_{i:03d}' for i in range(total_stamp_size)]
+            df0['picid'] = picid
+            df0['time'] = pd.to_datetime(rows.time.values, utc=True)
+            df0.set_index(['picid', 'time'], inplace=True)
+            psc_data.append(df0)
+
+    # Make one dataframe and change column names
+    psc_data = pd.concat(psc_data).sort_index()
+
     matched_sources = matched_sources.merge(stamp_positions,
                                             left_index=True,
                                             right_index=True)
@@ -298,12 +319,16 @@ def main(
     # Update some of the firestore record.
     _print(f'Adding firestore record.')
     metadata_headers['image']['num_sources'] = num_sources
+    metadata_headers['sequence']['fwhm_median'] = fwhm_median
+    metadata_headers['sequence']['fwhm_mean'] = fwhm_mean
+    metadata_headers['sequence']['fwhm_std'] = fwhm_std
 
     firestore_db.document(image_id).set({
         'num_sources': num_sources,
         'status': ImageStatus.MATCHED.name,
         'fwhm_median': fwhm_median,
         'fwhm_std': fwhm_std,
+        'image_id': path_info.get_full_id(sep='_'),
     }, merge=True)
 
     _print(f'Saving metadata to json file {metadata_json_path}: {metadata_headers!r}')
@@ -318,24 +343,8 @@ def main(
     matched_sources.set_index(['picid']).to_csv(matched_path, index=True)
     _print(f'Matched sources saved to {matched_path}')
 
-    _print(f'Uploading to BigQuery table {bq_table_id}')
-    job_config = bigquery.LoadJobConfig(
-        source_format=bigquery.SourceFormat.CSV,
-        ignore_unknown_values=True,
-        write_disposition=bigquery.WriteDisposition.WRITE_APPEND,
-    )
-
-    try:
-        job = bq_client.load_table_from_dataframe(matched_sources, bq_table_id,
-                                                  job_config=job_config)
-        job.result()  # Start and wait for the job to complete.
-        if job.error_result:
-            _print(f'Errors while loading BQ job: {job.error_result!r}', fg=typer.colors.RED)
-        else:
-            _print(f'Finished uploading {job.output_rows} to BigQuery table {bq_table_id}',
-                   fg=typer.colors.GREEN)
-    except Exception as e:
-        _print(f'Error inserting into BigQuery: {e!r}')
+    # Save PSC data
+    psc_data.to_csv(stamps_path, index=True)
 
     # Return a path-like string.
     return path_info.get_full_id(sep='/')

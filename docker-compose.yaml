@@ -1,0 +1,15 @@
+services:
+  panoptes-pipeline:
+    image: "${IMAGE_NAME:-gcr.io/panoptes-exp/panoptes-pipeline}:${TAG_NAME:-latest}"
+    build:
+      context: .
+      dockerfile: ./Dockerfile
+    restart: never
+    init: true
+    tty: true
+    container_name: panoptes-pipeline
+    hostname: panoptes-pipeline
+    environment:
+      GOOGLE_APPLICATION_CREDENTIALS:
+    volumes:
+      - .:/output

@@ -2,7 +2,7 @@
 
 set -e
 
-TOPIC=${1:-panoptes-pipeline-prepare}
+TOPIC=${1:-panoptes-pipeline-image}
 BASE_TAG=$(git rev-parse HEAD)
 PROJECT_ID=panoptes-exp
 

@@ -11,6 +11,9 @@ ENV USERID $userid
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV LANG=C.UTF-8 LC_ALL=C.UTF-8
+ENV PYTHONUNBUFFERED True
+
+ENV PORT 8080
 
 USER "${userid}"
 
@@ -20,14 +23,12 @@ RUN echo "Building wheel" && \
     sudo chown -R "${userid}:${userid}" /build && \
     python setup.py bdist_wheel
 
-FROM ${image_url}:${image_tag} AS pipeline
+FROM ${image_url}:${image_tag} AS panoptes-pipeline
 
-ENV PYTHONUNBUFFERED True
-
-WORKDIR /panoptes-pipeline
+WORKDIR /app
 COPY --from=pipeline-base /build/dist/ /build/dist
 RUN echo "Installing module" && \
-    sudo chown -R "${userid}:${userid}" /panoptes-pipeline && \
+    sudo chown -R "${userid}:${userid}" /app && \
     pip install "$(ls /build/dist/*.whl)" && \
     # Cleanup
     pip cache purge && \
@@ -38,4 +39,4 @@ RUN echo "Installing module" && \
     sudo apt-get --yes clean && \
     sudo rm -rf /var/lib/apt/lists/*
 
-CMD [ "gunicorn --workers 1 --threads 8 --timeout 0 -k uvicorn.workers.UvicornWorker --bind :$PORT panoptes.pipeline.utils.services.prepare:app" ]
+CMD [ "gunicorn --workers 1 --threads 8 --timeout 0 -k uvicorn.workers.UvicornWorker --bind :${PORT:-8080} image:app" ]

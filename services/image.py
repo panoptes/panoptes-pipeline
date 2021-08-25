@@ -1,17 +1,22 @@
 import os
 import tempfile
+from contextlib import suppress
 from pathlib import Path
 import re
 
 from fastapi import FastAPI
 
 from google.cloud import storage
+from google.cloud import firestore
 
+from panoptes.pipeline.utils.metadata import record_metadata
 from panoptes.pipeline.scripts.image import process as process_image
+from panoptes.pipeline.scripts.image import settings as image_settings
 from panoptes.pipeline.utils.gcp.storage import move_blob_to_bucket
 
 app = FastAPI()
 storage_client = storage.Client()
+firestore_db = firestore.Client()
 
 ROOT_URL = os.getenv('PUBLIC_URL_BASE', 'https://storage.googleapis.com')
 outgoing_bucket = storage_client.get_bucket(os.getenv('OUTPUT_BUCKET', 'panoptes-images-processed'))
@@ -42,9 +47,19 @@ def index(message_envelope: dict):
             if re.search(r'\d{8}T\d{6}\.fits[.fz]+$', bucket_path) is None:
                 raise RuntimeError(f'Need a FITS file, got {bucket_path}')
 
-            full_image_id = process_image(public_bucket_path, output_dir=tmp_dir)
+            image_settings.output_dir = Path(tmp_dir)
+
+            # Run process
+            metadata = process_image(public_bucket_path)
+            full_image_id = metadata['uid'].replace('_', '/')
+
+            # Update firestore
+            with suppress(KeyError):
+                del metadata['unit']
+            firestore_id = record_metadata(bucket_path, image=metadata, firestore_db=firestore_db)
+            print(f'Recorded metadata in firestore id={firestore_id}')
         except Exception as e:
-            print(f'Problem preparing an image for {bucket_path}: {e!r}')
+            print(f'Problem processing image for {bucket_path}: {e!r}')
             return_dict = {'success': False, 'error': f'{e!r}'}
 
             # Put assets in error bucket

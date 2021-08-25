@@ -1,205 +1,258 @@
-import hashlib
 import re
-from copy import deepcopy
 from pathlib import Path
-from typing import Tuple
+from typing import Union
 
 import numpy as np
+import pandas
 import pandas as pd
 import typer
+
 from astropy import convolution
 from astropy.io import fits
 from astropy.stats import gaussian_fwhm_to_sigma, sigma_clipped_stats
 from astropy.wcs import WCS
-from google.cloud import firestore
+from photutils import segmentation
+from photutils.utils import calc_total_error
+from pydantic import BaseModel, BaseSettings, AnyHttpUrl
 from loguru import logger
+
+from panoptes.pipeline.settings import PipelineParams
 from panoptes.pipeline.utils import metadata, sources
 from panoptes.pipeline.utils.gcp.bigquery import get_bq_clients
 from panoptes.pipeline.utils.metadata import ImageStatus
 from panoptes.utils.images import fits as fits_utils, bayer
-from panoptes.utils.serializers import to_json
-from photutils import segmentation
-from photutils.utils import calc_total_error
-from tqdm.auto import tqdm
+from panoptes.utils.serializers import to_json, from_json
+
+
+class FileSettings(BaseModel):
+    reduced_filename: Path = 'image.fits'
+    extras_filename: Path = 'extras.fits'
+    metadata_filename: Path = 'metadata.json'
+    sources_filename: Path = 'sources.csv'
+
+
+class Settings(BaseSettings):
+    params: PipelineParams = PipelineParams()
+    output_dir: Path = 'output'
+    files: FileSettings = FileSettings()
+    compress_fits: bool = True
+
 
 logger.remove()
 app = typer.Typer()
+settings = Settings()
 
 
 @app.command()
-def process(
-        url: str,
-        output_dir: Path = 'output',
-        camera_bias: float = 2048.,
-        box_size: Tuple[int, int] = (79, 84),
-        filter_size: Tuple[int, int] = (3, 3),
-        stamp_size: Tuple[int, int] = (10, 10),
-        saturation: float = 11535.0,  # ADU after bias subtraction.
-        vmag_min: float = 6,
-        vmag_max: float = 14,
-        numcont: int = 5,
-        localbkg_width: int = 2,
-        detection_threshold: float = 5.0,
-        num_detect_pixels: int = 4,
-        effective_gain: float = 1.5,
-        max_catalog_separation: int = 50,
-        force_new: bool = False,
-        **kwargs
-):
-    processing_id = hashlib.md5(url.encode()).hexdigest()
+def process(fits_path: Union[Path, AnyHttpUrl, str], force_new: bool = False) -> dict:
+    typer.secho('Starting image processing')
 
-    def _print(string, **print_kwargs):
-        typer.secho(f'{processing_id} {string}', **print_kwargs)
-
-    _print('Starting preparation')
-
-    # Print helper so log messages can be tracked to processing run.
-    _print('Setting up print functions')
-
-    _print(f'Checking if got a fits file at {url}')
-    if re.search(r'\d{8}T\d{6}\.fits[.fz]+$', url) is None:
-        raise RuntimeError(f'Need a FITS file, got {url}')
-    _print(f'Starting processing for {url} in {output_dir!r}')
-
-    # BQ client.
-    bq_client, bqstorage_client = get_bq_clients()
-    firestore_db = firestore.Client()
-
-    # Set up output directory and filenames.
-    output_dir = Path(output_dir)
-    output_dir.mkdir(exist_ok=True)
-
-    reduced_filename = output_dir / 'calibrated.fits'
-    background_filename = output_dir / 'background.fits'
-    residual_filename = output_dir / 'background-residual.fits'
-    metadata_json_path = output_dir / 'metadata.json'
-    matched_path = output_dir / 'matched-sources.csv'
-    stamps_path = output_dir / 'postage-stamps.csv'
+    typer.secho(f'Checking if got a fits file at {fits_path}')
+    if re.search(r'\d{8}T\d{6}\.fits[.fz]+$', str(fits_path)) is None:
+        raise RuntimeError(f'Need a FITS file, got {fits_path}')
+    typer.secho(f'Starting processing for {fits_path} in {settings.output_dir!r}')
 
     # Load the image.
-    _print(f'Getting data')
-    raw_data, header = fits_utils.getdata(url, header=True)
-
-    # Puts metadata into better structures.
-    _print(f'Getting metadata')
-    metadata_headers = metadata.extract_metadata(header)
-
+    typer.secho(f'Getting data from {fits_path}')
+    raw_data, header = fits_utils.getdata(str(fits_path), header=True)
     # Get the path info.
     path_info = metadata.ObservationPathInfo.from_fits_header(header)
 
+    # Set up output directory and filenames.
+    output_dir = settings.output_dir / path_info.get_full_id(sep='/')
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Prepend the output dir to the file objects.
+    for file_type, file_name in settings.files:
+        setattr(settings.files, file_type, output_dir / file_name)
+
+    if settings.files.sources_filename.exists() and force_new is False:
+        typer.secho(f'Sources file exists and {force_new=}, nothing to do.')
+        return
+
+    settings.params.camera.image_height = raw_data.shape[0]
+    settings.params.camera.image_width = raw_data.shape[1]
+
+    try:
+        if force_new:
+            raise FileNotFoundError
+        reduced_data = fits_utils.getdata(str(settings.files.reduced_filename))
+        bg_data = fits_utils.getdata(str(settings.files.extras_filename), ext=0)
+        bg_residual_data = fits_utils.getdata(str(settings.files.extras_filename), ext=1)
+
+        typer.secho(f'Getting WCS from header')
+        solved_wcs0 = WCS(header)
+    except FileNotFoundError as e:
+        typer.secho(f'Performing image calibration on raw data.')
+
+        typer.secho(f'Subtracting camera bias and masking below zero and above saturation.')
+        data = subtract_bias(raw_data)
+        data = mask_outliers(data)
+
+        typer.secho(f'Getting background for the RGB channels')
+        bg_data, bg_residual_data, reduced_data = subtract_background(data)
+
+        # Save reduced data and background.
+        save_fits(settings.files.reduced_filename,
+                  dict(reduced=reduced_data.data.astype(np.float32)),
+                  header,
+                  force_new=force_new)
+        save_fits(settings.files.extras_filename,
+                  dict(
+                      background=bg_data.astype(np.float32),
+                      residual=bg_residual_data.astype(np.float32),
+                      mask=reduced_data.mask.astype(np.uint8)
+                  ),
+                  header,
+                  force_new=force_new)
+
+        # Plate solve newly calibrated file.
+        solved_wcs0 = plate_solve()
+
+    detected_sources = detect_sources(solved_wcs0, reduced_data, bg_data, bg_residual_data)
+
+    matched_sources = match_sources(detected_sources, solved_wcs0)
+
+    metadata_headers = get_metadata(header, matched_sources)
+
+    # Write dataframe to csv.
+    matched_sources['time'] = pd.to_datetime(metadata_headers['image_time'], utc=True)
+    matched_sources.set_index(['picid', 'time'], inplace=True)
+    matched_sources.to_csv(settings.files.sources_filename)
+    typer.secho(f'Matched sources saved to {settings.files.sources_filename}')
+
+    if settings.compress_fits:
+        typer.secho(f'Compressing FITS files')
+        fits_utils.fpack(str(settings.files.reduced_filename), overwrite=force_new)
+        fits_utils.fpack(str(settings.files.extras_filename), overwrite=force_new)
+
+    # Return the metadata.
+    return metadata_headers
+
+
+def save_fits(filename, data_list, header, force_new=False):
+    hdul = fits.HDUList()
+    for name, d in data_list.items():
+        hdu = fits.ImageHDU(d, header=header)
+        hdu.name = name.upper()
+        hdul.append(hdu)
+
+    hdul.writeto(filename, overwrite=force_new)
+    typer.secho(f'Saved {len(data_list)} dataset(s) to {filename}')
+
+
+def get_metadata(header: fits.Header, matched_sources: pandas.DataFrame) -> dict:
+    num_sources = len(matched_sources)
+    typer.secho(f'Total sources {num_sources}')
+    fwhm_mean, fwhm_median, fwhm_std = sigma_clipped_stats(matched_sources.photutils_fwhm)
+
+    # Puts metadata into better structures.
+    metadata_headers = extract_metadata(header)
+    metadata_headers['sources'] = dict(num_detected=num_sources,
+                                       photutils_fwhm_median=fwhm_median,
+                                       photutils_fwhm_mean=fwhm_mean,
+                                       photutils_fwhm_std=fwhm_std,
+                                       )
+    metadata_headers['status'] = ImageStatus.MATCHED.name
+    # TODO get rid of encoding loop.
+    metadata_headers['params'] = from_json(settings.params.json())
+
+    typer.secho(f'Saving metadata to json file {settings.files.metadata_filename}')
+    to_json(metadata_headers, filename=str(settings.files.metadata_filename))
+    typer.secho(f'Saved metadata to {settings.files.metadata_filename}.')
+
+    return metadata_headers
+
+
+def extract_metadata(header):
+    typer.echo(f'Removing bad FITS headers (comments, history)')
     # Clear out bad headers.
     header.remove('COMMENT', ignore_missing=True, remove_all=True)
     header.remove('HISTORY', ignore_missing=True, remove_all=True)
     bad_headers = [h for h in header.keys() if h.startswith('_')]
     map(header.pop, bad_headers)
 
-    # Record the received data and check for duplicates.
-    image_id = None
-    try:
-        _print(f'Saving metadata to firestore')
-        image_id = metadata.record_metadata(url,
-                                            metadata=deepcopy(metadata_headers),
-                                            current_state=ImageStatus.RECEIVED,
-                                            firestore_db=firestore_db,
-                                            force_new=force_new
-                                            )
-        _print(f'Saved metadata to firestore with id={image_id}')
-    except FileExistsError:
-        if force_new is False:
-            _print(f'File has already been processed, skipping', fg=typer.colors.YELLOW)
-            raise FileExistsError
-        else:
-            _print(f'File has been processed previously, but {force_new=} so proceeding.')
-    except Exception as e:
-        _print(f'Error recording metadata: {e!r}', fg=typer.colors.RED)
-        return
+    typer.echo(f'Getting metadata from FITS headers')
+    metadata_headers = metadata.extract_metadata(header)
 
-    if image_id is None:
-        raise RuntimeError('Missing image_id for some reason. Giving up.')
+    return metadata_headers
 
-    # Bias subtract.
-    data = raw_data - camera_bias
 
-    # Mask min and max outliers.
-    data = np.ma.masked_less_equal(data, 0.)
-    data = np.ma.masked_greater_equal(data, saturation)
+def match_sources(detected_sources, solved_wcs0) -> pandas.DataFrame:
+    typer.secho(f'Matching {len(detected_sources)} sources to wcs.')
+    if settings.params.catalog.catalog_filename.exists():
+        typer.secho(f'Using catalog from {settings.params.catalog.catalog_filename}')
+        catalog_sources = pd.read_parquet(settings.params.catalog.catalog_filename)
+    else:
+        typer.secho(f'Getting catalog sources from bigquery for WCS')
+        # BQ client.
+        bq_client, bqstorage_client = get_bq_clients()
+        catalog_sources = sources.get_stars_from_wcs(solved_wcs0,
+                                                     bq_client=bq_client,
+                                                     bqstorage_client=bqstorage_client,
+                                                     vmag_min=settings.params.catalog.vmag_limits[0],
+                                                     vmag_max=settings.params.catalog.vmag_limits[1],
+                                                     numcont=settings.params.catalog.numcont,
+                                                     )
+    typer.secho(f'Matching sources to catalog for {len(detected_sources)} sources')
+    matched_sources = sources.get_catalog_match(detected_sources,
+                                                wcs=solved_wcs0,
+                                                catalog_stars=catalog_sources,
+                                                ra_column='photutils_sky_centroid_ra',
+                                                dec_column='photutils_sky_centroid_dec',
+                                                max_separation_arcsec=settings.params.catalog.max_separation_arcsec
+                                                )
+    # Drop matches near border
+    image_edge = 10
+    typer.secho(f'Filtering sources near within {image_edge} pixels of '
+                f'{settings.params.camera.image_width}x{settings.params.camera.image_height}')
+    matched_sources = matched_sources.query(
+        'catalog_wcs_x_int > 10 and '
+        f'catalog_wcs_x_int < {settings.params.camera.image_width - image_edge} and '
+        'catalog_wcs_y_int > 10 and '
+        f'catalog_wcs_y_int < {settings.params.camera.image_height - image_edge}'
+    ).copy()
+    typer.secho(f'Found {len(matched_sources)} matching sources')
 
-    # Get RGB background data.
-    _print(f'Getting background for the RGB channels')
-    rgb_background = bayer.get_rgb_background(data=data,
-                                              mask=data.mask,
-                                              return_separate=True,
-                                              box_size=box_size,
-                                              filter_size=filter_size,
-                                              )
+    # There should not be too many duplicates at this point and they are returned in order
+    # of catalog separation, so we take the first.
+    duplicates = matched_sources.duplicated('picid', keep='first')
+    typer.secho(f'Found {len(matched_sources[duplicates])} duplicate sources')
 
-    # Combine the RGB background data.
-    combined_bg_data = np.ma.array([np.ma.array(data=bg.background, mask=bg.mask)
-                                    for bg
-                                    in rgb_background]).sum(0).filled(0).astype(np.float32)
+    # Mark which ones were duplicated.
+    matched_sources.loc[:, 'catalog_match_duplicate'] = False
+    dupes = matched_sources.picid.isin(matched_sources[duplicates].picid)
+    matched_sources.loc[dupes, 'catalog_match_duplicate'] = True
 
-    # Also combine the RGB RMS data.
-    combined_rms_bg_data = np.ma.array([np.ma.array(data=bg.background_rms, mask=bg.mask)
-                                        for bg
-                                        in rgb_background]).sum(0).filled(0).astype(np.float32)
+    # Filter out duplicates.
+    matched_sources = matched_sources.loc[~duplicates].copy()
+    typer.secho(f'Found {len(matched_sources)} matching sources after removing duplicates')
 
-    reduced_data_object = (data - combined_bg_data)
-    reduced_data = reduced_data_object.data.astype(np.float32)
+    # Add some binned fields that we can use for table partitioning.
+    matched_sources['catalog_dec_bin'] = matched_sources.catalog_dec.astype('int')
+    matched_sources['catalog_ra_bin'] = matched_sources.catalog_ra.astype('int')
 
-    # Save reduced data and background.
-    hdu0 = fits.PrimaryHDU(reduced_data, header=header)
-    hdu0.scale('float32')
-    fits.HDUList(hdu0).writeto(reduced_filename)
-    _print(f'Saved {reduced_filename}')
+    return matched_sources
 
-    hdu1 = fits.PrimaryHDU(combined_bg_data, header=header)
-    hdu1.scale('float32')
-    fits.HDUList(hdu1).writeto(background_filename)
-    _print(f'Saved {background_filename}')
 
-    hdu2 = fits.PrimaryHDU(combined_rms_bg_data, header=header)
-    hdu2.scale('float32')
-    fits.HDUList(hdu2).writeto(residual_filename)
-    _print(f'Saved {residual_filename}')
-
-    # Plate solve reduced data.
-    _print(f'Plate solving {reduced_filename}')
-    solved_headers = fits_utils.get_solve_field(str(reduced_filename),
-                                                skip_solved=False,
-                                                timeout=300)
-    solved_path = solved_headers.pop('solved_fits_file')
-    _print(f'Solving completed successfully for {solved_path}')
-
-    _print(f'Getting stars from catalog')
-    solved_wcs0 = WCS(solved_headers)
-    # Todo: adjust vmag based on exptime.
-    catalog_sources = sources.get_stars_from_wcs(solved_wcs0,
-                                                 bq_client=bq_client,
-                                                 bqstorage_client=bqstorage_client,
-                                                 vmag_min=vmag_min,
-                                                 vmag_max=vmag_max,
-                                                 numcont=numcont,
-                                                 )
-
-    _print('Detecting sources in image')
-    threshold = (detection_threshold * combined_rms_bg_data)
+def detect_sources(solved_wcs0, reduced_data, combined_bg_data, combined_bg_residual_data):
+    typer.secho('Detecting sources in image')
+    threshold = (settings.params.catalog.detection_threshold * combined_bg_residual_data)
     kernel = convolution.Gaussian2DKernel(2 * gaussian_fwhm_to_sigma)
     kernel.normalize()
     image_segments = segmentation.detect_sources(reduced_data,
                                                  threshold,
-                                                 npixels=num_detect_pixels,
+                                                 npixels=settings.params.catalog.num_detect_pixels,
                                                  filter_kernel=kernel)
-    _print(f'De-blending image segments')
+    typer.secho(f'De-blending image segments')
     deblended_segments = segmentation.deblend_sources(reduced_data,
                                                       image_segments,
-                                                      npixels=num_detect_pixels,
+                                                      npixels=settings.params.catalog.num_detect_pixels,
                                                       filter_kernel=kernel,
                                                       nlevels=32,
                                                       contrast=0.01)
-
-    _print(f'Calculating total error for data using gain={effective_gain}')
-    error = calc_total_error(reduced_data, combined_rms_bg_data, effective_gain)
-
+    typer.secho(f'Calculating total error for data using gain={settings.params.camera.effective_gain}')
+    error = calc_total_error(reduced_data, combined_bg_residual_data, settings.params.camera.effective_gain)
     table_cols = [
         'background_mean',
         'background_centroid',
@@ -212,142 +265,71 @@ def process(
         'kron_radius',
         'perimeter'
     ]
-    _print('Building source catalog for deblended_segments')
-    source_catalog = segmentation.SourceCatalog(reduced_data,
-                                                deblended_segments,
-                                                background=combined_bg_data,
-                                                error=error,
-                                                mask=reduced_data_object.mask,
-                                                wcs=solved_wcs0,
-                                                localbkg_width=localbkg_width)
-    source_cols = sorted(source_catalog.default_columns + table_cols)
-    detected_sources = source_catalog.to_table(columns=source_cols).to_pandas().dropna()
-
+    typer.secho('Building source catalog for deblended_segments')
+    detected_catalog = segmentation.SourceCatalog(reduced_data,
+                                                  deblended_segments,
+                                                  background=combined_bg_data,
+                                                  error=error,
+                                                  mask=reduced_data.mask,
+                                                  wcs=solved_wcs0,
+                                                  localbkg_width=settings.params.catalog.localbkg_width_pixels)
+    source_cols = sorted(detected_catalog.default_columns + table_cols)
+    detected_sources = detected_catalog.to_table(columns=source_cols).to_pandas().dropna()
     # Clean up some column names.
     detected_sources = detected_sources.rename(columns=lambda x: f'photutils_{x}')
     detected_sources = detected_sources.rename(columns={
         'photutils_sky_centroid.ra': 'photutils_sky_centroid_ra',
         'photutils_sky_centroid.dec': 'photutils_sky_centroid_dec',
     })
+    return detected_sources
 
-    _print(f'Matching sources to catalog for {len(detected_sources)} sources')
-    matched_sources = sources.get_catalog_match(detected_sources,
-                                                wcs=solved_wcs0,
-                                                catalog_stars=catalog_sources,
-                                                ra_column='photutils_sky_centroid_ra',
-                                                dec_column='photutils_sky_centroid_dec',
-                                                max_separation_arcsec=max_catalog_separation
-                                                )
 
-    # Drop matches near border
-    _print(f'Filtering sources near edges')
-    image_height, image_width = reduced_data.shape
-    matched_sources = matched_sources.query(
-        'catalog_wcs_x_int > 10 and '
-        f'catalog_wcs_x_int < {image_width - 10} and '
-        'catalog_wcs_y_int > 10 and '
-        f'catalog_wcs_y_int < {image_height - 10}'
-    )
-    _print(f'Found {len(matched_sources)} matching sources')
+def plate_solve(filename=None):
+    typer.secho(f'Plate solving {filename}')
+    filename = filename or settings.files.reduced_filename
+    solved_headers = fits_utils.get_solve_field(str(filename),
+                                                skip_solved=False,
+                                                timeout=300)
+    solved_path = solved_headers.pop('solved_fits_file')
+    typer.secho(f'Solving completed successfully for {solved_path}')
+    solved_wcs0 = WCS(solved_headers)
+    return solved_wcs0
 
-    # There should not be too many duplicates at this point and they are returned in order
-    # of catalog separation, so we take the first.
-    duplicates = matched_sources.duplicated('picid', keep='first')
-    _print(f'Found {len(matched_sources[duplicates])} duplicate sources')
 
-    # Mark which ones were duplicated.
-    dupes = matched_sources.picid.isin(matched_sources[duplicates].picid)
-    matched_sources.loc[:, 'catalog_match_duplicate'] = False
-    matched_sources.loc[dupes, 'catalog_match_duplicate'] = True
+def subtract_background(data):
+    # Get RGB background data.
+    rgb_background = bayer.get_rgb_background(data=data,
+                                              mask=data.mask,
+                                              return_separate=True,
+                                              box_size=settings.params.background.box_size,
+                                              filter_size=settings.params.background.filter_size,
+                                              )
+    combined_bg_data = list()
+    combined_bg_residual_data = list()
+    for color, bg in zip(bayer.RGB, rgb_background):
+        color_data = np.ma.array(data=bg.background, mask=bg.mask)
+        color_residual_data = np.ma.array(data=bg.background_rms, mask=bg.mask)
 
-    # Filter out duplicates.
-    matched_sources = matched_sources.loc[~duplicates].copy()
+        combined_bg_data.append(color_data)
+        combined_bg_residual_data.append(color_residual_data)
+    combined_bg_data = np.ma.array(combined_bg_data).filled(0).sum(0)
+    combined_bg_residual_data = np.ma.array(combined_bg_residual_data).filled(0).sum(0)
+    reduced_data = data - combined_bg_data
 
-    _print(f'Found {len(matched_sources)} matching sources after removing duplicates')
+    return combined_bg_data, combined_bg_residual_data, reduced_data
 
-    # Add some binned fields that we can use for table partitioning.
-    matched_sources['catalog_dec_bin'] = matched_sources.catalog_dec.astype('int')
-    matched_sources['catalog_ra_bin'] = matched_sources.catalog_ra.astype('int')
 
-    # Get the xy positions according to the catalog and the wcs.
-    stamp_positions = sources.get_xy_positions(solved_wcs0, matched_sources)
+def mask_outliers(data):
+    # Mask min and max outliers.
+    data = np.ma.masked_less_equal(data, 0.)
+    data = np.ma.masked_greater_equal(data, settings.params.camera.saturation)
+    return data
 
-    # Get a stamp for each source.
-    stamp_positions = stamp_positions.apply(
-        lambda row: bayer.get_stamp_slice(row.catalog_wcs_x_int,
-                                          row.catalog_wcs_y_int,
-                                          stamp_size=stamp_size,
-                                          as_slices=False,
-                                          ), axis=1,
-        result_type='expand')
 
-    stamp_positions.rename(columns={0: 'stamp_y_min',
-                                    1: 'stamp_y_max',
-                                    2: 'stamp_x_min',
-                                    3: 'stamp_x_max'}, inplace=True)
-
-    total_stamp_size = stamp_size[0] * stamp_size[1]
-
-    psc_data = []
-    for picid, rows in tqdm(stamp_positions, total=len(stamp_positions)):
-        info = rows.iloc[0]
-        row_slice = slice(int(info.stamp_y_min), int(info.stamp_y_max))
-        col_slice = slice(int(info.stamp_x_min), int(info.stamp_x_max))
-        psc0 = reduced_data[row_slice, col_slice].reshape(-1)
-
-        # Make sure stamp is correct size (errors at edges).
-        if psc0.shape == total_stamp_size:
-            df0 = pd.DataFrame(psc0)
-            df0.columns = [f'pixel_{i:03d}' for i in range(total_stamp_size)]
-            df0['picid'] = picid
-            df0['time'] = pd.to_datetime(rows.time.values, utc=True)
-            df0.set_index(['picid', 'time'], inplace=True)
-            psc_data.append(df0)
-
-    # Make one dataframe and change column names
-    psc_data = pd.concat(psc_data).sort_index()
-
-    matched_sources = matched_sources.merge(stamp_positions,
-                                            left_index=True,
-                                            right_index=True)
-
-    num_sources = len(matched_sources)
-    _print(f'Got positions for {num_sources}')
-
-    fwhm_mean, fwhm_median, fwhm_std = sigma_clipped_stats(matched_sources.photutils_fwhm)
-
-    # Update some of the firestore record.
-    _print(f'Adding firestore record.')
-    metadata_headers['image']['num_sources'] = num_sources
-    metadata_headers['sequence']['fwhm_median'] = fwhm_median
-    metadata_headers['sequence']['fwhm_mean'] = fwhm_mean
-    metadata_headers['sequence']['fwhm_std'] = fwhm_std
-
-    firestore_db.document(image_id).set({
-        'num_sources': num_sources,
-        'status': ImageStatus.MATCHED.name,
-        'fwhm_median': fwhm_median,
-        'fwhm_std': fwhm_std,
-        'image_id': path_info.get_full_id(sep='_'),
-    }, merge=True)
-
-    _print(f'Saving metadata to json file {metadata_json_path}: {metadata_headers!r}')
-    to_json(metadata_headers, filename=str(metadata_json_path))
-    _print(f'Saved metadata to {metadata_json_path}.')
-
-    # Add metadata to matched sources (via json normalization).
-    metadata_series = pd.json_normalize(metadata_headers, sep='_').iloc[0]
-    matched_sources = matched_sources.assign(**metadata_series)
-
-    # Write dataframe to csv.
-    matched_sources.set_index(['picid']).to_csv(matched_path, index=True)
-    _print(f'Matched sources saved to {matched_path}')
-
-    # Save PSC data
-    psc_data.to_csv(stamps_path, index=True)
-
-    # Return a path-like string.
-    return path_info.get_full_id(sep='/')
+def subtract_bias(raw_data):
+    # Bias subtract.
+    data = raw_data - settings.params.camera.zero_bias
+    return data
 
 
 if __name__ == '__main__':

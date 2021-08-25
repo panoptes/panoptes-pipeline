@@ -5,7 +5,7 @@ dependencies:
   - bottleneck
   - fastapi
   - google-cloud-bigquery
-  - google-cloud-bigquery-storage[pandas,pyarrow]
+  - google-cloud-bigquery-storage
   - google-cloud-storage
   - matplotlib-base
   - numpy
@@ -13,7 +13,7 @@ dependencies:
   - pandas
   - photutils
   - pip
-  - pytables
+  - pyarrow
   - scikit-learn
   - scipy
   - uvicorn

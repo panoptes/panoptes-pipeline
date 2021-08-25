@@ -116,7 +116,7 @@ def get_stars(
     try:
         results = bq_client.query(sql)
         if return_dataframe:
-            results = results.result().to_dataframe(bqstorage_client=bqstorage_client)
+            results = results.result().to_dataframe()
             print(
                 f'Found {len(results)} in Vmag=[{vmag_min}, {vmag_max}) and bounds=[{shape}]')
     except Exception as e:

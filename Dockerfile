@@ -17,19 +17,20 @@ ENV PORT 8080
 
 USER "${userid}"
 
+USER "${USERID}"
 WORKDIR /build
-COPY --chown="${userid}:${userid}" . .
+COPY --chown="${USERID}:${USERID}" . .
 RUN echo "Building wheel" && \
     sudo chown -R "${userid}:${userid}" /build && \
-    python setup.py bdist_wheel
+    python setup.py bdist_wheel -d /build/dist
 
-FROM ${image_url}:${image_tag} AS panoptes-pipeline
+FROM pipeline-base AS panoptes-pipeline
 
-WORKDIR /app
+USER "${USERID}"
+WORKDIR /build
 COPY --from=pipeline-base /build/dist/ /build/dist
 RUN echo "Installing module" && \
-    sudo chown -R "${userid}:${userid}" /app && \
-    pip install "$(ls /build/dist/*.whl)" && \
+    pip install --no-cache-dir "$(ls /build/dist/*.whl)" && \
     # Cleanup
     pip cache purge && \
     conda clean -fay && \
@@ -38,5 +39,17 @@ RUN echo "Installing module" && \
     sudo apt-get autoclean --yes && \
     sudo apt-get --yes clean && \
     sudo rm -rf /var/lib/apt/lists/*
+
+USER "${USERID}"
+WORKDIR /app
+COPY --chown="${USERID}:${USERID}" ./services/* /app/
+
+RUN echo "Creating /input and /output directories" && \
+    sudo mkdir -p /input && \
+    sudo mkdir -p /output && \
+    sudo chown -R "${USERID}:${USERID}" /input && \
+    sudo chown -R "${USERID}:${USERID}" /output && \
+    sudo chmod -R 777 /input && \
+    sudo chmod -R 777 /output
 
 CMD [ "gunicorn --workers 1 --threads 8 --timeout 0 -k uvicorn.workers.UvicornWorker --bind :${PORT:-8080} image:app" ]

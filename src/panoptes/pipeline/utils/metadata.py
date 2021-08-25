@@ -178,24 +178,6 @@ def extract_metadata(header: Header) -> dict:
     path_info = ObservationPathInfo.from_fits_header(header)
 
     try:
-        # Add a units doc if it doesn't exist.
-        unit_info = dict(
-            name=path_info.unit_id,
-            latitude=header.get('LAT-OBS'),
-            longitude=header.get('LONG-OBS'),
-            elevation=float(header.get('ELEV-OBS')),
-        )
-
-        sequence_info = dict(
-            time=path_info.sequence_time.to_datetime(timezone=UTC),
-            exptime=float(header.get('EXPTIME')),
-            software_version=header.get('CREATOR', ''),
-            field_name=header.get('FIELD', ''),
-            iso=header.get('ISO'),
-            ra=header.get('CRVAL1'),
-            dec=header.get('CRVAL2'),
-        )
-
         measured_rggb = header.get('MEASRGGB', '0 0 0 0').split(' ')
         if 'DATE' in header:
             file_date = parse_date(header.get('DATE')).replace(tzinfo=UTC)
@@ -204,7 +186,14 @@ def extract_metadata(header: Header) -> dict:
         camera_date = parse_date(header.get('DATE-OBS', path_info.image_time)).replace(tzinfo=UTC)
 
         image_info = dict(
-            airmass=header.get('AIRMASS'),
+            uid=path_info.get_full_id(sep='_'),
+            sequence_id=path_info.sequence_id,
+            location=dict(
+                unit_id=path_info.unit_id,
+                latitude=header.get('LAT-OBS'),
+                longitude=header.get('LONG-OBS'),
+                elevation=float(header.get('ELEV-OBS'))
+            ),
             camera=dict(
                 uid=path_info.camera_id,
                 lens_serial_number=header.get('INTSN'),
@@ -225,19 +214,20 @@ def extract_metadata(header: Header) -> dict:
                 white_lvls=header.get('WHTLVLS'),
             ),
             exptime=float(header.get('EXPTIME')),
+            iso=header.get('ISO'),
             file_creation_date=file_date,
+            airmass=header.get('AIRMASS'),
             moonfrac=float(header.get('MOONFRAC')),
             moonsep=float(header.get('MOONSEP')),
             mount_dec=header.get('DEC-MNT'),
             mount_ha=header.get('HA-MNT'),
             mount_ra=header.get('RA-MNT'),
-            time=path_info.image_time.to_datetime(timezone=UTC),
-        )
-
-        metadata = dict(
-            unit=unit_info,
-            sequence=sequence_info,
-            image=image_info,
+            ra=header.get('CRVAL1'),
+            dec=header.get('CRVAL2'),
+            sequence_time=path_info.sequence_time.to_datetime(timezone=UTC),
+            image_time=path_info.image_time.to_datetime(timezone=UTC),
+            software_version=header.get('CREATOR', ''),
+            field_name=header.get('FIELD', ''),
         )
 
     except Exception as e:
@@ -245,7 +235,7 @@ def extract_metadata(header: Header) -> dict:
         raise e
 
     logger.success(f'Metadata extracted from header')
-    return metadata
+    return image_info
 
 
 def get_observation_metadata(sequence_ids, fields=None, show_progress=False):
@@ -465,8 +455,9 @@ def search_observations(
 
 def record_metadata(
         bucket_path: str,
-        metadata: Optional[dict] = None,
-        header: Optional[Header] = None,
+        unit: Optional[dict] = None,
+        sequence: Optional[dict] = None,
+        image: Optional[dict] = None,
         current_state: ImageStatus = ImageStatus.RECEIVING,
         unit_collection: str = 'units',
         observation_collection: str = 'observations',
@@ -486,13 +477,12 @@ def record_metadata(
         e: Description
     """
     # TODO support batch operation.
+    if not unit and not sequence and not image:
+        raise RuntimeError('Need a unit, sequence, and/or image')
 
     print(f'Recording header metadata in firestore for {bucket_path=}')
 
     firestore_db = firestore_db or firestore.Client()
-
-    print(f'Getting metadata')
-    metadata = metadata or extract_metadata(header)
 
     path_info = ObservationPathInfo(path=bucket_path)
     sequence_id = path_info.sequence_id
@@ -505,35 +495,30 @@ def record_metadata(
         seq_doc_ref = unit_doc_ref.collection(observation_collection).document(sequence_id)
         image_doc_ref = seq_doc_ref.collection(image_collection).document(image_id)
 
+        # Skip processing if image already processed by checking status.
         with suppress(KeyError, TypeError):
             image_status = image_doc_ref.get(['status']).to_dict()['status']
             if ImageStatus[image_status] >= current_state and force_new is False:
                 print(f'Skipping image with status of {ImageStatus[image_status].name}')
-                raise FileExistsError('Already processed')
-
-        unit_md = metadata['unit']
-        sequence_md = metadata['sequence']
-        image_md = metadata['image']
+                raise FileExistsError(f'Already processed and {force_new=}')
 
         # Update unit info.
-        unit_md['num_images'] = firestore.Increment(1)
-        unit_md['total_exptime'] = firestore.Increment(sequence_md['exptime'])
-        unit_doc_ref.set(unit_md, merge=True)
+        if unit:
+            unit_doc_ref.set(unit, merge=True)
 
-        # Update sequence info.
-        sequence_md['num_images'] = firestore.Increment(1)
-        sequence_md['total_exptime'] = firestore.Increment(sequence_md['exptime'])
-        seq_doc_ref.set(sequence_md, merge=True)
+        if sequence:
+            seq_doc_ref.set(sequence, merge=True)
 
         # Update image info.
-        print(f'Image metadata: {image_md!r}')
-        image_md['status'] = current_state.name
-        image_md['received_time'] = firestore.SERVER_TIMESTAMP
-        image_doc_ref.set(image_md, merge=True)
+        if image:
+            print(f'Image metadata: {image!r}')
+            image['status'] = current_state.name
+            image['received_time'] = firestore.SERVER_TIMESTAMP
+            image_doc_ref.set(image, merge=True)
 
     except Exception as e:
         print(f'Error in adding record: {traceback.format_exc()!r}')
         raise e
 
-    print(f'Recorded metadata for {bucket_path} with {image_doc_ref.id=}')
+    print(f'Recorded metadata for {path_info.get_full_id()} with {image_doc_ref.id=}')
     return image_doc_ref.path

@@ -50,5 +50,6 @@ MANIFEST
 .venv*/
 
 # Results
+input
 output
 notebooks

@@ -15,6 +15,6 @@ gcloud run deploy "${TOPIC}" \
   --image "gcr.io/${PROJECT_ID}/${TOPIC}:${BASE_TAG}" \
   --no-allow-unauthenticated \
   --platform managed \
-  --memory "8Gi" \
+  --memory "4Gi" \
   --max-instances 100 \
   --concurrency 1

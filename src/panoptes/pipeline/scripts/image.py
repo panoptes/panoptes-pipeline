@@ -1,6 +1,6 @@
 import re
 from pathlib import Path
-from typing import Union
+from typing import Union, Optional
 
 import numpy as np
 import pandas
@@ -28,7 +28,7 @@ class FileSettings(BaseModel):
     reduced_filename: Path = 'image.fits'
     extras_filename: Path = 'extras.fits'
     metadata_filename: Path = 'metadata.json'
-    sources_filename: Path = 'sources.csv'
+    sources_filename: Path = 'sources.parquet'
 
 
 class Settings(BaseSettings):
@@ -44,7 +44,7 @@ settings = Settings()
 
 
 @app.command()
-def process(fits_path: Union[Path, AnyHttpUrl, str], force_new: bool = False) -> dict:
+def process(fits_path: Union[Path, AnyHttpUrl, str], force_new: bool = False) -> Optional[dict]:
     typer.secho('Starting image processing')
 
     typer.secho(f'Checking if got a fits file at {fits_path}')
@@ -57,6 +57,7 @@ def process(fits_path: Union[Path, AnyHttpUrl, str], force_new: bool = False) ->
     raw_data, header = fits_utils.getdata(str(fits_path), header=True)
     # Get the path info.
     path_info = metadata.ObservationPathInfo.from_fits_header(header)
+    wcs0 = WCS(header)
 
     # Set up output directory and filenames.
     output_dir = settings.output_dir / path_info.get_full_id(sep='/')
@@ -81,7 +82,6 @@ def process(fits_path: Union[Path, AnyHttpUrl, str], force_new: bool = False) ->
         bg_residual_data = fits_utils.getdata(str(settings.files.extras_filename), ext=1)
 
         typer.secho(f'Getting WCS from header')
-        solved_wcs0 = WCS(header)
     except FileNotFoundError as e:
         typer.secho(f'Performing image calibration on raw data.')
 
@@ -107,18 +107,18 @@ def process(fits_path: Union[Path, AnyHttpUrl, str], force_new: bool = False) ->
                   force_new=force_new)
 
         # Plate solve newly calibrated file.
-        solved_wcs0 = plate_solve()
+        wcs0 = plate_solve()
 
-    detected_sources = detect_sources(solved_wcs0, reduced_data, bg_data, bg_residual_data)
+    detected_sources = detect_sources(wcs0, reduced_data, bg_data, bg_residual_data)
 
-    matched_sources = match_sources(detected_sources, solved_wcs0)
+    matched_sources = match_sources(detected_sources, wcs0)
 
     metadata_headers = get_metadata(header, matched_sources)
 
     # Write dataframe to csv.
-    matched_sources['time'] = pd.to_datetime(metadata_headers['image_time'], utc=True)
+    matched_sources['time'] = pd.to_datetime(metadata_headers['image']['time'], utc=True)
     matched_sources.set_index(['picid', 'time'], inplace=True)
-    matched_sources.to_csv(settings.files.sources_filename)
+    matched_sources.to_parquet(settings.files.sources_filename)
     typer.secho(f'Matched sources saved to {settings.files.sources_filename}')
 
     if settings.compress_fits:
@@ -148,14 +148,14 @@ def get_metadata(header: fits.Header, matched_sources: pandas.DataFrame) -> dict
 
     # Puts metadata into better structures.
     metadata_headers = extract_metadata(header)
-    metadata_headers['sources'] = dict(num_detected=num_sources,
-                                       photutils_fwhm_median=fwhm_median,
-                                       photutils_fwhm_mean=fwhm_mean,
-                                       photutils_fwhm_std=fwhm_std,
-                                       )
-    metadata_headers['status'] = ImageStatus.MATCHED.name
+    metadata_headers['image']['sources'] = dict(num_detected=num_sources,
+                                                photutils_fwhm_median=fwhm_median,
+                                                photutils_fwhm_mean=fwhm_mean,
+                                                photutils_fwhm_std=fwhm_std,
+                                                )
+    metadata_headers['image']['status'] = ImageStatus.MATCHED.name
     # TODO get rid of encoding loop.
-    metadata_headers['params'] = from_json(settings.params.json())
+    metadata_headers['image']['params'] = from_json(settings.params.json())
 
     typer.secho(f'Saving metadata to json file {settings.files.metadata_filename}')
     to_json(metadata_headers, filename=str(settings.files.metadata_filename))
@@ -180,7 +180,8 @@ def extract_metadata(header):
 
 def match_sources(detected_sources, solved_wcs0) -> pandas.DataFrame:
     typer.secho(f'Matching {len(detected_sources)} sources to wcs.')
-    if settings.params.catalog.catalog_filename.exists():
+    catalog_filename = settings.params.catalog.catalog_filename
+    if catalog_filename and catalog_filename.exists():
         typer.secho(f'Using catalog from {settings.params.catalog.catalog_filename}')
         catalog_sources = pd.read_parquet(settings.params.catalog.catalog_filename)
     else:
@@ -231,6 +232,11 @@ def match_sources(detected_sources, solved_wcs0) -> pandas.DataFrame:
     # Add some binned fields that we can use for table partitioning.
     matched_sources['catalog_dec_bin'] = matched_sources.catalog_dec.astype('int')
     matched_sources['catalog_ra_bin'] = matched_sources.catalog_ra.astype('int')
+
+    # Precompute some columns.
+    matched_sources['catalog_gaia_bg_excess'] = matched_sources.catalog_gaiabp - matched_sources.catalog_gaiamag
+    matched_sources['catalog_gaia_br_excess'] = matched_sources.catalog_gaiabp - matched_sources.catalog_gaiarp
+    matched_sources['catalog_gaia_rg_excess'] = matched_sources.catalog_gaiarp - matched_sources.catalog_gaiamag
 
     return matched_sources
 

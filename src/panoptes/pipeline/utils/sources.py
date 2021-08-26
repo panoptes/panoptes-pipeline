@@ -6,7 +6,21 @@ from astropy.wcs import WCS
 from panoptes.pipeline.utils.gcp.bigquery import get_bq_clients
 
 
-def get_stars_from_wcs(wcs: WCS, **kwargs) -> pandas.DataFrame:
+def get_stars_from_coords(ra: float, dec: float, radius: float = 8.0, **kwargs) -> pandas.DataFrame:
+    limits = dict(
+        ra_max=ra + radius,
+        ra_min=ra - radius,
+        dec_max=dec + radius,
+        dec_min=dec - radius,
+    )
+
+    print(f'Using {limits=} for get_stars')
+    catalog_stars = get_stars(shape=limits, **kwargs)
+
+    return catalog_stars
+
+
+def get_stars_from_wcs(wcs: WCS, round_to: int = 0, pad: float = 0.5, **kwargs) -> pandas.DataFrame:
     """Lookup star information from WCS footprint.
 
     Generates the correct layout for an SQL `POLYGON` that can be passed to
@@ -14,6 +28,10 @@ def get_stars_from_wcs(wcs: WCS, **kwargs) -> pandas.DataFrame:
 
     Args:
         wcs (astropy.wcs.WCS): A valid (i.e. `wcs.is_celestial`) World Coordinate System object.
+        round_to (int): Round the limits to this decimal place, default 0. Helps with automatic
+            bigquery caching by making the query the same each time.
+        pad (float): The amount of padding in degrees to add to each of the RA and Dec
+            limits, default 0.5 [degrees].
         **kwargs: Optional keywords to pass to :py:func:`get_stars`.
 
     """
@@ -29,13 +47,13 @@ def get_stars_from_wcs(wcs: WCS, **kwargs) -> pandas.DataFrame:
     dec_below = np.ceil(max(ll[1], lr[1]))
 
     limits = dict(
-        ra_max=ra_below,
-        ra_min=ra_above,
-        dec_max=dec_below,
-        dec_min=dec_above,
+        ra_max=round(ra_below, round_to) + pad,
+        ra_min=round(ra_above, round_to) - pad,
+        dec_max=round(dec_below, round_to) + pad,
+        dec_min=round(dec_above, round_to) - pad,
     )
 
-    print(f'Using {limits=} for get_stars')
+    print(f'Searching square shape with {round_to=} and {pad=}: {limits!r}')
     catalog_stars = get_stars(shape=limits, **kwargs)
 
     return catalog_stars

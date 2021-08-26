@@ -9,7 +9,7 @@ from fastapi import FastAPI
 from google.cloud import storage
 from google.cloud import firestore
 
-from panoptes.pipeline.utils.metadata import record_metadata
+from panoptes.pipeline.utils.metadata import record_metadata, get_firestore_doc_ref, ImageStatus
 from panoptes.pipeline.scripts.image import process as process_image
 from panoptes.pipeline.scripts.image import settings as image_settings
 from panoptes.pipeline.utils.gcp.storage import move_blob_to_bucket
@@ -49,21 +49,31 @@ def index(message_envelope: dict):
 
             image_settings.output_dir = Path(tmp_dir)
 
-            # Run process
-            metadata = process_image(public_bucket_path)
-            full_image_id = metadata['uid'].replace('_', '/')
+            # Check and update status.
+            _, _, image_doc_ref = get_firestore_doc_ref(bucket_path, firestore_db=firestore_db)
+            try:
+                image_status = image_doc_ref.get(['status']).to_dict()['status']
+            except Exception:
+                image_status = ImageStatus.UNKNOWN.name
 
-            # Update firestore
-            with suppress(KeyError):
-                del metadata['unit']
-            firestore_id = record_metadata(bucket_path, image=metadata, firestore_db=firestore_db)
+            if ImageStatus[image_status] > ImageStatus.CALIBRATING:
+                print(f'Skipping image with status of {ImageStatus[image_status].name}')
+                raise FileExistsError(f'Already processed {bucket_path}')
+            else:
+                image_doc_ref.set(dict(status=ImageStatus.CALIBRATING.name), merge=True)
+
+            # Run process.
+            metadata = process_image(public_bucket_path)
+            full_image_id = metadata['image']['uid'].replace('_', '/')
+
+            firestore_id = record_metadata(bucket_path, metadata, firestore_db=firestore_db)
             print(f'Recorded metadata in firestore id={firestore_id}')
+        except FileExistsError as e:
+            print(f'Skipping already processed file.')
+            return_dict = {'success': False, 'error': f'{e!r}'}
         except Exception as e:
             print(f'Problem processing image for {bucket_path}: {e!r}')
             return_dict = {'success': False, 'error': f'{e!r}'}
-
-            # Put assets in error bucket
-            asset_bucket = error_bucket
 
             # Move to error bucket.
             try:
@@ -75,12 +85,13 @@ def index(message_envelope: dict):
         else:
             return_dict = {'success': True, 'location': f'gs://{asset_bucket.name}/{full_image_id}'}
 
-        # Upload any assets to storage bucket.
-        for f in Path(tmp_dir).glob('*'):
-            bucket_path = f'{full_image_id}/{f.name}'
-            blob = asset_bucket.blob(bucket_path)
-            print(f'Uploading {bucket_path}')
-            blob.upload_from_filename(f.absolute())
+            # Upload any assets to storage bucket.
+            for f in (Path(tmp_dir) / full_image_id).glob('*'):
+                print(f'Uploading {f}')
+                bucket_path = f'{full_image_id}/{f.name}'
+                blob = asset_bucket.blob(bucket_path)
+                print(f'Uploading {bucket_path}')
+                blob.upload_from_filename(f.absolute())
 
         # Success.
         return return_dict

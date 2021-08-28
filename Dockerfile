@@ -52,4 +52,4 @@ RUN echo "Creating /input and /output directories" && \
     sudo chmod -R 777 /input && \
     sudo chmod -R 777 /output
 
-CMD [ "gunicorn --workers 1 --threads 8 --timeout 0 -k uvicorn.workers.UvicornWorker --bind :${PORT:-8080} image:app" ]
+CMD [ "gunicorn --workers 1 --threads 8 --timeout 0 -k uvicorn.workers.UvicornWorker --bind :${PORT:-8080} pipeline:app" ]

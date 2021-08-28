@@ -6,6 +6,7 @@ dependencies:
   - fastapi
   - google-cloud-bigquery
   - google-cloud-bigquery-storage
+  - google-cloud-pubsub
   - google-cloud-storage
   - matplotlib-base
   - numpy

@@ -44,7 +44,7 @@ settings = Settings()
 
 
 @app.command()
-def process(fits_path: Union[Path, AnyHttpUrl, str], force_new: bool = False) -> Optional[dict]:
+def process_image(fits_path: Path, force_new: bool = False) -> Optional[dict]:
     typer.secho('Starting image processing')
 
     typer.secho(f'Checking if got a fits file at {fits_path}')

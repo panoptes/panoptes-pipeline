@@ -33,13 +33,15 @@ class SequenceStatus(IntEnum):
 class ImageStatus(IntEnum):
     UNKNOWN = -1
     RECEIVING = 0
-    RECEIVED = 10
-    CALIBRATING = 20
-    CALIBRATED = 30
-    SOLVING = 40
-    SOLVED = 50
-    MATCHING = 60
-    MATCHED = 70
+    RECEIVED = 5
+    CALIBRATING = 10
+    CALIBRATED = 15
+    SOLVING = 20
+    SOLVED = 25
+    MATCHING = 30
+    MATCHED = 35
+    EXTRACTING = 40
+    EXTRACTED = 45
 
 
 OBS_BASE_URL = 'https://storage.googleapis.com/panoptes-observations'

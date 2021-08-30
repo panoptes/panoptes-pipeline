@@ -94,23 +94,9 @@ def make_stamps(stamp_positions: pandas.DataFrame,
 
         # Make sure stamp is correct size (errors at edges).
         if psc0.shape == (total_stamp_size,):
-            bgs = dict()
-            if subtract_local_background:
-                color_psc0 = bayer.get_rgb_data(psc0.reshape(stamp_width, stamp_height))
-                for color in bayer.RGB:
-                    bg_mean, bg_median, bg_std = sigma_clipped_stats(color_psc0[color],
-                                                                     sigma_lower=sigma_lower,
-                                                                     sigma_upper=sigma_upper,
-                                                                     maxiters=3)
-                    bgs[color] = bg_median
-                    color_psc0[color] - bg_median
-                psc0 = color_psc0.filled(0).sum(0).reshape(-1)
-
             stamp = pd.DataFrame(psc0).T
             stamp.columns = [f'pixel_{i:03d}' for i in range(total_stamp_size)]
             stamp['picid'] = picid
-            for color, bg_value in bgs.items():
-                stamp[f'removed_bg_{color.name.lower()}'] = bg_value
             stamp.set_index(['picid'], inplace=True)
             stamps.append(stamp)
 

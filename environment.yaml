@@ -4,6 +4,7 @@ dependencies:
   - astropy
   - bottleneck
   - fastapi
+  - gcsfs
   - google-cloud-bigquery
   - google-cloud-bigquery-storage
   - google-cloud-pubsub

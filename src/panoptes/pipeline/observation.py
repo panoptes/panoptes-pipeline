@@ -3,6 +3,7 @@ from typing import List
 import numpy.typing as npt
 import pandas
 import pandas as pd
+from astropy.stats import sigma_clip, sigma_clipped_stats
 from google.cloud import firestore
 from panoptes.utils.images import bayer
 from pydantic import BaseSettings
@@ -23,7 +24,7 @@ def get_stamp_locations(sources_file_list: List[str]) -> pandas.DataFrame:
     logger.debug(f'Getting {len(sources_file_list)} remote files.')
     position_dfs = [pd.read_parquet(u, columns=[settings.COLUMN_X, settings.COLUMN_Y]) for u in sources_file_list]
     logger.debug(f'Combining position files')
-    catalog_positions = pd.concat(position_dfs, join='inner').sort_index()
+    catalog_positions = pd.concat(position_dfs).sort_index()
     logger.debug(f'Loaded a total of {len(catalog_positions)}')
 
     # Make xy catalog with the average positions from all measured frames.
@@ -75,9 +76,12 @@ def get_stamp_locations(sources_file_list: List[str]) -> pandas.DataFrame:
 
 def make_stamps(stamp_positions: pandas.DataFrame,
                 data: npt.DTypeLike,
+                subtract_local_background: bool = False,
+                sigma_lower: int = 3,
+                sigma_upper: int = 1,
                 ) -> pandas.DataFrame:
-    stamp_width = stamp_positions.stamp_x_max.mean() - stamp_positions.stamp_x_min.mean()
-    stamp_height = stamp_positions.stamp_y_max.mean() - stamp_positions.stamp_y_min.mean()
+    stamp_width = int(stamp_positions.stamp_x_max.mean() - stamp_positions.stamp_x_min.mean())
+    stamp_height = int(stamp_positions.stamp_y_max.mean() - stamp_positions.stamp_y_min.mean())
     total_stamp_size = int(stamp_width * stamp_height)
     logger.debug(f'Making stamps of {total_stamp_size=} for {len(stamp_positions)} sources from data {data.shape}')
 
@@ -90,9 +94,23 @@ def make_stamps(stamp_positions: pandas.DataFrame,
 
         # Make sure stamp is correct size (errors at edges).
         if psc0.shape == (total_stamp_size,):
+            bgs = dict()
+            if subtract_local_background:
+                color_psc0 = bayer.get_rgb_data(psc0.reshape(stamp_width, stamp_height))
+                for color in bayer.RGB:
+                    bg_mean, bg_median, bg_std = sigma_clipped_stats(color_psc0[color],
+                                                                     sigma_lower=sigma_lower,
+                                                                     sigma_upper=sigma_upper,
+                                                                     maxiters=3)
+                    bgs[color] = bg_median
+                    color_psc0[color] - bg_median
+                psc0 = color_psc0.filled(0).sum(0).reshape(-1)
+
             stamp = pd.DataFrame(psc0).T
             stamp.columns = [f'pixel_{i:03d}' for i in range(total_stamp_size)]
             stamp['picid'] = picid
+            for color, bg_value in bgs.items():
+                stamp[f'removed_bg_{color.name.lower()}'] = bg_value
             stamp.set_index(['picid'], inplace=True)
             stamps.append(stamp)
 

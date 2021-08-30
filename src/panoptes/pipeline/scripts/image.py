@@ -1,6 +1,6 @@
 import re
 from pathlib import Path
-from typing import Union, Optional
+from typing import Optional
 
 import numpy as np
 import pandas
@@ -13,7 +13,7 @@ from astropy.stats import gaussian_fwhm_to_sigma, sigma_clipped_stats
 from astropy.wcs import WCS
 from photutils import segmentation
 from photutils.utils import calc_total_error
-from pydantic import BaseModel, BaseSettings, AnyHttpUrl
+from pydantic import BaseModel, BaseSettings
 from loguru import logger
 
 from panoptes.pipeline.settings import PipelineParams
@@ -33,18 +33,17 @@ class FileSettings(BaseModel):
 
 class Settings(BaseSettings):
     params: PipelineParams = PipelineParams()
-    output_dir: Path = 'output'
     files: FileSettings = FileSettings()
     compress_fits: bool = True
+    output_dir: Path
 
 
 logger.remove()
 app = typer.Typer()
-settings = Settings()
 
 
 @app.command()
-def process_image(fits_path: Path, force_new: bool = False) -> Optional[dict]:
+def calibrate(fits_path: str, settings: Settings, force_new: bool = False) -> Optional[dict]:
     typer.secho('Starting image processing')
 
     typer.secho(f'Checking if got a fits file at {fits_path}')
@@ -82,15 +81,15 @@ def process_image(fits_path: Path, force_new: bool = False) -> Optional[dict]:
         bg_residual_data = fits_utils.getdata(str(settings.files.extras_filename), ext=1)
 
         typer.secho(f'Getting WCS from header')
-    except FileNotFoundError as e:
+    except FileNotFoundError:
         typer.secho(f'Performing image calibration on raw data.')
 
         typer.secho(f'Subtracting camera bias and masking below zero and above saturation.')
-        data = subtract_bias(raw_data)
-        data = mask_outliers(data)
+        data = subtract_bias(raw_data, settings=settings)
+        data = mask_outliers(data, settings=settings)
 
         typer.secho(f'Getting background for the RGB channels')
-        bg_data, bg_residual_data, reduced_data = subtract_background(data)
+        bg_data, bg_residual_data, reduced_data = subtract_background(data, settings=settings)
 
         # Save reduced data and background.
         save_fits(settings.files.reduced_filename,
@@ -107,13 +106,13 @@ def process_image(fits_path: Path, force_new: bool = False) -> Optional[dict]:
                   force_new=force_new)
 
         # Plate solve newly calibrated file.
-        wcs0 = plate_solve()
+        wcs0 = plate_solve(settings=settings)
 
-    detected_sources = detect_sources(wcs0, reduced_data, bg_data, bg_residual_data)
+    detected_sources = detect_sources(wcs0, reduced_data, bg_data, bg_residual_data, settings=settings)
 
-    matched_sources = match_sources(detected_sources, wcs0)
+    matched_sources = match_sources(detected_sources, wcs0, settings=settings)
 
-    metadata_headers = get_metadata(header, matched_sources)
+    metadata_headers = get_metadata(header, matched_sources, settings=settings)
 
     # Write dataframe to csv.
     matched_sources['time'] = pd.to_datetime(metadata_headers['image']['time'], utc=True)
@@ -141,7 +140,7 @@ def save_fits(filename, data_list, header, force_new=False):
     typer.secho(f'Saved {len(data_list)} dataset(s) to {filename}')
 
 
-def get_metadata(header: fits.Header, matched_sources: pandas.DataFrame) -> dict:
+def get_metadata(header: fits.Header, matched_sources: pandas.DataFrame, settings: Settings) -> dict:
     num_sources = len(matched_sources)
     typer.secho(f'Total sources {num_sources}')
     fwhm_mean, fwhm_median, fwhm_std = sigma_clipped_stats(matched_sources.photutils_fwhm)
@@ -178,7 +177,7 @@ def extract_metadata(header):
     return metadata_headers
 
 
-def match_sources(detected_sources, solved_wcs0) -> pandas.DataFrame:
+def match_sources(detected_sources, solved_wcs0, settings: Settings, image_edge=10) -> pandas.DataFrame:
     typer.secho(f'Matching {len(detected_sources)} sources to wcs.')
     catalog_filename = settings.params.catalog.catalog_filename
     if catalog_filename and catalog_filename.exists():
@@ -204,13 +203,12 @@ def match_sources(detected_sources, solved_wcs0) -> pandas.DataFrame:
                                                 max_separation_arcsec=settings.params.catalog.max_separation_arcsec
                                                 )
     # Drop matches near border
-    image_edge = 10
     typer.secho(f'Filtering sources near within {image_edge} pixels of '
                 f'{settings.params.camera.image_width}x{settings.params.camera.image_height}')
     matched_sources = matched_sources.query(
-        'catalog_wcs_x_int > 10 and '
+        f'catalog_wcs_x_int > {image_edge} and '
         f'catalog_wcs_x_int < {settings.params.camera.image_width - image_edge} and '
-        'catalog_wcs_y_int > 10 and '
+        f'catalog_wcs_y_int > {image_edge} and '
         f'catalog_wcs_y_int < {settings.params.camera.image_height - image_edge}'
     ).copy()
     typer.secho(f'Found {len(matched_sources)} matching sources')
@@ -241,7 +239,7 @@ def match_sources(detected_sources, solved_wcs0) -> pandas.DataFrame:
     return matched_sources
 
 
-def detect_sources(solved_wcs0, reduced_data, combined_bg_data, combined_bg_residual_data):
+def detect_sources(solved_wcs0, reduced_data, combined_bg_data, combined_bg_residual_data, settings: Settings):
     typer.secho('Detecting sources in image')
     threshold = (settings.params.catalog.detection_threshold * combined_bg_residual_data)
     kernel = convolution.Gaussian2DKernel(2 * gaussian_fwhm_to_sigma)
@@ -249,7 +247,8 @@ def detect_sources(solved_wcs0, reduced_data, combined_bg_data, combined_bg_resi
     image_segments = segmentation.detect_sources(reduced_data,
                                                  threshold,
                                                  npixels=settings.params.catalog.num_detect_pixels,
-                                                 filter_kernel=kernel)
+                                                 filter_kernel=kernel
+                                                 )
     typer.secho(f'De-blending image segments')
     deblended_segments = segmentation.deblend_sources(reduced_data,
                                                       image_segments,
@@ -290,9 +289,9 @@ def detect_sources(solved_wcs0, reduced_data, combined_bg_data, combined_bg_resi
     return detected_sources
 
 
-def plate_solve(filename=None):
-    typer.secho(f'Plate solving {filename}')
+def plate_solve(settings: Settings, filename=None):
     filename = filename or settings.files.reduced_filename
+    typer.secho(f'Plate solving {filename}')
     solved_headers = fits_utils.get_solve_field(str(filename),
                                                 skip_solved=False,
                                                 timeout=300)
@@ -302,7 +301,7 @@ def plate_solve(filename=None):
     return solved_wcs0
 
 
-def subtract_background(data):
+def subtract_background(data, settings: Settings):
     # Get RGB background data.
     rgb_background = bayer.get_rgb_background(data=data,
                                               mask=data.mask,
@@ -325,14 +324,14 @@ def subtract_background(data):
     return combined_bg_data, combined_bg_residual_data, reduced_data
 
 
-def mask_outliers(data):
+def mask_outliers(data, settings: Settings):
     # Mask min and max outliers.
     data = np.ma.masked_less_equal(data, 0.)
     data = np.ma.masked_greater_equal(data, settings.params.camera.saturation)
     return data
 
 
-def subtract_bias(raw_data):
+def subtract_bias(raw_data, settings: Settings):
     # Bias subtract.
     data = raw_data - settings.params.camera.zero_bias
     return data

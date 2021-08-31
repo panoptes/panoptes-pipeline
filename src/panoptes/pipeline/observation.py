@@ -76,9 +76,6 @@ def get_stamp_locations(sources_file_list: List[str]) -> pandas.DataFrame:
 
 def make_stamps(stamp_positions: pandas.DataFrame,
                 data: npt.DTypeLike,
-                subtract_local_background: bool = False,
-                sigma_lower: int = 3,
-                sigma_upper: int = 1,
                 ) -> pandas.DataFrame:
     stamp_width = int(stamp_positions.stamp_x_max.mean() - stamp_positions.stamp_x_min.mean())
     stamp_height = int(stamp_positions.stamp_y_max.mean() - stamp_positions.stamp_y_min.mean())

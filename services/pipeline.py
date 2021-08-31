@@ -260,8 +260,9 @@ def make_observation_files(observation_info: ObservationInfo):
     sources_df = pd.concat(sources).sort_index()
 
     # Merge the stamp positions.
-    # positions_df = pd.read_parquet(f'gcs://{processed_bucket.name}/{sequence_path}/stamp-positions.parquet')
-    # sources_df = sources_df.merge(positions_df, on='picid')
+    print(f'Merging stellar positions with metadata file.')
+    positions_df = pd.read_parquet(f'gcs://{processed_bucket.name}/{sequence_path}/stamp-positions.parquet')
+    sources_df = sources_df.reset_index().merge(positions_df, on='picid').set_index(['picid', 'time']).sort_index()
 
     print(f'Saving {len(sources_df)} sources for {observation_info.sequence_id} to {sources_blob_path}')
     sources_df.to_parquet(sources_blob_path)

@@ -108,7 +108,8 @@ def calibrate(fits_path: str, settings: Settings, force_new: bool = False) -> Op
         # Plate solve newly calibrated file.
         wcs0 = plate_solve(settings=settings)
 
-    detected_sources = detect_sources(wcs0, reduced_data, bg_data, bg_residual_data, settings=settings)
+    detected_sources = detect_sources(wcs0, reduced_data, bg_data, bg_residual_data,
+                                      settings=settings)
 
     matched_sources = match_sources(detected_sources, wcs0, settings=settings)
 
@@ -140,7 +141,8 @@ def save_fits(filename, data_list, header, force_new=False):
     typer.secho(f'Saved {len(data_list)} dataset(s) to {filename}')
 
 
-def get_metadata(header: fits.Header, matched_sources: pandas.DataFrame, settings: Settings) -> dict:
+def get_metadata(header: fits.Header, matched_sources: pandas.DataFrame,
+                 settings: Settings) -> dict:
     num_sources = len(matched_sources)
     typer.secho(f'Total sources {num_sources}')
     fwhm_mean, fwhm_median, fwhm_std = sigma_clipped_stats(matched_sources.photutils_fwhm)
@@ -177,7 +179,8 @@ def extract_metadata(header):
     return metadata_headers
 
 
-def match_sources(detected_sources, solved_wcs0, settings: Settings, image_edge=10) -> pandas.DataFrame:
+def match_sources(detected_sources, solved_wcs0, settings: Settings,
+                  image_edge=10) -> pandas.DataFrame:
     typer.secho(f'Matching {len(detected_sources)} sources to wcs.')
     catalog_filename = settings.params.catalog.catalog_filename
     if catalog_filename and catalog_filename.exists():
@@ -190,8 +193,10 @@ def match_sources(detected_sources, solved_wcs0, settings: Settings, image_edge=
         catalog_sources = sources.get_stars_from_wcs(solved_wcs0,
                                                      bq_client=bq_client,
                                                      bqstorage_client=bqstorage_client,
-                                                     vmag_min=settings.params.catalog.vmag_limits[0],
-                                                     vmag_max=settings.params.catalog.vmag_limits[1],
+                                                     vmag_min=settings.params.catalog.vmag_limits[
+                                                         0],
+                                                     vmag_max=settings.params.catalog.vmag_limits[
+                                                         1],
                                                      numcont=settings.params.catalog.numcont,
                                                      )
     typer.secho(f'Matching sources to catalog for {len(detected_sources)} sources')
@@ -232,14 +237,18 @@ def match_sources(detected_sources, solved_wcs0, settings: Settings, image_edge=
     matched_sources['catalog_ra_bin'] = matched_sources.catalog_ra.astype('int')
 
     # Precompute some columns.
-    matched_sources['catalog_gaia_bg_excess'] = matched_sources.catalog_gaiabp - matched_sources.catalog_gaiamag
-    matched_sources['catalog_gaia_br_excess'] = matched_sources.catalog_gaiabp - matched_sources.catalog_gaiarp
-    matched_sources['catalog_gaia_rg_excess'] = matched_sources.catalog_gaiarp - matched_sources.catalog_gaiamag
+    matched_sources[
+        'catalog_gaia_bg_excess'] = matched_sources.catalog_gaiabp - matched_sources.catalog_gaiamag
+    matched_sources[
+        'catalog_gaia_br_excess'] = matched_sources.catalog_gaiabp - matched_sources.catalog_gaiarp
+    matched_sources[
+        'catalog_gaia_rg_excess'] = matched_sources.catalog_gaiarp - matched_sources.catalog_gaiamag
 
     return matched_sources
 
 
-def detect_sources(solved_wcs0, reduced_data, combined_bg_data, combined_bg_residual_data, settings: Settings):
+def detect_sources(solved_wcs0, reduced_data, combined_bg_data, combined_bg_residual_data,
+                   settings: Settings):
     typer.secho('Detecting sources in image')
     threshold = (settings.params.catalog.detection_threshold * combined_bg_residual_data)
     kernel = convolution.Gaussian2DKernel(2 * gaussian_fwhm_to_sigma)
@@ -247,7 +256,8 @@ def detect_sources(solved_wcs0, reduced_data, combined_bg_data, combined_bg_resi
     image_segments = segmentation.detect_sources(reduced_data,
                                                  threshold,
                                                  npixels=settings.params.catalog.num_detect_pixels,
-                                                 filter_kernel=kernel
+                                                 filter_kernel=kernel,
+                                                 mask=reduced_data.mask
                                                  )
     typer.secho(f'De-blending image segments')
     deblended_segments = segmentation.deblend_sources(reduced_data,
@@ -256,8 +266,10 @@ def detect_sources(solved_wcs0, reduced_data, combined_bg_data, combined_bg_resi
                                                       filter_kernel=kernel,
                                                       nlevels=32,
                                                       contrast=0.01)
-    typer.secho(f'Calculating total error for data using gain={settings.params.camera.effective_gain}')
-    error = calc_total_error(reduced_data, combined_bg_residual_data, settings.params.camera.effective_gain)
+    typer.secho(
+        f'Calculating total error for data using gain={settings.params.camera.effective_gain}')
+    error = calc_total_error(reduced_data, combined_bg_residual_data,
+                             settings.params.camera.effective_gain)
     table_cols = [
         'background_mean',
         'background_centroid',
@@ -326,7 +338,7 @@ def subtract_background(data, settings: Settings):
 
 def mask_outliers(data, settings: Settings):
     # Mask min and max outliers.
-    data = np.ma.masked_less_equal(data, 0.)
+    # data = np.ma.masked_less_equal(data, 0.)
     data = np.ma.masked_greater_equal(data, settings.params.camera.saturation)
     return data
 

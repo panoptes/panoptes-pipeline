@@ -1,6 +1,6 @@
 import re
 import traceback
-from enum import IntEnum
+from enum import IntEnum, auto
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import datetime
@@ -31,6 +31,7 @@ class SequenceStatus(IntEnum):
 
 
 class ImageStatus(IntEnum):
+    ERROR = -10
     UNKNOWN = -1
     RECEIVING = 0
     RECEIVED = 5
@@ -42,6 +43,16 @@ class ImageStatus(IntEnum):
     MATCHED = 35
     EXTRACTING = 40
     EXTRACTED = 45
+
+
+class ObservationStatus(IntEnum):
+    ERROR = -10
+    UNKNOWN = -1
+    CREATED = 0
+    CALIBRATED = 10
+    MATCHED = 20
+    EXTRACTED = 30
+    PROCESSED = 40
 
 
 OBS_BASE_URL = 'https://storage.googleapis.com/panoptes-observations'

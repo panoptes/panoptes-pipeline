@@ -58,6 +58,13 @@ def calibrate(fits_path: str, settings: Settings, force_new: bool = False) -> Op
     path_info = metadata.ObservationPathInfo.from_fits_header(header)
     wcs0 = WCS(header)
 
+    try:
+        exptime = float(header['EXPTIME'])
+        settings.params.catalog.vmag_limits[0] = 7 if exptime > 60 else 6
+        settings.params.catalog.vmag_limits[1] = 14 if exptime > 60 else 12
+    except Exception as e:
+        print(f'Error setting vmag limits from {exptime=} {e!r}')
+
     # Set up output directory and filenames.
     output_dir = settings.output_dir / path_info.get_full_id(sep='/')
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -179,8 +186,8 @@ def extract_metadata(header):
     return metadata_headers
 
 
-def match_sources(detected_sources, solved_wcs0, settings: Settings,
-                  image_edge=10) -> pandas.DataFrame:
+def match_sources(detected_sources: pandas.DataFrame, solved_wcs0: WCS, settings: Settings,
+                  image_edge: int = 10) -> pandas.DataFrame:
     typer.secho(f'Matching {len(detected_sources)} sources to wcs.')
     catalog_filename = settings.params.catalog.catalog_filename
     if catalog_filename and catalog_filename.exists():
@@ -190,13 +197,12 @@ def match_sources(detected_sources, solved_wcs0, settings: Settings,
         typer.secho(f'Getting catalog sources from bigquery for WCS')
         # BQ client.
         bq_client, bqstorage_client = get_bq_clients()
+        vmag_limits = settings.params.catalog.vmag_limits
         catalog_sources = sources.get_stars_from_wcs(solved_wcs0,
                                                      bq_client=bq_client,
                                                      bqstorage_client=bqstorage_client,
-                                                     vmag_min=settings.params.catalog.vmag_limits[
-                                                         0],
-                                                     vmag_max=settings.params.catalog.vmag_limits[
-                                                         1],
+                                                     vmag_min=vmag_limits[0],
+                                                     vmag_max=vmag_limits[1],
                                                      numcont=settings.params.catalog.numcont,
                                                      )
     typer.secho(f'Matching sources to catalog for {len(detected_sources)} sources')
@@ -251,7 +257,7 @@ def detect_sources(solved_wcs0, reduced_data, combined_bg_data, combined_bg_resi
                    settings: Settings):
     typer.secho('Detecting sources in image')
     threshold = (settings.params.catalog.detection_threshold * combined_bg_residual_data)
-    kernel = convolution.Gaussian2DKernel(2 * gaussian_fwhm_to_sigma)
+    kernel = convolution.Gaussian2DKernel(3 * gaussian_fwhm_to_sigma)
     kernel.normalize()
     image_segments = segmentation.detect_sources(reduced_data,
                                                  threshold,

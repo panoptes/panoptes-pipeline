@@ -22,7 +22,7 @@ class CatalogSettings(BaseModel):
     numcont: int = 5
     max_separation_arcsec: int = 50
     localbkg_width_pixels: int = 2
-    detection_threshold: float = 5.0
+    detection_threshold: float = 10.0
     num_detect_pixels: int = 4
     catalog_filename: Optional[Path] = None
 

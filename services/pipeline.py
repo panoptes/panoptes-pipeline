@@ -3,6 +3,7 @@ import tempfile
 from pathlib import Path
 import re
 from typing import Tuple, Optional
+from urllib.error import HTTPError
 
 import pandas as pd
 from fastapi import FastAPI
@@ -13,7 +14,8 @@ from google.cloud import firestore
 from google.cloud import pubsub
 
 from panoptes.utils.images import fits as fits_utils
-from panoptes.pipeline.utils.metadata import record_metadata, get_firestore_doc_ref, ImageStatus, ObservationPathInfo
+from panoptes.pipeline.utils.metadata import record_metadata, get_firestore_doc_ref, ImageStatus, \
+    ObservationPathInfo, ObservationStatus
 from panoptes.pipeline.scripts.image import calibrate
 from panoptes.pipeline.scripts.image import Settings as ImageSettings
 from panoptes.pipeline.observation import get_stamp_locations, make_stamps
@@ -27,7 +29,8 @@ publisher = pubsub.PublisherClient()
 PROJECT_ID = os.getenv('PROJECT_ID', 'panoptes-exp')
 EXTRACT_TOPIC = os.getenv('EXTRACT_STAMP_TOPIC', 'extract-stamps')
 ROOT_URL = os.getenv('PUBLIC_URL_BASE', 'https://storage.googleapis.com')
-processed_bucket = storage_client.get_bucket(os.getenv('OUTPUT_BUCKET', 'panoptes-images-processed'))
+processed_bucket = storage_client.get_bucket(
+    os.getenv('OUTPUT_BUCKET', 'panoptes-images-processed'))
 incoming_bucket = storage_client.get_bucket(os.getenv('INPUT_BUCKET', 'panoptes-images-incoming'))
 error_bucket = storage_client.get_bucket(os.getenv('ERROR_BUCKET', 'panoptes-images-error'))
 extract_stamp_topic = f'projects/{PROJECT_ID}/topics/{EXTRACT_TOPIC}'
@@ -94,7 +97,8 @@ def process_image_from_storage(message_envelope: dict):
                 new_blob = move_blob_to_bucket(bucket_path, processed_bucket, error_bucket)
                 return_dict['error_bucket_path'] = new_blob.path
             except Exception as e2:
-                print(f'Error moving {bucket_path} to {error_bucket} from {incoming_bucket}: {e2!r}')
+                print(
+                    f'Error moving {bucket_path} to {error_bucket} from {incoming_bucket}: {e2!r}')
                 return_dict['error_2'] = f'{e2!r}'
         else:
             return_dict = {'success': True, 'location': f'gs://{asset_bucket.name}/{full_image_id}'}
@@ -112,23 +116,26 @@ def process_image_from_storage(message_envelope: dict):
 
 
 @app.post('/observation/get-stamp-locations')
-def make_stamp_locations(observation_info: ObservationInfo):
+def make_stamp_locations(metadata: ObservationInfo):
     """Get the locations of the stamp and save as parquet file in bucket."""
-    stamp_loc_bucket_path = f'{observation_info.sequence_id.replace("_", "/")}/stamp-positions.parquet'
+    stamp_loc_bucket_path = f'{metadata.sequence_id.replace("_", "/")}/stamp-positions.parquet'
     positions_bucket_path = processed_bucket.blob(stamp_loc_bucket_path)
-    if positions_bucket_path.exists() and observation_info.force_new is False:
-        return dict(success=False, message=f'Positions file already exists: {positions_bucket_path.public_url}')
+    if positions_bucket_path.exists() and metadata.force_new is False:
+        return dict(success=False,
+                    message=f'Positions file already exists: {positions_bucket_path.public_url}')
 
-    print(f'Getting stamp locations for {observation_info.sequence_id=}')
-    unit_id, camera_id, sequence_time = observation_info.sequence_id.split('_')
+    print(f'Getting stamp locations for {metadata.sequence_id=}')
+    unit_id, camera_id, sequence_time = metadata.sequence_id.split('_')
 
     # Get sequence information
-    sequence_doc_ref = firestore_db.document(f'units/{unit_id}/observations/{observation_info.sequence_id}')
-    if sequence_doc_ref.get().exists is False and observation_info.force_new is False:
-        return dict(success=False, message=f'No record for {observation_info.sequence_id}')
+    doc_path = f'units/{unit_id}/observations/{metadata.sequence_id}'
+    sequence_doc_ref = firestore_db.document(doc_path)
+    if sequence_doc_ref.get().exists is False:
+        return dict(success=False, message=f'No record for {metadata.sequence_id}')
 
     # Get and show the metadata about the observation.
-    matched_query = sequence_doc_ref.collection('images').where('status', '==', observation_info.image_status.name)
+    matched_query = sequence_doc_ref.collection('images').where('status', '==',
+                                                                metadata.image_status.name)
     matched_docs = [d.to_dict() for d in matched_query.stream()]
     images_df = pd.json_normalize(matched_docs, sep='_')
 
@@ -137,26 +144,28 @@ def make_stamp_locations(observation_info: ObservationInfo):
     images_df = images_df.set_index(['time']).sort_index()
 
     # Only use selected frames. TODO support time-based slicing(?)
-    images_df = images_df[slice(*observation_info.frame_slice)]
+    images_df = images_df[slice(*metadata.frame_slice)]
     num_frames = len(images_df)
-    print(f'Matched {num_frames} images for {observation_info.sequence_id=}')
+    print(f'Matched {num_frames} images for {metadata.sequence_id=}')
 
     # Get the source files from the public url.
-    sources_file_list = [f'{observation_info.base_url}/{i.replace("_", "/")}/{observation_info.source_filename}'
-                         for i in images_df.uid.values]
+    sources_file_list = [
+        f'{metadata.base_url}/{i.replace("_", "/")}/{metadata.source_filename}'
+        for i in images_df.uid.values]
     print(f'Loading {len(sources_file_list)} urls. Example: {sources_file_list[:1]}')
 
     try:
         stamp_positions = get_stamp_locations(sources_file_list=sources_file_list)
-        print(f'Made {len(stamp_positions)} positions for {observation_info.sequence_id=}')
+        print(f'Made {len(stamp_positions)} positions for {metadata.sequence_id=}')
 
         # Save to storage bucket as parquet file.
         print(f'Saving stamp positions to {positions_bucket_path.name}')
-        positions_bucket_path.upload_from_string(stamp_positions.to_parquet(), 'application/parquet')
+        positions_bucket_path.upload_from_string(stamp_positions.to_parquet(),
+                                                 'application/parquet')
         public_bucket_path = positions_bucket_path.public_url
 
         for full_id in images_df.uid.values:
-            image_url = f'{observation_info.base_url}/{full_id.replace("_", "/")}/{observation_info.image_filename}'
+            image_url = f'{metadata.base_url}/{full_id.replace("_", "/")}/{metadata.image_filename}'
 
             print(f'Sending pubsub message for {image_url}')
             publisher.publish(extract_stamp_topic, b'',
@@ -164,7 +173,9 @@ def make_stamp_locations(observation_info: ObservationInfo):
                               positions_url=positions_bucket_path.public_url)
     except Exception as e:
         print(f'Error getting stamp positions: {e!r}')
+        sequence_doc_ref.set(dict(status=ObservationStatus.ERROR.name), merge=True)
     else:
+        sequence_doc_ref.set(dict(status=ObservationStatus.MATCHED.name), merge=True)
         return dict(success=True, location=public_bucket_path)
 
 
@@ -185,13 +196,21 @@ def extract_stamps(message_envelope: dict):
     path_info = ObservationPathInfo(path=image_url)
     stamp_url = f'{path_info.get_full_id(sep="/")}/stamps.parquet'
     stamps_blob = processed_bucket.blob(stamp_url)
+    sequence_doc_path = f'units/{path_info.unit_id}/observations/{path_info.sequence_id}'
+    image_doc_path = f'{sequence_doc_path}/images/{path_info.image_id}'
 
     # Get the positions data.
     positions = pd.read_parquet(positions_url)
     print(f'Extracting stamps for {len(positions)} positions in {image_url}')
 
-    # Get remote data
-    data = fits_utils.getdata(image_url)
+    # Get remote data and process if available.
+    try:
+        data = fits_utils.getdata(image_url)
+    except HTTPError as e:
+        print(f'Error loading {image_url} {e!r}')
+        firestore_db.document(image_doc_path).set(dict(status=ImageStatus.UNKNOWN.name), merge=True)
+        return dict(success=False)
+
     stamps = make_stamps(positions, data)
     del data
 
@@ -200,32 +219,33 @@ def extract_stamps(message_envelope: dict):
     print(f'{len(stamps)} stamps uploaded to {stamps_blob.public_url}')
 
     # Update firestore record.
-    doc_path = f'units/{path_info.unit_id}/observations/{path_info.sequence_id}/images/{path_info.image_id}'
     doc_updates = dict(status=ImageStatus.EXTRACTED.name, sources=dict(num_extracted=len(stamps)))
-    firestore_db.document(doc_path).set(doc_updates, merge=True)
+    firestore_db.document(image_doc_path).set(doc_updates, merge=True)
 
 
 @app.post('/observation/make-observation-files')
-def make_observation_files(observation_info: ObservationInfo):
+def make_observation_files(metadata: ObservationInfo):
     """Builds the PSC and metadata files for the entire observation."""
-    print(f'Building files for {observation_info.sequence_id=}')
-    unit_id, camera_id, sequence_time = observation_info.sequence_id.split('_')
+    print(f'Building files for {metadata.sequence_id=}')
+    unit_id, camera_id, sequence_time = metadata.sequence_id.split('_')
 
-    sequence_path = observation_info.sequence_id.replace("_", "/")
+    sequence_path = metadata.sequence_id.replace("_", "/")
     psc_blob_name = f'{sequence_path}/stamp-collection.parquet'
     psc_blob_path = f'gcs://{processed_bucket.name}/{psc_blob_name}'
     psc_blob = processed_bucket.blob(psc_blob_name)
 
-    if psc_blob.exists() and observation_info.force_new is False:
-        return dict(success=False, message=f'PSC file already exists and force_new=False: {psc_blob.public_url}')
+    if psc_blob.exists() and metadata.force_new is False:
+        return dict(success=False,
+                    message=f'PSC file already exists and force_new=False: {psc_blob.public_url}')
 
     # Get sequence information
-    sequence_doc_ref = firestore_db.document(f'units/{unit_id}/observations/{observation_info.sequence_id}')
-    if sequence_doc_ref.get().exists is False and observation_info.force_new is False:
-        return dict(success=False, message=f'No record for {observation_info.sequence_id}')
+    sequence_doc_ref = firestore_db.document(f'units/{unit_id}/observations/{metadata.sequence_id}')
+    if sequence_doc_ref.get().exists is False and metadata.force_new is False:
+        return dict(success=False, message=f'No record for {metadata.sequence_id}')
 
     # Get the image ids that have had stamps extracted.
-    matched_query = sequence_doc_ref.collection('images').where('status', '==', ImageStatus.EXTRACTED.name)
+    matched_query = sequence_doc_ref.collection('images').where('status', '==',
+                                                                ImageStatus.EXTRACTED.name)
     matched_image_ids = [d.get('uid') for d in matched_query.stream()]
 
     # Build the storage location for each stamps file.
@@ -240,7 +260,7 @@ def make_observation_files(observation_info: ObservationInfo):
 
     # Create PSC file for entire observation.
     stamps_df = pd.concat(stamps).sort_index()
-    print(f'Saving {len(stamps_df)} stamps for {observation_info.sequence_id} to {psc_blob_path}')
+    print(f'Saving {len(stamps_df)} stamps for {metadata.sequence_id} to {psc_blob_path}')
     stamps_df.to_parquet(psc_blob_path)
     del stamps_df
 
@@ -261,11 +281,17 @@ def make_observation_files(observation_info: ObservationInfo):
 
     # Merge the stamp positions.
     print(f'Merging stellar positions with metadata file.')
-    positions_df = pd.read_parquet(f'gcs://{processed_bucket.name}/{sequence_path}/stamp-positions.parquet')
-    sources_df = sources_df.reset_index().merge(positions_df, on='picid').set_index(['picid', 'time']).sort_index()
+    positions_df = pd.read_parquet(
+        f'gcs://{processed_bucket.name}/{sequence_path}/stamp-positions.parquet')
+    sources_df = sources_df.reset_index().merge(positions_df, on='picid').set_index(
+        ['picid', 'time']).sort_index()
 
-    print(f'Saving {len(sources_df)} sources for {observation_info.sequence_id} to {sources_blob_path}')
+    print(
+        f'Saving {len(sources_df)} sources for {metadata.sequence_id} to {sources_blob_path}')
     sources_df.to_parquet(sources_blob_path)
     del sources_df
 
-    return dict(success=True, psc_location=psc_blob.public_url, source_location=sources_blob.public_url)
+    sequence_doc_ref.set(dict(status=ObservationStatus.EXTRACTED.name), merge=True)
+
+    return dict(success=True, psc_location=psc_blob.public_url,
+                source_location=sources_blob.public_url)

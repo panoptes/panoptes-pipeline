@@ -53,14 +53,14 @@ def get_stamp_locations(sources_file_list: List[str]) -> pandas.DataFrame:
     xy_mean = xy_mean.join(xy_std)
 
     # Determine stamp size
-    max_drift = xy_mean.filter(regex='std').mean().max()
+    mean_drift = xy_mean.filter(regex='std').mean().max()
     stamp_size = (10, 10)
-    if 10 < max_drift < 20:
+    if 10 < mean_drift < 20:
         stamp_size = (18, 18)
-    elif max_drift > 20:
-        raise RuntimeError(f'Too much drift! {max_drift=}')
+    elif mean_drift > 20:
+        raise RuntimeError(f'Too much drift! {mean_drift=}')
 
-    logger.debug(f'{stamp_size=} for {max_drift=:0.2f} pixels')
+    logger.debug(f'{stamp_size=} for {mean_drift=:0.2f} pixels')
 
     stamp_positions = xy_mean.apply(
         lambda row: bayer.get_stamp_slice(row[f'{settings.COLUMN_X}_mean'],

@@ -259,8 +259,10 @@ def make_observation_files(metadata: ObservationInfo):
         stamps.append(stamp_df)
 
     # Create PSC file for entire observation.
+    print(f'Gathered {len(stamps)} stamp files, making PSC.')
     stamps_df = pd.concat(stamps).sort_index()
-    print(f'Saving {len(stamps_df)} stamps for {metadata.sequence_id} to {psc_blob_path}')
+    del stamps
+    print(f'Saving PSC with {len(stamps_df)} stamps for {metadata.sequence_id} to {psc_blob_path}')
     stamps_df.to_parquet(psc_blob_path)
     del stamps_df
 
@@ -277,20 +279,23 @@ def make_observation_files(metadata: ObservationInfo):
         sources.append(source_df)
 
     # Create PSC file for entire observation.
+    print(f'Merging stellar positions with metadata file.')
     sources_df = pd.concat(sources).sort_index()
+    del sources
 
     # Merge the stamp positions.
-    print(f'Merging stellar positions with metadata file.')
-    positions_df = pd.read_parquet(
-        f'gcs://{processed_bucket.name}/{sequence_path}/stamp-positions.parquet')
+    positions_blob_name = f'{sequence_path}/stamp-positions.parquet'
+    positions_blob_path = f'gcs://{processed_bucket.name}/{positions_blob_name}'
+    positions_df = pd.read_parquet(positions_blob_path)
     sources_df = sources_df.reset_index().merge(positions_df, on='picid').set_index(
         ['picid', 'time']).sort_index()
 
-    print(
-        f'Saving {len(sources_df)} sources for {metadata.sequence_id} to {sources_blob_path}')
+    print(f'Saving {len(sources_df)} sources for {metadata.sequence_id} to {sources_blob_path}')
     sources_df.to_parquet(sources_blob_path)
+    del positions_df
     del sources_df
 
+    # Update status of observation.
     sequence_doc_ref.set(dict(status=ObservationStatus.EXTRACTED.name), merge=True)
 
     return dict(success=True, psc_location=psc_blob.public_url,

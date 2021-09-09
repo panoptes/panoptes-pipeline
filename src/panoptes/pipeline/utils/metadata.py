@@ -32,6 +32,7 @@ class SequenceStatus(IntEnum):
 
 class ImageStatus(IntEnum):
     ERROR = -10
+    MASKED = -5
     UNKNOWN = -1
     RECEIVING = 0
     RECEIVED = 5

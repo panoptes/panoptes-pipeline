@@ -21,7 +21,7 @@ db = firestore.Client()
 
 def get_stamp_locations(sources_file_list: List[str]) -> pandas.DataFrame:
     """Get xy pixel locations for each source in an observation."""
-    logger.debug(f'Getting {len(sources_file_list)} remote files.')
+    print(f'Getting {len(sources_file_list)} remote files.')
     position_dfs = list()
     for url in sources_file_list:
         try:
@@ -31,19 +31,19 @@ def get_stamp_locations(sources_file_list: List[str]) -> pandas.DataFrame:
             logger.warning(f'Problem loading parquet at {url=} {e!r}')
 
     num_frames = len(position_dfs)
-    logger.debug(f'Combining {num_frames} position files')
+    print(f'Combining {num_frames} position files')
     catalog_positions = pd.concat(position_dfs).sort_index()
-    logger.debug(f'Loaded a total of {len(catalog_positions)}')
-
-    # Make xy catalog with the average positions from all measured frames.
-    xy_catalog = catalog_positions.reset_index().groupby('picid')
+    print(f'Loaded a total of {len(catalog_positions)}')
 
     # Filter the sources that weren't detected in all frames.
     # TODO in the future we could process all sources from a catalog.
-    logger.debug(f'Filtering to sources that appear in all {num_frames} frames')
-    counts = xy_catalog.count()
+    counts = catalog_positions.reset_index().groupby('picid').count()
+    print(f'Filtering to sources that appear in all {num_frames} frames')
     catalog_positions = catalog_positions.loc[counts[counts == num_frames].dropna().index]
-    logger.debug(f'Filtered to {len(catalog_positions)}')
+    print(f'Filtered to {len(catalog_positions)} sources')
+
+    # Make xy catalog with the average positions from all measured frames.
+    xy_catalog = catalog_positions.reset_index().groupby('picid')
 
     # # Get the mean positions
     xy_mean = xy_catalog.mean()
@@ -68,7 +68,7 @@ def get_stamp_locations(sources_file_list: List[str]) -> pandas.DataFrame:
     elif mean_drift > 20:
         raise RuntimeError(f'Too much drift! {mean_drift=}')
 
-    logger.debug(f'{stamp_size=} for {mean_drift=:0.2f} pixels')
+    print(f'{stamp_size=} for {mean_drift=:0.2f} pixels')
 
     stamp_positions = xy_mean.apply(
         lambda row: bayer.get_stamp_slice(row[f'{settings.COLUMN_X}_mean'],

@@ -60,8 +60,10 @@ def calibrate(fits_path: str, settings: Settings, force_new: bool = False) -> Op
 
     try:
         exptime = float(header['EXPTIME'])
-        settings.params.catalog.vmag_limits[0] = 7 if exptime > 60 else 6
-        settings.params.catalog.vmag_limits[1] = 14 if exptime > 60 else 12
+        if exptime > 60:
+            settings.params.catalog.vmag_limits = (7, 14)
+        else:
+            settings.params.catalog.vmag_limits = (6, 12)
     except Exception as e:
         print(f'Error setting vmag limits from {exptime=} {e!r}')
 

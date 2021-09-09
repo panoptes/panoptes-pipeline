@@ -30,12 +30,20 @@ def get_stamp_locations(sources_file_list: List[str]) -> pandas.DataFrame:
         except HTTPError as e:
             logger.warning(f'Problem loading parquet at {url=} {e!r}')
 
-    logger.debug(f'Combining {len(position_dfs)} position files')
+    num_frames = len(position_dfs)
+    logger.debug(f'Combining {num_frames} position files')
     catalog_positions = pd.concat(position_dfs).sort_index()
     logger.debug(f'Loaded a total of {len(catalog_positions)}')
 
     # Make xy catalog with the average positions from all measured frames.
     xy_catalog = catalog_positions.reset_index().groupby('picid')
+
+    # Filter the sources that weren't detected in all frames.
+    # TODO in the future we could process all sources from a catalog.
+    logger.debug(f'Filtering to sources that appear in all {num_frames} frames')
+    counts = xy_catalog.count()
+    catalog_positions = catalog_positions.loc[counts[counts == num_frames].dropna().index]
+    logger.debug(f'Filtered to {len(catalog_positions)}')
 
     # # Get the mean positions
     xy_mean = xy_catalog.mean()

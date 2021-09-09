@@ -59,7 +59,7 @@ def get_stamp_locations(sources_file_list: List[str]) -> pandas.DataFrame:
     stamp_size = (stamp_width, stamp_height)
     print(f'Using {stamp_size=}.')
 
-    # # Get the mean positions
+    # Get the mean positions
     xy_mean = xy_catalog.mean()
     xy_std = xy_catalog.std()
 

@@ -40,7 +40,7 @@ extract_stamp_topic = f'projects/{PROJECT_ID}/topics/{EXTRACT_TOPIC}'
 
 class ObservationInfo(BaseModel):
     sequence_id: str
-    frame_slice: Tuple[Optional[int], Optional[int]] = (1, None)
+    frame_slice: Tuple[Optional[int], Optional[int]] = (None, None)
     stamp_size: Tuple[int, int] = (10, 10)
     base_url: HttpUrl = 'https://storage.googleapis.com/panoptes-images-processed'
     image_filename: Path = 'image.fits.fz'

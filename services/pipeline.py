@@ -163,7 +163,7 @@ def make_stamp_locations(metadata: ObservationInfo):
             frame_mask = np.logical_or(frame_mask, col_mask)
 
     # Mark the masked frames in the metadata.
-    for full_image_id in images_df.iloc[frame_mask].to_list():
+    for full_image_id in images_df.iloc[frame_mask].uid.to_list():
         unit_id, camera_id, sequence_time, image_time = full_image_id.split('_')
         image_doc_path = f'{sequence_doc_path}/images/{unit_id}_{camera_id}_{image_time}'
         print(f'Setting status={ImageStatus.MASKED.name} for {image_doc_path}')

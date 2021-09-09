@@ -5,7 +5,9 @@ import re
 from typing import Tuple, Optional
 from urllib.error import HTTPError
 
+import numpy as np
 import pandas as pd
+from astropy.stats import sigma_clip
 from fastapi import FastAPI
 from pydantic import BaseModel, HttpUrl
 
@@ -128,8 +130,8 @@ def make_stamp_locations(metadata: ObservationInfo):
     unit_id, camera_id, sequence_time = metadata.sequence_id.split('_')
 
     # Get sequence information
-    doc_path = f'units/{unit_id}/observations/{metadata.sequence_id}'
-    sequence_doc_ref = firestore_db.document(doc_path)
+    sequence_doc_path = f'units/{unit_id}/observations/{metadata.sequence_id}'
+    sequence_doc_ref = firestore_db.document(sequence_doc_path)
     if sequence_doc_ref.get().exists is False:
         return dict(success=False, message=f'No record for {metadata.sequence_id}')
 
@@ -146,12 +148,34 @@ def make_stamp_locations(metadata: ObservationInfo):
     # Only use selected frames. TODO support time-based slicing(?)
     images_df = images_df[slice(*metadata.frame_slice)]
     num_frames = len(images_df)
+
+    # Sigma filtering of certain stats
+    mask_columns = [
+        'camera_colortemp',
+        'sources_num_detected',
+        'sources_photutils_fwhm_mean'
+    ]
+    frame_mask = np.zeros_like(images_df.index, dtype=bool)
+    for mask_col in mask_columns:
+        col_mask = sigma_clip(images_df[mask_col]).mask
+        if col_mask.any():
+            print(f'{mask_col} has {col_mask.sum()} masked frames')
+            frame_mask = np.logical_or(frame_mask, col_mask)
+
+    # Mark the masked frames in the metadata.
+    for full_image_id in images_df.iloc[frame_mask].to_list():
+        unit_id, camera_id, sequence_time, image_time = full_image_id.split('_')
+        image_doc_path = f'{sequence_doc_path}/images/{unit_id}_{camera_id}_{image_time}'
+        print(f'Setting status={ImageStatus.MASKED.name} for {image_doc_path}')
+        firestore_db.document(image_doc_path).set(dict(status=ImageStatus.MASKED.name), merge=True)
+
+    # Get non-masked frames. We select the inverse of the mask to get proper unmasked items.
+    images_df = images_df.iloc[~frame_mask]
     print(f'Matched {num_frames} images for {metadata.sequence_id=}')
 
     # Get the source files from the public url.
-    sources_file_list = [
-        f'{metadata.base_url}/{i.replace("_", "/")}/{metadata.source_filename}'
-        for i in images_df.uid.values]
+    sources_file_list = [f'{metadata.base_url}/{i.replace("_", "/")}/{metadata.source_filename}'
+                         for i in images_df.uid.values]
     print(f'Loading {len(sources_file_list)} urls. Example: {sources_file_list[:1]}')
 
     try:

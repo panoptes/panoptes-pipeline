@@ -16,7 +16,7 @@ from google.cloud import firestore
 from google.cloud import pubsub
 
 from panoptes.utils.images import fits as fits_utils
-from panoptes.pipeline.utils.metadata import record_metadata, get_firestore_doc_ref, ImageStatus, \
+from panoptes.pipeline.utils.metadata import record_metadata, get_firestore_refs, ImageStatus, \
     ObservationPathInfo, ObservationStatus
 from panoptes.pipeline.scripts.image import calibrate
 from panoptes.pipeline.scripts.image import Settings as ImageSettings
@@ -69,7 +69,7 @@ def process_image_from_storage(message_envelope: dict):
                 raise RuntimeError(f'Need a FITS file, got {bucket_path}')
 
             # Check and update status.
-            _, _, image_doc_ref = get_firestore_doc_ref(bucket_path, firestore_db=firestore_db)
+            _, seq_ref, image_doc_ref = get_firestore_refs(bucket_path, firestore_db=firestore_db)
             try:
                 image_status = image_doc_ref.get(['status']).to_dict()['status']
             except Exception:
@@ -80,6 +80,7 @@ def process_image_from_storage(message_envelope: dict):
                 raise FileExistsError(f'Already processed {bucket_path}')
             else:
                 image_doc_ref.set(dict(status=ImageStatus.CALIBRATING.name), merge=True)
+                seq_ref.set(dict(status=ObservationStatus.CREATED.name), merge=True)
 
             # Run process.
             metadata = calibrate(public_bucket_path, settings=settings)

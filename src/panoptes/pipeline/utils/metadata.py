@@ -477,7 +477,7 @@ def search_observations(
     return obs_df.reindex(columns=columns)
 
 
-def get_firestore_doc_ref(
+def get_firestore_refs(
         bucket_path: str,
         unit_collection: str = 'units',
         observation_collection: str = 'observations',
@@ -524,7 +524,7 @@ def record_metadata(bucket_path: str, metadata: dict, **kwargs) -> str:
 
     try:
         print(f'Getting document for observation {sequence_id}')
-        unit_doc_ref, sequence_doc_ref, image_doc_ref = get_firestore_doc_ref(bucket_path, **kwargs)
+        unit_doc_ref, sequence_doc_ref, image_doc_ref = get_firestore_refs(bucket_path, **kwargs)
 
         metadata['unit']['num_images'] = firestore.Increment(1)
         metadata['sequence']['num_images'] = firestore.Increment(1)

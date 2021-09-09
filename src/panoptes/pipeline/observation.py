@@ -45,6 +45,20 @@ def get_stamp_locations(sources_file_list: List[str]) -> pandas.DataFrame:
     # Make xy catalog with the average positions from all measured frames.
     xy_catalog = catalog_positions.reset_index().groupby('picid')
 
+    # Get max diff in xy positions.
+    x_catalog_diff = (xy_catalog.catalog_wcs_x.max() - xy_catalog.catalog_wcs_x.min()).max()
+    y_catalog_diff = (xy_catalog.catalog_wcs_y.max() - xy_catalog.catalog_wcs_y.min()).max()
+
+    if x_catalog_diff >= 18 or y_catalog_diff >= 18:
+        raise RuntimeError(f'Too much drift! {x_catalog_diff=} {y_catalog_diff}')
+
+    stamp_width = 10 if x_catalog_diff < 10 else 18
+    stamp_height = 10 if y_catalog_diff < 10 else 18
+
+    # Determine stamp size
+    stamp_size = (stamp_width, stamp_height)
+    print(f'Using {stamp_size=}.')
+
     # # Get the mean positions
     xy_mean = xy_catalog.mean()
     xy_std = xy_catalog.std()
@@ -59,16 +73,6 @@ def get_stamp_locations(sources_file_list: List[str]) -> pandas.DataFrame:
     )
 
     xy_mean = xy_mean.join(xy_std)
-
-    # Determine stamp size
-    mean_drift = xy_mean.filter(regex='std').mean().max()
-    stamp_size = (10, 10)
-    if 10 < mean_drift < 20:
-        stamp_size = (18, 18)
-    elif mean_drift > 20:
-        raise RuntimeError(f'Too much drift! {mean_drift=}')
-
-    print(f'{stamp_size=} for {mean_drift=:0.2f} pixels')
 
     stamp_positions = xy_mean.apply(
         lambda row: bayer.get_stamp_slice(row[f'{settings.COLUMN_X}_mean'],

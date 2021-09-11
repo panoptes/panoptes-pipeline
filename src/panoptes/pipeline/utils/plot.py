@@ -1,8 +1,10 @@
 import numpy as np
 from matplotlib import pyplot as plt
 from astropy.visualization import simple_norm
-from panoptes.utils.images import bayer
+from matplotlib.figure import Figure
+from panoptes.utils.images import bayer, plot
 from panoptes.utils.images import plot as plot_utils
+import seaborn as sb
 
 
 def plot_background(rgb_bg_data, title=None):
@@ -83,13 +85,14 @@ def plot_stamp(picid,
     # Plot stamp.
     norm_data = norm_data if norm_data is not None else stamp
     norm = simple_norm(norm_data, stretch, min_cut=norm_data.min(), max_cut=norm_data.max() + 50)
-    
+
     if hasattr(stamp, 'mask'):
         im0 = ax.imshow(stamp, norm=norm, cmap=cmap, origin='lower')
-        ax.imshow(np.ma.array(stamp.data, mask=~stamp.mask), norm=norm, cmap=cmap, origin='lower', alpha=mask_alpha)
+        ax.imshow(np.ma.array(stamp.data, mask=~stamp.mask), norm=norm, cmap=cmap, origin='lower',
+                  alpha=mask_alpha)
     else:
         im0 = ax.imshow(stamp, norm=norm, cmap=cmap, origin='lower')
-    
+
     plot_utils.add_colorbar(im0)
 
     # Mean location
@@ -114,7 +117,7 @@ def plot_stamp(picid,
     # Star catalog location for current frame
     if frame_idx is not None:
         ax.scatter(x_peak, y_peak, marker='*', color='yellow', edgecolors='black', s=200,
-               label='Catalog - current frame')
+                   label='Catalog - current frame')
 
     plot_utils.add_pixel_grid(ax,
                               grid_height=stamp_size,
@@ -135,41 +138,42 @@ def plot_stamp(picid,
     return fig
 
 
-def plot_background(rgb_bg_data, title=None):
-    """ Plot the RGB backgrounds from `Background2d` objects.
+def plot_raw_bg_overlay(data, rgb_background, title=None, wcs=None, size=(18, 12)):
+    fig = Figure()
+    fig.set_size_inches(*size)
+    ax = fig.add_subplot(projection=wcs)
 
-    Args:
-        rgb_bg_data (list[photutils.Background2D]): The RGB background data as
-            returned by calling `panoptes.utils.images.bayer.get_rgb_background`
-            with `return_separate=True`.
-        title (str): The title for the plot, default None.
+    ax.imshow(data, origin='lower', norm=simple_norm(data, 'log', min_cut=0), cmap='Greys_r')
+    rgb_background.plot_meshes(axes=ax, outlines=True, alpha=0.3, marker='')
 
-    """
+    if title is not None:
+        ax.set_title(title)
 
-    nrows = 2
-    ncols = 3
+    ax.grid(False)
 
-    fig, axes = plt.subplots(nrows=nrows, ncols=ncols, sharex=True, sharey=True)
-    fig.set_facecolor('white')
+    return fig
 
-    for color in bayer.RGB:
-        d0 = rgb_bg_data[color]
-        ax0 = axes[0][color]
-        ax1 = axes[1][color]
 
-        ax0.set_title(f'{color.name.title()} (med {d0.background_median:.02f} ADU)')
-        im = ax0.imshow(d0.background, cmap=f'{color.name.title()}s_r', origin='lower')
-        plot_utils.add_colorbar(im)
+def plot_bg_overlay(data, rgb_background, title=None, wcs=None, size=(18, 12)):
+    fig = Figure()
+    fig.set_size_inches(*size)
+    ax = fig.add_subplot(projection=wcs)
 
-        ax1.set_title(f'{color.name.title()} rms (med {d0.background_rms_median:.02f} ADU)')
-        im = ax1.imshow(d0.background_rms, cmap=f'{color.name.title()}s_r', origin='lower')
-        plot_utils.add_colorbar(im)
+    im = ax.imshow(data, origin='lower', cmap='Greys_r', norm=simple_norm(data, 'linear'))
+    rgb_background.plot_meshes(axes=ax, outlines=True, alpha=0.1, marker='')
+    plot.add_colorbar(im)
 
-        ax0.set_axis_off()
-        ax1.set_axis_off()
+    if title is not None:
+        ax.set_title(title)
 
-    if title:
-        fig.suptitle(title)
+    ax.grid(False)
 
-    fig.set_size_inches(11, 5)
+    return fig
+
+
+def plot_distribution(data, col, name=None):
+    fig = Figure()
+    ax = fig.add_subplot()
+    sb.histplot(data[col], ax=ax)
+    ax.set_title(name or str(col))
     return fig

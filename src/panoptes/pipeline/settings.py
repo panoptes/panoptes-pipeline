@@ -19,8 +19,7 @@ class BackgroundSettings(BaseModel):
 
 class CatalogSettings(BaseModel):
     vmag_limits: Tuple[float, float] = (6, 14)
-    numcont: int = 5
-    max_separation_arcsec: int = 50
+    max_separation_arcsec: int = 20  # ~8-10 arcsec/pixel
     localbkg_width_pixels: int = 2
     detection_threshold: float = 10.0
     num_detect_pixels: int = 4

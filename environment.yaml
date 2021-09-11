@@ -10,14 +10,16 @@ dependencies:
   - google-cloud-pubsub
   - google-cloud-storage
   - matplotlib-base
-  - numpy
   - numexpr
+  - numpy
   - pandas
+  - papermill
   - photutils
   - pip
   - pyarrow
   - scikit-learn
   - scipy
+  - seaborn
   - uvicorn
   - pip:
       - "git+https://github.com/panoptes/panoptes-utils@develop#egg=panoptes-utils[config,images,social]"

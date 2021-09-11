@@ -1,6 +1,7 @@
 import re
 from pathlib import Path
 from typing import Optional
+from pydantic.dataclasses import dataclass
 
 import numpy as np
 import pandas
@@ -13,7 +14,7 @@ from astropy.stats import gaussian_fwhm_to_sigma, sigma_clipped_stats
 from astropy.wcs import WCS
 from photutils import segmentation
 from photutils.utils import calc_total_error
-from pydantic import BaseModel, BaseSettings
+from pydantic import BaseModel, BaseSettings, AnyHttpUrl, DirectoryPath
 from loguru import logger
 
 from panoptes.pipeline.settings import PipelineParams
@@ -36,6 +37,14 @@ class Settings(BaseSettings):
     files: FileSettings = FileSettings()
     compress_fits: bool = True
     output_dir: Path
+
+
+@dataclass
+class ImageProcessingUnit:
+    fits_path: AnyHttpUrl
+    output_dir: DirectoryPath
+    settings: Settings
+    force_new: bool = False
 
 
 logger.remove()
@@ -205,7 +214,6 @@ def match_sources(detected_sources: pandas.DataFrame, solved_wcs0: WCS, settings
                                                      bqstorage_client=bqstorage_client,
                                                      vmag_min=vmag_limits[0],
                                                      vmag_max=vmag_limits[1],
-                                                     numcont=settings.params.catalog.numcont,
                                                      )
     typer.secho(f'Matching sources to catalog for {len(detected_sources)} sources')
     matched_sources = sources.get_catalog_match(detected_sources,

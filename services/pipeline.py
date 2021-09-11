@@ -9,7 +9,9 @@ import numpy as np
 import pandas as pd
 from astropy.stats import sigma_clip
 from fastapi import FastAPI
+from panoptes.utils.serializers import from_json
 from pydantic import BaseModel, HttpUrl
+import papermill as pm
 
 from google.cloud import storage
 from google.cloud import firestore
@@ -18,7 +20,6 @@ from google.cloud import pubsub
 from panoptes.utils.images import fits as fits_utils
 from panoptes.pipeline.utils.metadata import record_metadata, get_firestore_refs, ImageStatus, \
     ObservationPathInfo, ObservationStatus
-from panoptes.pipeline.scripts.image import calibrate
 from panoptes.pipeline.scripts.image import Settings as ImageSettings
 from panoptes.pipeline.observation import get_stamp_locations, make_stamps
 from panoptes.pipeline.utils.gcp.storage import move_blob_to_bucket
@@ -31,6 +32,7 @@ publisher = pubsub.PublisherClient()
 PROJECT_ID = os.getenv('PROJECT_ID', 'panoptes-exp')
 EXTRACT_TOPIC = os.getenv('EXTRACT_STAMP_TOPIC', 'extract-stamps')
 ROOT_URL = os.getenv('PUBLIC_URL_BASE', 'https://storage.googleapis.com')
+INPUT_NOTEBOOK = os.getenv('INPUT_NOTEBOOK', 'ProcessFITS.ipynb')
 processed_bucket = storage_client.get_bucket(
     os.getenv('OUTPUT_BUCKET', 'panoptes-images-processed'))
 incoming_bucket = storage_client.get_bucket(os.getenv('INPUT_BUCKET', 'panoptes-images-incoming'))
@@ -57,12 +59,14 @@ def process_image_from_storage(message_envelope: dict):
     bucket = message['attributes']['bucketId']
     bucket_path = message['attributes']['objectId']
     public_bucket_path = f'{ROOT_URL}/{bucket}/{bucket_path}'
+    image_settings = from_json(message['attributes'].get('imageSettings', '{}'))
 
     # Put things in the outgoing bucket unless errors below.
     asset_bucket = processed_bucket
 
     with tempfile.TemporaryDirectory() as tmp_dir:
-        settings = ImageSettings(output_dir=tmp_dir)
+        image_settings['output_dir'] = tmp_dir
+        image_settings = ImageSettings(**image_settings)
         try:
             # Make sure file has valid signature, i.e. we need a FITS here.
             if re.search(r'\d{8}T\d{6}\.fits[.fz]+$', bucket_path) is None:
@@ -83,7 +87,20 @@ def process_image_from_storage(message_envelope: dict):
                 seq_ref.set(dict(status=ObservationStatus.CREATED.name), merge=True)
 
             # Run process.
-            metadata = calibrate(public_bucket_path, settings=settings)
+            out_notebook = f'{tmp_dir}/processing-image.ipynb'
+            pm.execute_notebook(INPUT_NOTEBOOK,
+                                out_notebook,
+                                parameters=dict(
+                                    fits_path=public_bucket_path,
+                                    output_dir=tmp_dir,
+                                    image_settings=image_settings.json()
+                                ),
+                                progress_bar=False
+                                )
+
+            with (Path(tmp_dir) / 'metadata.json').open() as f:
+                metadata = from_json(f.read())
+
             full_image_id = metadata['image']['uid'].replace('_', '/')
 
             firestore_id = record_metadata(bucket_path, metadata, firestore_db=firestore_db)
@@ -107,7 +124,7 @@ def process_image_from_storage(message_envelope: dict):
             return_dict = {'success': True, 'location': f'gs://{asset_bucket.name}/{full_image_id}'}
 
             # Upload any assets to storage bucket.
-            for f in (Path(tmp_dir) / full_image_id).glob('*'):
+            for f in Path(tmp_dir).glob('*'):
                 print(f'Uploading {f}')
                 bucket_path = f'{full_image_id}/{f.name}'
                 blob = asset_bucket.blob(bucket_path)
@@ -180,7 +197,7 @@ def make_stamp_locations(metadata: ObservationInfo):
     print(f'Loading {len(sources_file_list)} urls. Example: {sources_file_list[:1]}')
 
     try:
-        stamp_positions = get_stamp_locations(sources_file_list=sources_file_list)
+        stamp_positions, stamp_size = get_stamp_locations(sources_file_list=sources_file_list)
         print(f'Made {len(stamp_positions)} positions for {metadata.sequence_id=}')
 
         # Save to storage bucket as parquet file.

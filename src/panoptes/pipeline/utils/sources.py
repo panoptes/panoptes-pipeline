@@ -274,8 +274,8 @@ def get_catalog_match(point_sources,
         catalog_matches.reset_index(drop=True))
 
     # All point sources so far are matched.
-    matched_sources['status'] = 'matched'
-    matched_sources.status = matched_sources.status.astype('category')
+    # matched_sources['status'] = 'matched'
+    # matched_sources.status = matched_sources.status.astype('category')
 
     # Sources that didn't match.
     #     if return_unmatched:

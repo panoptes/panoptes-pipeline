@@ -143,8 +143,17 @@ def plot_raw_bg_overlay(data, rgb_background, title=None, wcs=None, size=(18, 12
     fig.set_size_inches(*size)
     ax = fig.add_subplot(projection=wcs)
 
-    ax.imshow(data, origin='lower', norm=simple_norm(data, 'log', min_cut=0), cmap='Greys_r')
-    rgb_background.plot_meshes(axes=ax, outlines=True, alpha=0.3, marker='')
+    im = ax.imshow(data, origin='lower', norm=simple_norm(data, 'log', min_cut=0), cmap='Greys')
+    rgb_background.plot_meshes(axes=ax, outlines=True, alpha=0.3, marker='', color='red')
+
+    # Make sure WCS shows up.
+    lon, lat = ax.coords
+    lon.set_ticks(color='green')
+    lon.set_ticks_position('lbtr')
+    lon.set_ticklabel_position('lbtr')
+    lat.set_ticks(color='blue')
+    lat.set_ticks_position('lbtr')
+    lat.set_ticklabel_position('lbtr')
 
     if title is not None:
         ax.set_title(title)
@@ -160,7 +169,7 @@ def plot_bg_overlay(data, rgb_background, title=None, wcs=None, size=(18, 12)):
     ax = fig.add_subplot(projection=wcs)
 
     im = ax.imshow(data, origin='lower', cmap='Greys_r', norm=simple_norm(data, 'linear'))
-    rgb_background.plot_meshes(axes=ax, outlines=True, alpha=0.1, marker='')
+    rgb_background.plot_meshes(axes=ax, outlines=True, alpha=0.1, marker='', color='red')
     plot.add_colorbar(im)
 
     if title is not None:
@@ -176,4 +185,20 @@ def plot_distribution(data, col, name=None):
     ax = fig.add_subplot()
     sb.histplot(data[col], ax=ax)
     ax.set_title(name or str(col))
+    return fig
+
+
+def filter_plot(data, col):
+    fig = Figure()
+    ax = fig.add_subplot()
+
+    data[col].plot(ax=ax, marker='.', label='Valid')
+    data.query(f'mask_{col}==True')[col].plot(ax=ax, marker='o', color='r', ls='',
+                                              label='Filtered frames')
+
+    ax.legend()
+    ax.set_xlabel('Time [UTC]')
+    ax.set_title(f'Filtered {col}')
+
+    fig.set_size_inches(8, 4)
     return fig

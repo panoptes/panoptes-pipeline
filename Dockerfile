@@ -43,7 +43,8 @@ RUN echo "Installing module" && \
 USER "${USERID}"
 WORKDIR /app
 COPY --chown="${USERID}:${USERID}" ./services/* /app/
-COPY notebooks/ProcessFITS.ipynb .
+COPY ./notebooks/ProcessFITS.ipynb .
+COPY ./notebooks/ProcessObservation.ipynb .
 
 RUN echo "Creating /input and /output directories" && \
     sudo mkdir -p /input && \

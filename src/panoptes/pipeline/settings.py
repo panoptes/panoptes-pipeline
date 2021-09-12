@@ -6,7 +6,7 @@ from pydantic import BaseModel, BaseSettings
 
 class CameraSettings(BaseModel):
     zero_bias: float = 2048.
-    saturation: float = 11535.0  # ADU after bias subtraction.
+    saturation: float = 11530.0  # ADU after bias subtraction.
     effective_gain: float = 1.5
     image_width: int = 6000
     image_height: int = 4000
@@ -18,8 +18,8 @@ class BackgroundSettings(BaseModel):
 
 
 class CatalogSettings(BaseModel):
-    vmag_limits: Tuple[float, float] = (6, 14)
-    max_separation_arcsec: int = 20  # ~8-10 arcsec/pixel
+    vmag_limits: Tuple[float, float] = (6, 12)
+    max_separation_arcsec: int = 25  # ~8-10 arcsec/pixel
     localbkg_width_pixels: int = 2
     detection_threshold: float = 10.0
     num_detect_pixels: int = 4

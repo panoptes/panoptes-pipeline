@@ -1,7 +1,6 @@
 import re
 from pathlib import Path
 from typing import Optional
-from pydantic.dataclasses import dataclass
 
 import numpy as np
 import pandas
@@ -14,7 +13,7 @@ from astropy.stats import gaussian_fwhm_to_sigma, sigma_clipped_stats
 from astropy.wcs import WCS
 from photutils import segmentation
 from photutils.utils import calc_total_error
-from pydantic import BaseModel, BaseSettings, AnyHttpUrl, DirectoryPath
+from pydantic import BaseModel, BaseSettings
 from loguru import logger
 
 from panoptes.pipeline.settings import PipelineParams
@@ -37,14 +36,6 @@ class Settings(BaseSettings):
     files: FileSettings = FileSettings()
     compress_fits: bool = True
     output_dir: Path
-
-
-@dataclass
-class ImageProcessingUnit:
-    fits_path: AnyHttpUrl
-    output_dir: DirectoryPath
-    settings: Settings
-    force_new: bool = False
 
 
 logger.remove()
@@ -332,7 +323,6 @@ def plate_solve(settings: Settings, filename=None):
 def subtract_background(data, settings: Settings):
     # Get RGB background data.
     rgb_background = bayer.get_rgb_background(data=data,
-                                              mask=data.mask,
                                               return_separate=True,
                                               box_size=settings.params.background.box_size,
                                               filter_size=settings.params.background.filter_size,

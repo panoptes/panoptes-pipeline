@@ -9,6 +9,7 @@ dependencies:
   - google-cloud-bigquery-storage
   - google-cloud-pubsub
   - google-cloud-storage
+  - h5py
   - matplotlib-base
   - numexpr
   - numpy
@@ -17,6 +18,7 @@ dependencies:
   - photutils
   - pip
   - pyarrow
+  - tables
   - scikit-learn
   - scipy
   - seaborn

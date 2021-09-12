@@ -321,7 +321,7 @@ def make_observation_files(metadata: ObservationInfo):
         sources.append(source_df)
 
     # Create PSC file for entire observation.
-    print(f'Merging stellar positions with metadata file.')
+    print(f'Merging source files.')
     sources_df = pd.concat(sources).sort_index()
     del sources
 

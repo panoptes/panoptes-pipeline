@@ -38,19 +38,11 @@ def get_stars_from_wcs(wcs: WCS, round_to: int = 0, pad: float = 0.5, **kwargs) 
     wcs_footprint = wcs.calc_footprint()
     print(f'Looking up catalog stars for WCS: {wcs_footprint}')
 
-    ll, ul, ur, lr = wcs_footprint
-
-    ra_above = np.floor(min(ul[0], ur[0]))
-    ra_below = np.ceil(max(ll[0], lr[0]))
-
-    dec_above = np.floor(min(ul[1], ur[1]))
-    dec_below = np.ceil(max(ll[1], lr[1]))
-
     limits = dict(
-        ra_max=round(ra_below, round_to) + pad,
-        ra_min=round(ra_above, round_to) - pad,
-        dec_max=round(dec_below, round_to) + pad,
-        dec_min=round(dec_above, round_to) - pad,
+        ra_max=round(wcs_footprint[:, 0].max(), round_to) + pad,
+        ra_min=round(wcs_footprint[:, 0].min(), round_to) - pad,
+        dec_max=round(wcs_footprint[:, 1].max(), round_to) + pad,
+        dec_min=round(wcs_footprint[:, 1].min(), round_to) - pad,
     )
 
     print(f'Searching square shape with {round_to=} and {pad=}: {limits!r}')
@@ -109,10 +101,10 @@ def get_stars(
     column_mapping_str = ', '.join([f'{k} as {v}' for k, v in column_mapping.items()])
 
     # The Right Ascension can wrap around from 360° to 0°, so we have to specifically check.
-    if shape['ra_min'] > shape['ra_max']:
-        ra_constraint = 'OR'
+    if shape['ra_max'] - shape['ra_min'] > 100 > shape['ra_min']:
+        ra_constraint = f'ra <= {shape["ra_min"]} OR ra >= {shape["ra_max"]}'
     else:
-        ra_constraint = 'AND'
+        ra_constraint = f'ra >= {shape["ra_min"]} AND ra <= {shape["ra_max"]}'
 
     # Note that for how the BigQuery partition works, we need the partition one step
     # below the requested Vmag_max.
@@ -120,9 +112,9 @@ def get_stars(
     SELECT {column_mapping_str} 
     FROM catalog.pic
     WHERE
-        dec >= {shape['dec_min']} AND dec <= {shape['dec_max']} AND
-        ra >= {shape["ra_min"]} {ra_constraint} ra <= {shape["ra_max"]} AND
-        vmag_partition BETWEEN {vmag_min} AND {vmag_max - 1}
+        (dec >= {shape['dec_min']} AND dec <= {shape['dec_max']}) AND
+        ({ra_constraint}) AND
+        (vmag_partition BETWEEN {vmag_min} AND {vmag_max - 1})
     """
 
     print(f'{sql=}')

@@ -1,8 +1,11 @@
 import os
 import shutil
 import subprocess
+from pathlib import Path
+from typing import List
 
 import google.cloud.storage
+from google.cloud import storage
 from google.cloud.storage import Bucket
 from loguru import logger
 from panoptes.utils.images import fits as fits_utils
@@ -69,3 +72,20 @@ def download_images(image_list, output_dir, overwrite=False, unpack=True, show_p
 
     logger.debug(f'Downloaded {len(fits_files)} files.')
     return fits_files
+
+
+def upload_dir(directory: Path, prefix: str = '', bucket: storage.Bucket = None) -> List[str]:
+    """Uploads all files in directory to storage bucket."""
+    public_urls = list()
+    for f in Path(directory).glob('*'):
+        print(f'Uploading {f}')
+        bucket_path = f'{prefix}{f.name}'
+        blob = bucket.blob(bucket_path)
+        print(f'Uploading {bucket_path}')
+        try:
+            blob.upload_from_filename(str(f.absolute()))
+            public_urls.append(blob.public_url)
+        except ConnectionError as e:
+            logger.warning(f'Error during upload of  {bucket_path}. {e!r}')
+
+    return public_urls

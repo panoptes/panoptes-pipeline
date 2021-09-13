@@ -20,6 +20,7 @@ from loguru import logger
 from panoptes.pipeline.settings import PipelineParams
 from panoptes.pipeline.utils import metadata, sources
 from panoptes.pipeline.utils.gcp.bigquery import get_bq_clients
+from panoptes.pipeline.utils.gcp.storage import upload_dir
 from panoptes.pipeline.utils.metadata import ImageStatus, get_firestore_refs, ObservationStatus, \
     record_metadata
 from panoptes.utils.images import fits as fits_utils, bayer
@@ -104,17 +105,9 @@ def calibrate(fits_path: str,
     firestore_id = record_metadata(fits_path, metadata, firestore_db=firestore_db)
     print(f'Recorded metadata in firestore id={firestore_id}')
 
+    # Upload any assets to storage bucket.
     if upload:
-        # Upload any assets to storage bucket.
-        for f in Path(image_settings.output_dir).glob('*'):
-            print(f'Uploading {f}')
-            bucket_path = f'{full_image_id}/{f.name}'
-            blob = processed_bucket.blob(bucket_path)
-            print(f'Uploading {bucket_path}')
-            try:
-                blob.upload_from_filename(f.absolute())
-            except ConnectionError as e:
-                typer.secho(f'Error during upload of  {bucket_path}. {e!r}')
+        upload_dir(output_dir, prefix=f'{full_image_id}/', bucket=processed_bucket)
 
     typer.secho(f'Finished processing for {fits_path} in {image_settings.output_dir!r}')
 

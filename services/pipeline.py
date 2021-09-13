@@ -285,7 +285,7 @@ def make_observation_files(metadata: ObservationInfo):
     del sources_df
 
     # Update status of observation.
-    sequence_doc_ref.set(dict(status=ObservationStatus.EXTRACTED.name), merge=True)
+    sequence_doc_ref.set(dict(status=ObservationStatus.PROCESSED.name), merge=True)
 
     return dict(success=True, psc_location=psc_blob.public_url,
                 source_location=sources_blob.public_url)

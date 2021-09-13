@@ -20,8 +20,8 @@ gcloud run deploy "${TOPIC}" \
   --image "gcr.io/${PROJECT_ID}/${TOPIC}:${BASE_TAG}" \
   --no-allow-unauthenticated \
   --platform managed \
-  --cpu 4 \
+  --cpu 2 \
   --memory "8Gi" \
-  --max-instances 25 \
-  --concurrency 2 \
+  --max-instances 100 \
+  --concurrency 1 \
   --timeout "20m"

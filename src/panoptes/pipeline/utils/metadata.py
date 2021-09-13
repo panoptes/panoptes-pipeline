@@ -52,8 +52,9 @@ class ObservationStatus(IntEnum):
     CREATED = 0
     CALIBRATED = 10
     MATCHED = 20
-    EXTRACTED = 30
-    PROCESSED = 40
+    PROCESSING = 30
+    PROCESSED = 35
+    EXTRACTED = 40
 
 
 OBS_BASE_URL = 'https://storage.googleapis.com/panoptes-observations'

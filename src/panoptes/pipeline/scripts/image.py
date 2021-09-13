@@ -1,6 +1,6 @@
+import os
 import re
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
 import pandas
@@ -11,6 +11,7 @@ from astropy import convolution
 from astropy.io import fits
 from astropy.stats import gaussian_fwhm_to_sigma, sigma_clipped_stats
 from astropy.wcs import WCS
+from google.cloud import firestore, storage
 from photutils import segmentation
 from photutils.utils import calc_total_error
 from pydantic import BaseModel, BaseSettings
@@ -19,9 +20,15 @@ from loguru import logger
 from panoptes.pipeline.settings import PipelineParams
 from panoptes.pipeline.utils import metadata, sources
 from panoptes.pipeline.utils.gcp.bigquery import get_bq_clients
-from panoptes.pipeline.utils.metadata import ImageStatus
+from panoptes.pipeline.utils.metadata import ImageStatus, get_firestore_refs, ObservationStatus, \
+    record_metadata
 from panoptes.utils.images import fits as fits_utils, bayer
 from panoptes.utils.serializers import to_json, from_json
+
+import warnings
+
+warnings.simplefilter(action='ignore', category=FutureWarning)
+import papermill as pm
 
 
 class FileSettings(BaseModel):
@@ -38,105 +45,78 @@ class Settings(BaseSettings):
     output_dir: Path
 
 
+OUTPUT_BUCKET = os.getenv('OUTPUT_BUCKET', 'panoptes-images-processed')
+firestore_db = firestore.Client()
+storage_client = storage.Client()
+
 logger.remove()
 app = typer.Typer()
 
 
 @app.command()
-def calibrate(fits_path: str, settings: Settings, force_new: bool = False) -> Optional[dict]:
+def calibrate(fits_path: str,
+              output_dir: Path,
+              input_notebook: Path = 'ProcessFITS.ipynb',
+              upload: bool = False
+              ):
     typer.secho('Starting image processing')
+    output_dir.mkdir(parents=True, exist_ok=True)
+    image_settings = Settings(output_dir=output_dir)
+    processed_bucket = storage_client.get_bucket(OUTPUT_BUCKET)
 
     typer.secho(f'Checking if got a fits file at {fits_path}')
     if re.search(r'\d{8}T\d{6}\.fits[.fz]+$', str(fits_path)) is None:
         raise RuntimeError(f'Need a FITS file, got {fits_path}')
-    typer.secho(f'Starting processing for {fits_path} in {settings.output_dir!r}')
+    typer.secho(f'Starting processing for {fits_path} in {image_settings.output_dir!r}')
 
-    # Load the image.
-    typer.secho(f'Getting data from {fits_path}')
-    raw_data, header = fits_utils.getdata(str(fits_path), header=True)
-    # Get the path info.
-    path_info = metadata.ObservationPathInfo.from_fits_header(header)
-    wcs0 = WCS(header)
-
+    # Check and update status.
+    _, seq_ref, image_doc_ref = get_firestore_refs(fits_path, firestore_db=firestore_db)
     try:
-        exptime = float(header['EXPTIME'])
-        if exptime > 60:
-            settings.params.catalog.vmag_limits = (7, 14)
-        else:
-            settings.params.catalog.vmag_limits = (6, 12)
-    except Exception as e:
-        print(f'Error setting vmag limits from {exptime=} {e!r}')
+        image_status = image_doc_ref.get(['status']).to_dict()['status']
+    except Exception:
+        image_status = ImageStatus.UNKNOWN.name
 
-    # Set up output directory and filenames.
-    output_dir = settings.output_dir / path_info.get_full_id(sep='/')
-    output_dir.mkdir(parents=True, exist_ok=True)
+    if ImageStatus[image_status] > ImageStatus.CALIBRATING:
+        print(f'Skipping image with status of {ImageStatus[image_status].name}')
+        raise FileExistsError(f'Already processed {fits_path}')
+    else:
+        image_doc_ref.set(dict(status=ImageStatus.CALIBRATING.name), merge=True)
+        seq_ref.set(dict(status=ObservationStatus.CREATED.name), merge=True)
 
-    # Prepend the output dir to the file objects.
-    for file_type, file_name in settings.files:
-        setattr(settings.files, file_type, output_dir / file_name)
+    # Run process.
+    out_notebook = f'{image_settings.output_dir}/processing-image.ipynb'
+    typer.secho(f'Starting {input_notebook} processing')
+    pm.execute_notebook(str(input_notebook),
+                        str(out_notebook),
+                        parameters=dict(
+                            fits_path=str(fits_path),
+                            output_dir=str(image_settings.output_dir),
+                            image_settings=image_settings.json()
+                        ),
+                        progress_bar=False
+                        )
 
-    if settings.files.sources_filename.exists() and force_new is False:
-        typer.secho(f'Sources file exists and {force_new=}, nothing to do.')
-        return
+    with (Path(image_settings.output_dir) / 'metadata.json').open() as f:
+        metadata = from_json(f.read())
 
-    settings.params.camera.image_height = raw_data.shape[0]
-    settings.params.camera.image_width = raw_data.shape[1]
+    full_image_id = metadata['image']['uid'].replace('_', '/')
 
-    try:
-        if force_new:
-            raise FileNotFoundError
-        reduced_data = fits_utils.getdata(str(settings.files.reduced_filename))
-        bg_data = fits_utils.getdata(str(settings.files.extras_filename), ext=0)
-        bg_residual_data = fits_utils.getdata(str(settings.files.extras_filename), ext=1)
+    firestore_id = record_metadata(fits_path, metadata, firestore_db=firestore_db)
+    print(f'Recorded metadata in firestore id={firestore_id}')
 
-        typer.secho(f'Getting WCS from header')
-    except FileNotFoundError:
-        typer.secho(f'Performing image calibration on raw data.')
+    if upload:
+        # Upload any assets to storage bucket.
+        for f in Path(image_settings.output_dir).glob('*'):
+            print(f'Uploading {f}')
+            bucket_path = f'{full_image_id}/{f.name}'
+            blob = processed_bucket.blob(bucket_path)
+            print(f'Uploading {bucket_path}')
+            try:
+                blob.upload_from_filename(f.absolute())
+            except ConnectionError as e:
+                typer.secho(f'Error during upload of  {bucket_path}. {e!r}')
 
-        typer.secho(f'Subtracting camera bias and masking below zero and above saturation.')
-        data = subtract_bias(raw_data, settings=settings)
-        data = mask_outliers(data, settings=settings)
-
-        typer.secho(f'Getting background for the RGB channels')
-        bg_data, bg_residual_data, reduced_data = subtract_background(data, settings=settings)
-
-        # Save reduced data and background.
-        save_fits(settings.files.reduced_filename,
-                  dict(reduced=reduced_data.data.astype(np.float32)),
-                  header,
-                  force_new=force_new)
-        save_fits(settings.files.extras_filename,
-                  dict(
-                      background=bg_data.astype(np.float32),
-                      residual=bg_residual_data.astype(np.float32),
-                      mask=reduced_data.mask.astype(np.uint8)
-                  ),
-                  header,
-                  force_new=force_new)
-
-        # Plate solve newly calibrated file.
-        wcs0 = plate_solve(settings=settings)
-
-    detected_sources = detect_sources(wcs0, reduced_data, bg_data, bg_residual_data,
-                                      settings=settings)
-
-    matched_sources = match_sources(detected_sources, wcs0, settings=settings)
-
-    metadata_headers = get_metadata(header, matched_sources, settings=settings)
-
-    # Write dataframe to csv.
-    matched_sources['time'] = pd.to_datetime(metadata_headers['image']['time'], utc=True)
-    matched_sources.set_index(['picid', 'time'], inplace=True)
-    matched_sources.to_parquet(settings.files.sources_filename)
-    typer.secho(f'Matched sources saved to {settings.files.sources_filename}')
-
-    if settings.compress_fits:
-        typer.secho(f'Compressing FITS files')
-        fits_utils.fpack(str(settings.files.reduced_filename), overwrite=force_new)
-        fits_utils.fpack(str(settings.files.extras_filename), overwrite=force_new)
-
-    # Return the metadata.
-    return metadata_headers
+    typer.secho(f'Finished processing for {fits_path} in {image_settings.output_dir!r}')
 
 
 def save_fits(filename, data_list, header, force_new=False):

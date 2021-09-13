@@ -1,7 +1,6 @@
 import os
 import tempfile
 from pathlib import Path
-import re
 from typing import Tuple, Optional
 from urllib.error import HTTPError
 
@@ -9,20 +8,18 @@ import numpy as np
 import pandas as pd
 from astropy.stats import sigma_clip
 from fastapi import FastAPI
-from panoptes.utils.serializers import from_json
-from pydantic import BaseModel, HttpUrl
-import papermill as pm
-
-from google.cloud import storage
 from google.cloud import firestore
 from google.cloud import pubsub
-
+from google.cloud import storage
 from panoptes.utils.images import fits as fits_utils
-from panoptes.pipeline.utils.metadata import record_metadata, get_firestore_refs, ImageStatus, \
-    ObservationPathInfo, ObservationStatus
-from panoptes.pipeline.scripts.image import Settings as ImageSettings
+from panoptes.utils.serializers import from_json
+from pydantic import BaseModel, HttpUrl
+
 from panoptes.pipeline.observation import get_stamp_locations, make_stamps
+from panoptes.pipeline.scripts.image import Settings as ImageSettings, calibrate
 from panoptes.pipeline.utils.gcp.storage import move_blob_to_bucket
+from panoptes.pipeline.utils.metadata import ImageStatus, \
+    ObservationPathInfo, ObservationStatus
 
 app = FastAPI()
 storage_client = storage.Client()
@@ -56,55 +53,15 @@ def process_image_from_storage(message_envelope: dict):
     print(f'Received {message_envelope}')
 
     message = message_envelope['message']
-    bucket = message['attributes']['bucketId']
     bucket_path = message['attributes']['objectId']
-    public_bucket_path = f'{ROOT_URL}/{bucket}/{bucket_path}'
     image_settings = from_json(message['attributes'].get('imageSettings', '{}'))
-
-    # Put things in the outgoing bucket unless errors below.
-    asset_bucket = processed_bucket
 
     with tempfile.TemporaryDirectory() as tmp_dir:
         image_settings['output_dir'] = tmp_dir
         image_settings = ImageSettings(**image_settings)
         try:
-            # Make sure file has valid signature, i.e. we need a FITS here.
-            if re.search(r'\d{8}T\d{6}\.fits[.fz]+$', bucket_path) is None:
-                raise RuntimeError(f'Need a FITS file, got {bucket_path}')
-
-            # Check and update status.
-            _, seq_ref, image_doc_ref = get_firestore_refs(bucket_path, firestore_db=firestore_db)
-            try:
-                image_status = image_doc_ref.get(['status']).to_dict()['status']
-            except Exception:
-                image_status = ImageStatus.UNKNOWN.name
-
-            if ImageStatus[image_status] > ImageStatus.CALIBRATING:
-                print(f'Skipping image with status of {ImageStatus[image_status].name}')
-                raise FileExistsError(f'Already processed {bucket_path}')
-            else:
-                image_doc_ref.set(dict(status=ImageStatus.CALIBRATING.name), merge=True)
-                seq_ref.set(dict(status=ObservationStatus.CREATED.name), merge=True)
-
-            # Run process.
-            out_notebook = f'{tmp_dir}/processing-image.ipynb'
-            pm.execute_notebook(INPUT_NOTEBOOK,
-                                out_notebook,
-                                parameters=dict(
-                                    fits_path=public_bucket_path,
-                                    output_dir=tmp_dir,
-                                    image_settings=image_settings.json()
-                                ),
-                                progress_bar=False
-                                )
-
-            with (Path(tmp_dir) / 'metadata.json').open() as f:
-                metadata = from_json(f.read())
-
-            full_image_id = metadata['image']['uid'].replace('_', '/')
-
-            firestore_id = record_metadata(bucket_path, metadata, firestore_db=firestore_db)
-            print(f'Recorded metadata in firestore id={firestore_id}')
+            calibrate(bucket_path, image_settings, firestore_db=firestore_db)
+            return_dict = {'success': True}
         except FileExistsError as e:
             print(f'Skipping already processed file.')
             return_dict = {'success': False, 'error': f'{e!r}'}
@@ -120,16 +77,6 @@ def process_image_from_storage(message_envelope: dict):
                 print(
                     f'Error moving {bucket_path} to {error_bucket} from {incoming_bucket}: {e2!r}')
                 return_dict['error_2'] = f'{e2!r}'
-        else:
-            return_dict = {'success': True, 'location': f'gs://{asset_bucket.name}/{full_image_id}'}
-
-            # Upload any assets to storage bucket.
-            for f in Path(tmp_dir).glob('*'):
-                print(f'Uploading {f}')
-                bucket_path = f'{full_image_id}/{f.name}'
-                blob = asset_bucket.blob(bucket_path)
-                print(f'Uploading {bucket_path}')
-                blob.upload_from_filename(f.absolute())
 
         # Success.
         return return_dict

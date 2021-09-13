@@ -20,7 +20,8 @@ def get_stars_from_coords(ra: float, dec: float, radius: float = 8.0, **kwargs) 
     return catalog_stars
 
 
-def get_stars_from_wcs(wcs: WCS, round_to: int = 0, pad: float = 0.5, **kwargs) -> pandas.DataFrame:
+def get_stars_from_wcs(wcs: WCS, round_to: int = 0, pad: float = 1.0, size=(18, 18),
+                       **kwargs) -> pandas.DataFrame:
     """Lookup star information from WCS footprint.
 
     Generates the correct layout for an SQL `POLYGON` that can be passed to
@@ -38,11 +39,20 @@ def get_stars_from_wcs(wcs: WCS, round_to: int = 0, pad: float = 0.5, **kwargs) 
     wcs_footprint = wcs.calc_footprint()
     print(f'Looking up catalog stars for WCS: {wcs_footprint}')
 
+    # Get the lower-left corner and then pad generously to get upper-right.
+    ll = wcs_footprint[0].round(round_to) + pad  # degree padding
+    ur = (ll - np.array(size)) % 360
+
+    ra_max = ll[0]
+    ra_min = ur[0]
+    dec_max = ll[1]
+    dec_min = ur[1]
+
     limits = dict(
-        ra_max=round(wcs_footprint[:, 0].max(), round_to) + pad,
-        ra_min=round(wcs_footprint[:, 0].min(), round_to) - pad,
-        dec_max=round(wcs_footprint[:, 1].max(), round_to) + pad,
-        dec_min=round(wcs_footprint[:, 1].min(), round_to) - pad,
+        ra_max=ra_max,
+        ra_min=ra_min,
+        dec_max=dec_max,
+        dec_min=dec_min
     )
 
     print(f'Searching square shape with {round_to=} and {pad=}: {limits!r}')
@@ -101,10 +111,10 @@ def get_stars(
     column_mapping_str = ', '.join([f'{k} as {v}' for k, v in column_mapping.items()])
 
     # The Right Ascension can wrap around from 360° to 0°, so we have to specifically check.
-    if shape['ra_max'] - shape['ra_min'] > 100 > shape['ra_min']:
-        ra_constraint = f'ra <= {shape["ra_min"]} OR ra >= {shape["ra_max"]}'
+    if shape['ra_max'] < shape['ra_min']:
+        ra_constraint = 'OR'
     else:
-        ra_constraint = f'ra >= {shape["ra_min"]} AND ra <= {shape["ra_max"]}'
+        ra_constraint = 'AND'
 
     # Note that for how the BigQuery partition works, we need the partition one step
     # below the requested Vmag_max.
@@ -113,7 +123,7 @@ def get_stars(
     FROM catalog.pic
     WHERE
         (dec >= {shape['dec_min']} AND dec <= {shape['dec_max']}) AND
-        ({ra_constraint}) AND
+        (ra >= {shape['ra_min']} {ra_constraint} ra <= {shape['ra_max']}) AND
         (vmag_partition BETWEEN {vmag_min} AND {vmag_max - 1})
     """
 

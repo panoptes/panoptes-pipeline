@@ -154,11 +154,35 @@ def plot_raw_bg_overlay(data, rgb_background, title=None, wcs=None, size=(18, 12
     lat.set_ticks(color='blue')
     lat.set_ticks_position('lbtr')
     lat.set_ticklabel_position('lbtr')
+    ax.set_ylabel('RA')
+    ax.set_xlabel('Declination')
 
     if title is not None:
         ax.set_title(title)
 
-    ax.grid(False)
+    return fig
+
+
+def plot_stellar_location(data, title=None, wcs=None):
+    fig = Figure()
+    fig.set_size_inches(18, 12)
+    ax = fig.add_subplot(projection=wcs)
+
+    sb.scatterplot(data=data, x='catalog_wcs_x_int', y='catalog_wcs_y_int', ax=ax)
+
+    # Make sure WCS shows up.
+    lon, lat = ax.coords
+    lon.set_ticks(color='green')
+    lon.set_ticks_position('lbtr')
+    lon.set_ticklabel_position('lbtr')
+    lat.set_ticks(color='blue')
+    lat.set_ticks_position('lbtr')
+    lat.set_ticklabel_position('lbtr')
+    ax.set_ylabel('RA')
+    ax.set_xlabel('Declination')
+
+    if title:
+        ax.set_title(title)
 
     return fig
 

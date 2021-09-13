@@ -25,7 +25,7 @@ def move_blob_to_bucket(blob_name: str,
         remove (bool, optional): If True (the default), file should be removed
             afterwards.
     """
-    logger.info(f'Moving {blob_name} → {new_bucket}')
+    # logger.info(f'Moving {blob_name} → {new_bucket}')
     new_blob = old_bucket.copy_blob(old_bucket.get_blob(blob_name), new_bucket)
     if remove:
         old_bucket.delete_blob(blob_name)

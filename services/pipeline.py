@@ -53,14 +53,16 @@ def process_image_from_storage(message_envelope: dict):
     print(f'Received {message_envelope}')
 
     message = message_envelope['message']
+    bucket = message['attributes']['bucketId']
     bucket_path = message['attributes']['objectId']
     image_settings = from_json(message['attributes'].get('imageSettings', '{}'))
+    public_bucket_path = f'{ROOT_URL}/{bucket}/{bucket_path}'
 
     with tempfile.TemporaryDirectory() as tmp_dir:
         image_settings['output_dir'] = tmp_dir
         image_settings = ImageSettings(**image_settings)
         try:
-            calibrate(bucket_path, image_settings, firestore_db=firestore_db)
+            calibrate(public_bucket_path, Path(tmp_dir), upload=True)
             return_dict = {'success': True}
         except FileExistsError as e:
             print(f'Skipping already processed file.')

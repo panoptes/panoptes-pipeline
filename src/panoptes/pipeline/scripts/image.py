@@ -87,29 +87,33 @@ def calibrate(fits_path: str,
     # Run process.
     out_notebook = f'{image_settings.output_dir}/processing-image.ipynb'
     typer.secho(f'Starting {input_notebook} processing')
-    pm.execute_notebook(str(input_notebook),
-                        str(out_notebook),
-                        parameters=dict(
-                            fits_path=str(fits_path),
-                            output_dir=str(image_settings.output_dir),
-                            image_settings=image_settings.json()
-                        ),
-                        progress_bar=False
-                        )
+    try:
+        pm.execute_notebook(str(input_notebook),
+                            str(out_notebook),
+                            parameters=dict(
+                                fits_path=str(fits_path),
+                                output_dir=str(image_settings.output_dir),
+                                image_settings=image_settings.json()
+                            ),
+                            progress_bar=False,
+                            )
+    except Exception as e:
+        typer.secho(f'Problem processing notebook: {e!r}', color='yellow')
+        image_doc_ref.set(dict(status=ImageStatus.ERROR.name), merge=True)
+    else:
+        with (Path(image_settings.output_dir) / 'metadata.json').open() as f:
+            metadata = from_json(f.read())
 
-    with (Path(image_settings.output_dir) / 'metadata.json').open() as f:
-        metadata = from_json(f.read())
+        full_image_id = metadata['image']['uid'].replace('_', '/')
 
-    full_image_id = metadata['image']['uid'].replace('_', '/')
+        firestore_id = record_metadata(fits_path, metadata, firestore_db=firestore_db)
+        print(f'Recorded metadata in firestore id={firestore_id}')
 
-    firestore_id = record_metadata(fits_path, metadata, firestore_db=firestore_db)
-    print(f'Recorded metadata in firestore id={firestore_id}')
-
-    # Upload any assets to storage bucket.
-    if upload:
-        upload_dir(output_dir, prefix=f'{full_image_id}/', bucket=processed_bucket)
-
-    typer.secho(f'Finished processing for {fits_path} in {image_settings.output_dir!r}')
+        # Upload any assets to storage bucket.
+        if upload:
+            upload_dir(output_dir, prefix=f'{full_image_id}/', bucket=processed_bucket)
+    finally:
+        typer.secho(f'Finished processing for {fits_path} in {image_settings.output_dir!r}')
 
 
 def save_fits(filename, data_list, header, force_new=False):

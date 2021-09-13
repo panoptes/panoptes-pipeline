@@ -10,6 +10,7 @@ dependencies:
   - google-cloud-pubsub
   - google-cloud-storage
   - h5py
+  - ipython-autotime
   - matplotlib-base
   - numexpr
   - numpy

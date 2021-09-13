@@ -48,6 +48,7 @@ class ImageStatus(IntEnum):
 
 class ObservationStatus(IntEnum):
     ERROR = -10
+    NOT_ENOUGH_FRAMES = -2
     UNKNOWN = -1
     CREATED = 0
     CALIBRATED = 10

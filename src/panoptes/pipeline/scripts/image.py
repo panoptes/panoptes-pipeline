@@ -66,7 +66,7 @@ def calibrate(fits_path: str,
     processed_bucket = storage_client.get_bucket(OUTPUT_BUCKET)
 
     typer.secho(f'Checking if got a fits file at {fits_path}')
-    if re.search(r'\d{8}T\d{6}\.fits[.fz]+$', str(fits_path)) is None:
+    if re.search(r'\d{8}T\d{6}\.fits[.fz]?$', str(fits_path)) is None:
         raise RuntimeError(f'Need a FITS file, got {fits_path}')
     typer.secho(f'Starting processing for {fits_path} in {image_settings.output_dir!r}')
 

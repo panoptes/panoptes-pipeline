@@ -138,24 +138,38 @@ def plot_stamp(picid,
     return fig
 
 
-def plot_raw_bg_overlay(data, rgb_background, title=None, wcs=None, size=(18, 12)):
+def wcs_plot(wcs):
     fig = Figure()
-    fig.set_size_inches(*size)
     ax = fig.add_subplot(projection=wcs)
-
-    im = ax.imshow(data, origin='lower', norm=simple_norm(data, 'log', min_cut=0), cmap='Greys')
-    rgb_background.plot_meshes(axes=ax, outlines=True, alpha=0.3, marker='', color='red')
 
     # Make sure WCS shows up.
     ra, dec = ax.coords
-    dec.set_ticklabel_position('b')
-    ra.set_ticklabel_position('l')
+    dec.set_ticklabel_position('bt')
+    ra.set_ticklabel_position('lr')
 
     ra.set_major_formatter('d.d')
     dec.set_major_formatter('d.d')
+    ra.grid(color='orange', ls='dotted')
+    dec.grid(color='orange', ls='dotted')
 
-    ax.set_ylabel('RA')
-    ax.set_xlabel('Declination')
+    ax.set_ylabel('RA (J2000)')
+    ax.set_xlabel('Declination (J2000)')
+
+    return ax
+
+
+def plot_raw_bg_overlay(data, rgb_background, title=None, wcs=None, size=(18, 12)):
+    if wcs:
+        ax = wcs_plot(wcs)
+        fig = ax.figure
+    else:
+        fig = Figure()
+        ax = fig.add_subplot()
+    fig.set_size_inches(*size)
+
+    ax.imshow(data, origin='lower', norm=simple_norm(data, 'log', min_cut=0), cmap='Greys')
+    ax.grid(False)
+    rgb_background.plot_meshes(axes=ax, outlines=True, alpha=0.3, marker='', color='red')
 
     if title is not None:
         ax.set_title(title)
@@ -164,33 +178,36 @@ def plot_raw_bg_overlay(data, rgb_background, title=None, wcs=None, size=(18, 12
 
 
 def plot_stellar_location(data, title=None, wcs=None):
-    fig = Figure()
-    fig.set_size_inches(18, 12)
-    ax = fig.add_subplot(projection=wcs)
-
-    sb.scatterplot(data=data, x='catalog_wcs_x_int', y='catalog_wcs_y_int', ax=ax)
-
-    # Make sure WCS shows up.
-    ra, dec = ax.coords
-    dec.set_ticklabel_position('b')
-    ra.set_ticklabel_position('l')
-
-    ra.set_major_formatter('d.d')
-    dec.set_major_formatter('d.d')
-
-    ax.set_ylabel('RA')
-    ax.set_xlabel('Declination')
+    ax = wcs_plot(wcs)
+    sb.scatterplot(data=data,
+                   x='catalog_wcs_x_int',
+                   y='catalog_wcs_y_int',
+                   hue='catalog_vmag',
+                   size='catalog_vmag',
+                   sizes=(200, 5),
+                   marker='*',
+                   edgecolor='black',
+                   linewidth=0.2,
+                   ax=ax
+                   )
 
     if title:
-        ax.set_title(title)
+        ax.figure.suptitle(title, y=0.95)
 
-    return fig
+    ax.figure.set_size_inches(18, 12)
+
+    return ax.figure
 
 
 def plot_bg_overlay(data, rgb_background, title=None, wcs=None, size=(18, 12)):
-    fig = Figure()
+    if wcs:
+        ax = wcs_plot(wcs)
+        fig = ax.figure
+    else:
+        fig = Figure()
+        ax = fig.add_subplot()
+
     fig.set_size_inches(*size)
-    ax = fig.add_subplot(projection=wcs)
 
     im = ax.imshow(data, origin='lower', cmap='Greys_r', norm=simple_norm(data, 'linear'))
     rgb_background.plot_meshes(axes=ax, outlines=True, alpha=0.1, marker='', color='red')

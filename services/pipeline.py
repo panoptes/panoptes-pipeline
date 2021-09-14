@@ -122,10 +122,5 @@ def process_observation(observation: Observation):
             print(f'Problem processing image for {sequence_id}: {e!r}')
             return_dict = {'success': False, 'error': f'{e!r}'}
 
-            # Update status of observation.
-            sequence_doc_ref.set(dict(status=ObservationStatus.ERROR.name), merge=True)
-        else:
-            sequence_doc_ref.set(dict(status=ObservationStatus.PROCESSED.name), merge=True)
-
         # Success.
         return return_dict

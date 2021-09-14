@@ -22,6 +22,6 @@ gcloud run deploy "${TOPIC}" \
   --platform managed \
   --cpu 2 \
   --memory "8Gi" \
-  --max-instances 100 \
+  --max-instances 500 \
   --concurrency 1 \
   --timeout "20m"

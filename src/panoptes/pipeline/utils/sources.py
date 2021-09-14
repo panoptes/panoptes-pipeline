@@ -20,7 +20,7 @@ def get_stars_from_coords(ra: float, dec: float, radius: float = 8.0, **kwargs) 
     return catalog_stars
 
 
-def get_stars_from_wcs(wcs0: WCS, round_to: int = 0, pad: float = 1.0, pad_size=(10, 10),
+def get_stars_from_wcs(wcs0: WCS, round_to: int = 0, pad: float = 1.0, pad_size=(20, 10),
                        **kwargs) -> pandas.DataFrame:
     """Lookup star information from WCS footprint.
 

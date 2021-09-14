@@ -229,17 +229,37 @@ def plot_distribution(data, col, name=None):
     return fig
 
 
-def filter_plot(data, col):
+def filter_plot(data, col, sequence_id):
     fig = Figure()
     ax = fig.add_subplot()
 
     data[col].plot(ax=ax, marker='.', label='Valid')
     data.query(f'mask_{col}==True')[col].plot(ax=ax, marker='o', color='r', ls='',
-                                              label='Filtered frames')
+                                              label=f'Filtered {col}')
 
     ax.legend()
     ax.set_xlabel('Time [UTC]')
-    ax.set_title(f'Filtered {col}')
+    ax.set_title(f'Filtered {col} on {sequence_id}')
 
     fig.set_size_inches(8, 4)
+    return fig
+
+
+def image_simple(d0, title=None):
+    fig = Figure()
+    fig.set_size_inches(18, 12)
+    ax = fig.subplots()
+
+    ax.imshow(d0,
+              origin='lower',
+              norm=simple_norm(d0, stretch='sqrt', min_percent=10.50, max_percent=98.),
+              cmap='Greys_r')
+
+    ax.grid(False)
+    ax.set_xticklabels([])
+    ax.set_yticklabels([])
+
+    if title:
+        ax.set_title(title)
+
     return fig

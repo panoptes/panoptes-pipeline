@@ -52,7 +52,8 @@ def process_image_from_pubsub(message_envelope: dict):
     bucket = message['attributes']['bucketId']
     bucket_path = message['attributes']['objectId']
     public_bucket_path = f'{ROOT_URL}/{bucket}/{bucket_path}'
-    image_settings = ImageSettings(**from_json(message['attributes'].get('imageSettings', '{}')))
+    image_settings = ImageSettings(output_dir='temp',
+                                   **from_json(message['attributes'].get('imageSettings', '{}')))
 
     process_image(public_bucket_path, image_settings)
 
@@ -94,8 +95,13 @@ def process_observation_from_pubsub(message_envelope: dict):
     process_observation_notebook(sequence_id)
 
 
+class Observation(BaseModel):
+    sequence_id: str
+
+
 @app.post('/observation/process/notebook')
-def process_observation_notebook(sequence_id: str):
+def process_observation(observation: Observation):
+    sequence_id = observation.sequence_id
     print(f'Received {sequence_id=}')
     unit_id, camera_id, sequence_time = sequence_id.split('_')
 

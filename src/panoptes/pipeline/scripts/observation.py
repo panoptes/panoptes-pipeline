@@ -10,7 +10,7 @@ import papermill as pm
 from google.cloud import firestore, storage
 from tqdm.auto import tqdm
 
-from panoptes.pipeline.scripts.image import process_notebook
+from panoptes.pipeline.scripts.image import process_notebook as process_image_notebook
 from panoptes.pipeline.utils.gcp.storage import upload_dir
 from panoptes.pipeline.utils.metadata import ObservationStatus
 
@@ -69,7 +69,7 @@ def process_notebook(sequence_id: str,
             typer.secho(f'Processing image {fits_url}')
             with tempfile.TemporaryDirectory(prefix=f'{str(output_dir.absolute())}/') as tmp_dir:
                 with suppress(FileExistsError):
-                    process_notebook(fits_url, Path(tmp_dir), upload=upload)
+                    process_image_notebook(fits_url, Path(tmp_dir), upload=upload)
 
     # Run process.
     out_notebook = f'{output_dir}/processing-observation.ipynb'

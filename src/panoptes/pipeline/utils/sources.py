@@ -20,7 +20,7 @@ def get_stars_from_coords(ra: float, dec: float, radius: float = 8.0, **kwargs) 
     return catalog_stars
 
 
-def get_stars_from_wcs(wcs: WCS, round_to: int = 0, pad: float = 1.0, size=(18, 18),
+def get_stars_from_wcs(wcs0: WCS, round_to: int = 0, pad: float = 1.0, pad_size=(10, 10),
                        **kwargs) -> pandas.DataFrame:
     """Lookup star information from WCS footprint.
 
@@ -28,7 +28,7 @@ def get_stars_from_wcs(wcs: WCS, round_to: int = 0, pad: float = 1.0, size=(18, 
     :py:func:`get_stars`.
 
     Args:
-        wcs (astropy.wcs.WCS): A valid (i.e. `wcs.is_celestial`) World Coordinate System object.
+        wcs0 (astropy.wcs.WCS): A valid (i.e. `wcs.is_celestial`) World Coordinate System object.
         round_to (int): Round the limits to this decimal place, default 0. Helps with automatic
             bigquery caching by making the query the same each time.
         pad (float): The amount of padding in degrees to add to each of the RA and Dec
@@ -36,17 +36,11 @@ def get_stars_from_wcs(wcs: WCS, round_to: int = 0, pad: float = 1.0, size=(18, 
         **kwargs: Optional keywords to pass to :py:func:`get_stars`.
 
     """
-    wcs_footprint = wcs.calc_footprint()
+    wcs_footprint = wcs0.calc_footprint()
     print(f'Looking up catalog stars for WCS: {wcs_footprint}')
 
-    # Get the lower-left corner and then pad generously to get upper-right.
-    ll = wcs_footprint[0].round(round_to) + pad  # degree padding
-    ur = (ll - np.array(size)) % 360
-
-    ra_max = ll[0]
-    ra_min = ur[0]
-    dec_max = ll[1]
-    dec_min = ur[1]
+    ra_max, dec_max = (wcs0.wcs.crval + np.array(pad_size)).round(round_to) % 360
+    ra_min, dec_min = (wcs0.wcs.crval - np.array(pad_size)).round(round_to) % 360
 
     limits = dict(
         ra_max=ra_max,

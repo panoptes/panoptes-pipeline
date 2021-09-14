@@ -147,13 +147,13 @@ def plot_raw_bg_overlay(data, rgb_background, title=None, wcs=None, size=(18, 12
     rgb_background.plot_meshes(axes=ax, outlines=True, alpha=0.3, marker='', color='red')
 
     # Make sure WCS shows up.
-    lon, lat = ax.coords
-    lon.set_ticks(color='green')
-    lon.set_ticks_position('lbtr')
-    lon.set_ticklabel_position('lbtr')
-    lat.set_ticks(color='blue')
-    lat.set_ticks_position('lbtr')
-    lat.set_ticklabel_position('lbtr')
+    ra, dec = ax.coords
+    dec.set_ticklabel_position('b')
+    ra.set_ticklabel_position('l')
+
+    ra.set_major_formatter('d.d')
+    dec.set_major_formatter('d.d')
+
     ax.set_ylabel('RA')
     ax.set_xlabel('Declination')
 
@@ -171,13 +171,13 @@ def plot_stellar_location(data, title=None, wcs=None):
     sb.scatterplot(data=data, x='catalog_wcs_x_int', y='catalog_wcs_y_int', ax=ax)
 
     # Make sure WCS shows up.
-    lon, lat = ax.coords
-    lon.set_ticks(color='green')
-    lon.set_ticks_position('lbtr')
-    lon.set_ticklabel_position('lbtr')
-    lat.set_ticks(color='blue')
-    lat.set_ticks_position('lbtr')
-    lat.set_ticklabel_position('lbtr')
+    ra, dec = ax.coords
+    dec.set_ticklabel_position('b')
+    ra.set_ticklabel_position('l')
+
+    ra.set_major_formatter('d.d')
+    dec.set_major_formatter('d.d')
+
     ax.set_ylabel('RA')
     ax.set_xlabel('Declination')
 

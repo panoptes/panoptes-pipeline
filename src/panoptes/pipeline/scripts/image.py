@@ -55,11 +55,11 @@ app = typer.Typer()
 
 
 @app.command()
-def calibrate(fits_path: str,
-              output_dir: Path,
-              input_notebook: Path = 'ProcessFITS.ipynb',
-              upload: bool = False
-              ):
+def process_notebook(fits_path: str,
+                     output_dir: Path,
+                     input_notebook: Path = 'ProcessFITS.ipynb',
+                     upload: bool = False
+                     ):
     typer.secho('Starting image processing')
     output_dir.mkdir(parents=True, exist_ok=True)
     image_settings = Settings(output_dir=output_dir)

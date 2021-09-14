@@ -10,7 +10,7 @@ import papermill as pm
 from google.cloud import firestore, storage
 from tqdm.auto import tqdm
 
-from panoptes.pipeline.scripts.image import calibrate
+from panoptes.pipeline.scripts.image import process_notebook
 from panoptes.pipeline.utils.gcp.storage import upload_dir
 from panoptes.pipeline.utils.metadata import ObservationStatus
 
@@ -26,11 +26,11 @@ fits_matcher = re.compile(r'.*/\d{8}T\d{6}.fits.*?')
 
 
 @app.command()
-def process(sequence_id: str,
-            input_notebook: Path = 'ProcessObservation.ipynb',
-            output_dir: Optional[Path] = None,
-            process_images: bool = False,
-            upload: bool = False):
+def process_notebook(sequence_id: str,
+                     input_notebook: Path = 'ProcessObservation.ipynb',
+                     output_dir: Optional[Path] = None,
+                     process_images: bool = False,
+                     upload: bool = False):
     """Process the observation."""
     typer.secho(f'Starting {sequence_id} processing')
     output_dir = output_dir or Path(tempfile.TemporaryDirectory().name)
@@ -69,7 +69,7 @@ def process(sequence_id: str,
             typer.secho(f'Processing image {fits_url}')
             with tempfile.TemporaryDirectory(prefix=f'{str(output_dir.absolute())}/') as tmp_dir:
                 with suppress(FileExistsError):
-                    calibrate(fits_url, Path(tmp_dir), upload=upload)
+                    process_notebook(fits_url, Path(tmp_dir), upload=upload)
 
     # Run process.
     out_notebook = f'{output_dir}/processing-observation.ipynb'

@@ -45,20 +45,24 @@ class ObservationInfo(BaseModel):
 
 
 @app.post('/image/process')
-def process_image_from_storage(message_envelope: dict):
+def process_image_from_pubsub(message_envelope: dict):
     print(f'Received {message_envelope}')
 
     message = message_envelope['message']
     bucket = message['attributes']['bucketId']
     bucket_path = message['attributes']['objectId']
-    image_settings = from_json(message['attributes'].get('imageSettings', '{}'))
     public_bucket_path = f'{ROOT_URL}/{bucket}/{bucket_path}'
+    image_settings = ImageSettings(**from_json(message['attributes'].get('imageSettings', '{}')))
 
+    process_image(public_bucket_path, image_settings)
+
+
+@app.post('/image/process/notebook')
+def process_image(bucket_path, image_settings: ImageSettings):
     with tempfile.TemporaryDirectory() as tmp_dir:
         image_settings['output_dir'] = tmp_dir
-        image_settings = ImageSettings(**image_settings)
         try:
-            process_image_notebook(public_bucket_path, Path(tmp_dir), upload=True)
+            process_image_notebook(bucket_path, Path(tmp_dir), upload=True)
             return_dict = {'success': True}
         except FileExistsError as e:
             print(f'Skipping already processed file.')
@@ -81,11 +85,18 @@ def process_image_from_storage(message_envelope: dict):
 
 
 @app.post('/observation/process')
-def process_observation_notebook(message_envelope: dict):
+def process_observation_from_pubsub(message_envelope: dict):
     print(f'Received {message_envelope}')
 
     message = message_envelope['message']
     sequence_id = message['attributes']['sequenceId']
+
+    process_observation_notebook(sequence_id)
+
+
+@app.post('/observation/process/notebook')
+def process_observation_notebook(sequence_id: str):
+    print(f'Received {sequence_id=}')
     unit_id, camera_id, sequence_time = sequence_id.split('_')
 
     # Get sequence information
@@ -99,7 +110,7 @@ def process_observation_notebook(message_envelope: dict):
                                          process_images=True, upload=True)
             return_dict = {'success': True}
         except FileExistsError as e:
-            print(f'Skipping already processed observation.')
+            print(f'Skipping already processed observation {sequence_id}')
             return_dict = {'success': False, 'error': f'{e!r}'}
         except Exception as e:
             print(f'Problem processing image for {sequence_id}: {e!r}')

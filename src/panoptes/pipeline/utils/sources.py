@@ -39,12 +39,12 @@ def get_stars_from_wcs(wcs0: WCS, round_to: int = 0, pad: float = 1.0, pad_size=
     wcs_footprint = wcs0.calc_footprint()
     print(f'Looking up catalog stars for WCS: {wcs_footprint}')
 
-    ra_max, dec_max = (wcs0.wcs.crval + np.array(pad_size)).round(round_to) % 360
-    ra_min, dec_min = (wcs0.wcs.crval - np.array(pad_size)).round(round_to) % 360
+    ra_max, dec_max = (wcs0.wcs.crval + np.array(pad_size)).round(round_to)
+    ra_min, dec_min = (wcs0.wcs.crval - np.array(pad_size)).round(round_to)
 
     limits = dict(
-        ra_max=ra_max,
-        ra_min=ra_min,
+        ra_max=ra_max % 360,
+        ra_min=ra_min % 360,
         dec_max=dec_max,
         dec_min=dec_min
     )

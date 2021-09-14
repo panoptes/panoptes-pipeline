@@ -60,7 +60,7 @@ def process_image_from_pubsub(message_envelope: dict):
 @app.post('/image/process/notebook')
 def process_image(bucket_path, image_settings: ImageSettings):
     with tempfile.TemporaryDirectory() as tmp_dir:
-        image_settings['output_dir'] = tmp_dir
+        image_settings.output_dir = tmp_dir
         try:
             process_image_notebook(bucket_path, Path(tmp_dir), upload=True)
             return_dict = {'success': True}

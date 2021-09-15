@@ -63,8 +63,8 @@ def process_image(bucket_path, image_settings: ImageSettings):
     with tempfile.TemporaryDirectory() as tmp_dir:
         image_settings.output_dir = tmp_dir
         try:
-            process_image_notebook(bucket_path, Path(tmp_dir), upload=True)
-            return_dict = {'success': True}
+            public_url_list = process_image_notebook(bucket_path, Path(tmp_dir), upload=True)
+            return_dict = {'success': True, 'url_list': public_url_list}
         except FileExistsError as e:
             print(f'Skipping already processed file.')
             return_dict = {'success': False, 'error': f'{e!r}'}
@@ -112,9 +112,9 @@ def process_observation(observation: Observation):
 
     with tempfile.TemporaryDirectory() as tmp_dir:
         try:
-            process_observation_notebook(sequence_id, output_dir=Path(tmp_dir),
-                                         process_images=True, upload=True)
-            return_dict = {'success': True}
+            public_url_list = process_observation_notebook(sequence_id, output_dir=Path(tmp_dir),
+                                                           process_images=True, upload=True)
+            return_dict = {'success': True, 'urls': public_url_list}
         except FileExistsError as e:
             print(f'Skipping already processed observation {sequence_id}')
             return_dict = {'success': False, 'error': f'{e!r}'}

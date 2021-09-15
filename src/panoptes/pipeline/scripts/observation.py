@@ -36,6 +36,8 @@ def process_notebook(sequence_id: str,
     output_dir = output_dir or Path(tempfile.TemporaryDirectory().name)
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    output_url_list = None
+
     processed_bucket = storage_client.get_bucket(OUTPUT_BUCKET)
     image_bucket = storage_client.get_bucket(IMAGE_BUCKET)
 
@@ -89,11 +91,12 @@ def process_notebook(sequence_id: str,
     else:
         # Upload any assets to storage bucket.
         if upload:
-            upload_dir(output_dir, prefix=f'{sequence_path}/', bucket=processed_bucket)
+            output_url_list = upload_dir(output_dir, prefix=f'{sequence_path}/', bucket=processed_bucket)
 
         seq_ref.set(dict(status=ObservationStatus.PROCESSED.name), merge=True)
     finally:
         typer.secho(f'Finished processing for {sequence_id=} in {output_dir!r}')
+        return output_url_list
 
 
 if __name__ == '__main__':

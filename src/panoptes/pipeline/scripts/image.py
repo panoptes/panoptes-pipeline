@@ -64,6 +64,7 @@ def process_notebook(fits_path: str,
     output_dir.mkdir(parents=True, exist_ok=True)
     image_settings = Settings(output_dir=output_dir)
     processed_bucket = storage_client.get_bucket(OUTPUT_BUCKET)
+    output_url_list = None
 
     typer.secho(f'Checking if got a fits file at {fits_path}')
     if re.search(r'\d{8}T\d{6}\.fits.*?$', str(fits_path)) is None:
@@ -102,18 +103,20 @@ def process_notebook(fits_path: str,
         image_doc_ref.set(dict(status=ImageStatus.ERROR.name), merge=True)
     else:
         with (Path(image_settings.output_dir) / 'metadata.json').open() as f:
-            metadata = from_json(f.read())
+            image_metadata = from_json(f.read())
 
-        full_image_id = metadata['image']['uid'].replace('_', '/')
+        full_image_id = image_metadata['image']['uid'].replace('_', '/')
 
-        firestore_id = record_metadata(fits_path, metadata, firestore_db=firestore_db)
+        firestore_id = record_metadata(fits_path, image_metadata, firestore_db=firestore_db)
         print(f'Recorded metadata in firestore id={firestore_id}')
 
         # Upload any assets to storage bucket.
         if upload:
-            upload_dir(output_dir, prefix=f'{full_image_id}/', bucket=processed_bucket)
+            output_url_list = upload_dir(output_dir, prefix=f'{full_image_id}/',
+                                         bucket=processed_bucket)
     finally:
         typer.secho(f'Finished processing for {fits_path} in {image_settings.output_dir!r}')
+        return output_url_list
 
 
 def save_fits(filename, data_list, header, force_new=False):

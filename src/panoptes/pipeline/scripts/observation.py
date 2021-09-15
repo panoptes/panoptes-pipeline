@@ -61,24 +61,27 @@ def process_notebook(sequence_id: str,
         seq_ref.set(dict(status=ObservationStatus.PROCESSING.name), merge=True)
 
     # Try to process all the images first.
-    if process_images:
-        # Get the FITS files in the image bucket.
-        typer.secho(f'Getting FITS image files from {image_bucket}')
-        fits_urls = [b.public_url
-                     for b in
-                     storage_client.get_bucket(image_bucket).list_blobs(prefix=f'{sequence_path}/')
-                     if fits_matcher.match(b.name)]
-
-        for fits_url in tqdm(fits_urls):
-            typer.secho(f'Processing image {fits_url}')
-            with tempfile.TemporaryDirectory(prefix=f'{str(output_dir.absolute())}/') as tmp_dir:
-                with suppress(FileExistsError):
-                    process_image_notebook(fits_url, Path(tmp_dir), upload=upload)
-
-    # Run process.
-    out_notebook = f'{output_dir}/processing-observation.ipynb'
-    typer.secho(f'Starting {input_notebook} processing')
     try:
+        if process_images:
+            # Get the FITS files in the image bucket.
+            typer.secho(f'Getting FITS image files from {image_bucket}')
+            fits_urls = [b.public_url
+                         for b in
+                         storage_client.get_bucket(image_bucket).list_blobs(
+                             prefix=f'{sequence_path}/')
+                         if fits_matcher.match(b.name)]
+
+            for fits_url in tqdm(fits_urls):
+                typer.secho(f'Processing image {fits_url}')
+                with tempfile.TemporaryDirectory(
+                        prefix=f'{str(output_dir.absolute())}/') as tmp_dir:
+                    with suppress(FileExistsError):
+                        process_image_notebook(fits_url, Path(tmp_dir), upload=upload)
+
+        # Run process.
+        out_notebook = f'{output_dir}/processing-observation.ipynb'
+        typer.secho(f'Starting {input_notebook} processing')
+
         pm.execute_notebook(str(input_notebook),
                             str(out_notebook),
                             parameters=dict(

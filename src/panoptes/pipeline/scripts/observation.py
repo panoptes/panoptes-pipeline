@@ -54,8 +54,7 @@ def process_notebook(sequence_id: str,
         obs_status = ObservationStatus.UNKNOWN.name
 
     if ObservationStatus[obs_status] > ObservationStatus.CALIBRATED and force_new is False:
-        typer.secho(f'Skipping: status={ObservationStatus[obs_status].name}', color='yellow')
-        raise FileExistsError
+        raise FileExistsError(f'Skipping: status={ObservationStatus[obs_status].name}')
     else:
         # Update status to show we're processing.
         seq_ref.set(dict(status=ObservationStatus.PROCESSING.name), merge=True)

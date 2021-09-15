@@ -105,11 +105,6 @@ def process_observation(observation: Observation):
     print(f'Received {sequence_id=}')
     unit_id, camera_id, sequence_time = sequence_id.split('_')
 
-    # Get sequence information
-    sequence_doc_ref = firestore_db.document(f'units/{unit_id}/observations/{sequence_id}')
-    if sequence_doc_ref.get().exists is False:
-        return dict(success=False, message=f'No record for {sequence_id}')
-
     with tempfile.TemporaryDirectory() as tmp_dir:
         try:
             public_url_list = process_observation_notebook(sequence_id, output_dir=Path(tmp_dir),

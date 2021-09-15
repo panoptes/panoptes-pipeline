@@ -30,7 +30,9 @@ def process_notebook(sequence_id: str,
                      input_notebook: Path = 'ProcessObservation.ipynb',
                      output_dir: Optional[Path] = None,
                      process_images: bool = False,
-                     upload: bool = False):
+                     upload: bool = False,
+                     force_new: bool = False
+                     ):
     """Process the observation."""
     typer.secho(f'Starting {sequence_id} processing')
     output_dir = output_dir or Path(tempfile.TemporaryDirectory().name)
@@ -51,7 +53,7 @@ def process_notebook(sequence_id: str,
     except Exception:
         obs_status = ObservationStatus.UNKNOWN.name
 
-    if ObservationStatus[obs_status] > ObservationStatus.CALIBRATED:
+    if ObservationStatus[obs_status] > ObservationStatus.CALIBRATED and force_new is False:
         typer.secho(f'Skipping: status={ObservationStatus[obs_status].name}', color='yellow')
         return
     else:
@@ -91,7 +93,8 @@ def process_notebook(sequence_id: str,
     else:
         # Upload any assets to storage bucket.
         if upload:
-            output_url_list = upload_dir(output_dir, prefix=f'{sequence_path}/', bucket=processed_bucket)
+            output_url_list = upload_dir(output_dir, prefix=f'{sequence_path}/',
+                                         bucket=processed_bucket)
 
         seq_ref.set(dict(status=ObservationStatus.PROCESSED.name), merge=True)
     finally:

@@ -88,7 +88,7 @@ def process_image(bucket_path, image_settings: ImageSettings):
 class ObservationParams(BaseModel):
     sequence_id: str
     process_images: bool = True
-    upload: bool = False
+    upload: bool = True
     force_new: bool = False
 
 

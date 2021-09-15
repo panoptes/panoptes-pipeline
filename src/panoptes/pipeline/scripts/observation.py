@@ -79,7 +79,7 @@ def process_notebook(sequence_id: str,
 
         # Run process.
         out_notebook = f'{output_dir}/processing-observation.ipynb'
-        typer.secho(f'Starting {input_notebook} processing')
+        typer.secho(f'Starting {input_notebook} processing for {sequence_id}')
 
         pm.execute_notebook(str(input_notebook),
                             str(out_notebook),
@@ -94,11 +94,13 @@ def process_notebook(sequence_id: str,
         seq_ref.set(dict(status=ObservationStatus.ERROR.name), merge=True)
     else:
         # Upload any assets to storage bucket.
+        doc_updates = dict(status=ObservationStatus.PROCESSED.name)
         if upload:
             output_url_list = upload_dir(output_dir, prefix=f'{sequence_path}/',
                                          bucket=processed_bucket)
+            doc_updates['urls'] = output_url_list
 
-        seq_ref.set(dict(status=ObservationStatus.PROCESSED.name), merge=True)
+        seq_ref.set(doc_updates, merge=True)
     finally:
         typer.secho(f'Finished processing for {sequence_id=} in {output_dir!r}')
         return output_url_list

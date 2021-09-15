@@ -20,6 +20,7 @@ dependencies:
   - pip
   - pyarrow
   - tables
+  - tabulate
   - scikit-learn
   - scipy
   - seaborn

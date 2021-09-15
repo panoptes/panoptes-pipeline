@@ -81,20 +81,28 @@ def process_notebook(sequence_id: str,
         out_notebook = f'{output_dir}/processing-observation.ipynb'
         typer.secho(f'Starting {input_notebook} processing for {sequence_id}')
 
-        pm.execute_notebook(str(input_notebook),
-                            str(out_notebook),
-                            parameters=dict(
-                                sequence_id=sequence_id,
-                                output_dir=str(output_dir),
-                            ),
-                            progress_bar=False
-                            )
+        notebook_output = pm.execute_notebook(str(input_notebook),
+                                              str(out_notebook),
+                                              parameters=dict(
+                                                  sequence_id=sequence_id,
+                                                  output_dir=str(output_dir),
+                                              ),
+                                              progress_bar=False
+                                              )
     except Exception as e:
         typer.secho(f'Error processing notebook: {e!r}', color='yellow')
         seq_ref.set(dict(status=ObservationStatus.ERROR.name), merge=True)
     else:
+        doc_updates = dict()
+        try:
+            doc_updates = notebook_output['cells'][-4]['outputs'][0]['data']['application/json']
+        except Exception as e:
+            typer.secho('Error getting output from notebook: {e!r}')
+
+        # Set new status.
+        doc_updates['status'] = ObservationStatus.PROCESSED.name
+
         # Upload any assets to storage bucket.
-        doc_updates = dict(status=ObservationStatus.PROCESSED.name)
         if upload:
             output_url_list = upload_dir(output_dir, prefix=f'{sequence_path}/',
                                          bucket=processed_bucket)

@@ -8,7 +8,7 @@ from google.cloud import firestore
 from google.cloud import pubsub
 from google.cloud import storage
 from panoptes.utils.serializers import from_json
-from pydantic import BaseModel, HttpUrl
+from pydantic import BaseModel, HttpUrl, ValidationError
 
 from panoptes.pipeline.scripts.image import Settings as ImageSettings
 from panoptes.pipeline.scripts.image import process_notebook as process_image_notebook
@@ -97,9 +97,13 @@ def process_observation_from_pubsub(message_envelope: dict):
     print(f'Received {message_envelope}')
 
     message = message_envelope['message']
-    sequence_id = message['attributes']['sequenceId']
 
-    process_observation(ObservationParams(sequence_id=sequence_id))
+    # Build the observation processing params from the attributes. Must include a sequence_id.
+    try:
+        params = ObservationParams(**message['attributes'])
+        process_observation(params)
+    except ValidationError:
+        print(f'Missing sequence_id param.')
 
 
 @app.post('/observation/process/notebook')

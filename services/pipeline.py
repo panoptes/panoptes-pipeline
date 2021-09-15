@@ -85,8 +85,11 @@ def process_image(bucket_path, image_settings: ImageSettings):
         return return_dict
 
 
-class Observation(BaseModel):
+class ObservationParams(BaseModel):
     sequence_id: str
+    process_images: bool = True
+    upload: bool = False
+    force_new: bool = False
 
 
 @app.post('/observation/process')
@@ -96,19 +99,22 @@ def process_observation_from_pubsub(message_envelope: dict):
     message = message_envelope['message']
     sequence_id = message['attributes']['sequenceId']
 
-    process_observation(Observation(sequence_id=sequence_id))
+    process_observation(ObservationParams(sequence_id=sequence_id))
 
 
 @app.post('/observation/process/notebook')
-def process_observation(observation: Observation):
-    sequence_id = observation.sequence_id
-    print(f'Received {sequence_id=}')
-    unit_id, camera_id, sequence_time = sequence_id.split('_')
+def process_observation(params: ObservationParams):
+    sequence_id = params.sequence_id
+    print(f'Received {params=}')
 
     with tempfile.TemporaryDirectory() as tmp_dir:
         try:
-            public_url_list = process_observation_notebook(sequence_id, output_dir=Path(tmp_dir),
-                                                           process_images=True, upload=True)
+            public_url_list = process_observation_notebook(sequence_id,
+                                                           output_dir=Path(tmp_dir),
+                                                           process_images=params.process_images,
+                                                           upload=params.upload,
+                                                           force_new=params.force_new
+                                                           )
             return_dict = {'success': True, 'urls': public_url_list}
         except FileExistsError as e:
             print(f'Skipping already processed observation {sequence_id}')

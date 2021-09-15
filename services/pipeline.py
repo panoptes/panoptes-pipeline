@@ -85,6 +85,10 @@ def process_image(bucket_path, image_settings: ImageSettings):
         return return_dict
 
 
+class Observation(BaseModel):
+    sequence_id: str
+
+
 @app.post('/observation/process')
 def process_observation_from_pubsub(message_envelope: dict):
     print(f'Received {message_envelope}')
@@ -92,11 +96,7 @@ def process_observation_from_pubsub(message_envelope: dict):
     message = message_envelope['message']
     sequence_id = message['attributes']['sequenceId']
 
-    process_observation_notebook(sequence_id)
-
-
-class Observation(BaseModel):
-    sequence_id: str
+    process_observation(Observation(sequence_id=sequence_id))
 
 
 @app.post('/observation/process/notebook')

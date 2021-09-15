@@ -48,6 +48,7 @@ class ObservationInfo(BaseModel):
 def process_image_from_pubsub(message_envelope: dict):
     print(f'Received {message_envelope}')
 
+    response = dict(success=False)
     message = message_envelope['message']
     bucket = message['attributes']['bucketId']
     bucket_path = message['attributes']['objectId']
@@ -55,7 +56,13 @@ def process_image_from_pubsub(message_envelope: dict):
     image_settings = ImageSettings(output_dir='temp',
                                    **from_json(message['attributes'].get('imageSettings', '{}')))
 
-    process_image(public_bucket_path, image_settings)
+    try:
+        response = process_image(public_bucket_path, image_settings)
+        response['success'] = True
+    except Exception as e:
+        print(f'Problem with pubsub: {e:!}')
+
+    return response
 
 
 @app.post('/image/process/notebook')
@@ -97,13 +104,16 @@ def process_observation_from_pubsub(message_envelope: dict):
     print(f'Received {message_envelope}')
 
     message = message_envelope['message']
+    response = dict(success=False)
 
     # Build the observation processing params from the attributes. Must include a sequence_id.
     try:
         params = ObservationParams(**message['attributes'])
-        process_observation(params)
+        response = process_observation(params)
     except ValidationError:
         print(f'Missing sequence_id param.')
+    finally:
+        return response
 
 
 @app.post('/observation/process/notebook')

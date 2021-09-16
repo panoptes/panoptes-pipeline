@@ -14,8 +14,7 @@ from panoptes.pipeline.scripts.image import Settings as ImageSettings
 from panoptes.pipeline.scripts.image import process_notebook as process_image_notebook
 from panoptes.pipeline.scripts.observation import process_notebook as process_observation_notebook
 from panoptes.pipeline.utils.gcp.storage import move_blob_to_bucket
-from panoptes.pipeline.utils.metadata import ImageStatus, \
-    ObservationStatus
+from panoptes.pipeline.utils.metadata import ImageStatus
 
 app = FastAPI()
 storage_client = storage.Client()

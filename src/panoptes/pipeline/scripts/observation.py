@@ -99,9 +99,6 @@ def process_notebook(sequence_id: str,
         except Exception as e:
             typer.secho('Error getting output from notebook: {e!r}')
 
-        # Set new status.
-        doc_updates['status'] = ObservationStatus.PROCESSED.name
-
         # Upload any assets to storage bucket.
         if upload:
             output_url_list = upload_dir(output_dir, prefix=f'{sequence_path}/',
@@ -111,6 +108,10 @@ def process_notebook(sequence_id: str,
         seq_ref.set(doc_updates, merge=True)
     finally:
         typer.secho(f'Finished processing for {sequence_id=} in {output_dir!r}')
+
+        # Specifically update the status.
+        seq_ref.set(dict(status=ObservationStatus.PROCESSED.name), merge=True)
+
         return output_url_list
 
 

@@ -1,13 +1,17 @@
 import os
 import re
 import tempfile
+import logging
 from contextlib import suppress
 from pathlib import Path
 from typing import Optional
+import multiprocessing
 
 import typer
 import papermill as pm
 from google.cloud import firestore, storage
+from google.cloud import pubsub_v1
+
 from tqdm.auto import tqdm
 
 from panoptes.pipeline.scripts.image import process_notebook as process_image_notebook
@@ -18,11 +22,16 @@ app = typer.Typer()
 
 OUTPUT_BUCKET = os.getenv('OUTPUT_BUCKET', 'panoptes-images-processed')
 IMAGE_BUCKET = os.getenv('OUTPUT_BUCKET', 'panoptes-raw-images')
+PROJECT_ID = os.getenv('PROJECT_ID', 'panoptes-exp')
 firestore_db = firestore.Client()
 storage_client = storage.Client()
 
 # Only want to match properly named file.
 fits_matcher = re.compile(r'.*/\d{8}T\d{6}.fits.*?')
+
+multiprocessing.log_to_stderr()
+logger = multiprocessing.get_logger()
+logger.setLevel(logging.INFO)
 
 
 @app.command()
@@ -113,6 +122,53 @@ def process_notebook(sequence_id: str,
         seq_ref.set(dict(status=ObservationStatus.PROCESSED.name), merge=True)
 
         return output_url_list
+
+
+@app.command()
+def pull_observation_pubsub(subscription_id: str = '', max_messages: int = 5):
+    """Pulls down the pubsub messages and sends to callback. Mostly rate limits"""
+    subscriber = pubsub_v1.SubscriberClient()
+    subscription_path = subscriber.subscription_path(PROJECT_ID, subscription_id)
+
+    # Limit the subscriber to only have ten outstanding messages at a time.
+    flow_control = pubsub_v1.types.FlowControl(max_messages=max_messages)
+
+    streaming_pull_future = subscriber.subscribe(
+        subscription_path, callback=process_pubsub, flow_control=flow_control
+    )
+    print(f"Listening for messages on {subscription_path=} with {max_messages=}")
+
+    # Wrap subscriber in a 'with' block to automatically call close() when done.
+    with subscriber:
+        try:
+            streaming_pull_future.result()
+        except (KeyboardInterrupt, TimeoutError):
+            print(f'Shutting down the PubSub listener')
+            streaming_pull_future.cancel()  # Trigger the shutdown.
+            streaming_pull_future.result()  # Block until the shutdown is complete.
+
+
+def process_pubsub(message: pubsub_v1.subscriber.message.Message) -> None:
+    print(f"Received {message.attributes}.")
+    sequence_id = message.attributes.get('sequence_id')
+    force_new = message.attributes.get('force_new', False)
+
+    process = multiprocessing.Process(target=process_notebook,
+                                      args=(sequence_id,),
+                                      kwargs=dict(process_images=True,
+                                                  upload=True,
+                                                  force_new=force_new))
+
+    # Start the process.
+    process.start()
+    # Acknowledge the message. It deals with failures internally.
+    message.ack()
+    # Wait on the process.
+    process.join(timeout=600)
+    if process.exitcode < 0:
+        print(f'Process terminated early for {sequence_id=}')
+
+    print(f'Finished processing message for {sequence_id}')
 
 
 if __name__ == '__main__':

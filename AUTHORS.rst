@@ -2,4 +2,4 @@
 Contributors
 ============
 
-* Wilfred Gee <wtylergee@gmail.com>
+* Wilfred T Gee <wtylergee@gmail.com>

@@ -52,3 +52,6 @@ MANIFEST
 # Results
 input
 output
+notebooks/figures
+notebooks/tables
+.ipynb_checkpoints

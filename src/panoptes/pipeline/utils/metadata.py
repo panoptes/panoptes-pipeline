@@ -63,8 +63,8 @@ OBSERVATIONS_URL = 'https://storage.googleapis.com/panoptes-exp.appspot.com/obse
 PATH_MATCHER: Pattern[str] = re.compile(r"""^
                                 (?P<pre_info>.*)?                       # Anything before unit_id
                                 (?P<unit_id>PAN\d{3})                   # unit_id   - PAN + 3 digits
+                                /?(?P<field_name>.*)?                   # Legacy field name - any                                
                                 /(?P<camera_id>[a-gA-G0-9]{6})          # camera_id - 6 digits
-                                /?(?P<field_name>.*)?                   # Legacy field name - any
                                 /(?P<sequence_time>[0-9]{8}T[0-9]{6})   # Observation start time
                                 /(?P<image_time>[0-9]{8}T[0-9]{6})      # Image start time
                                 (?P<post_info>.*)?                      # Anything after (file ext)

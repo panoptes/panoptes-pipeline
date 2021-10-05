@@ -1,3 +1,6 @@
 !.git
 input
 output
+notebooks/data
+notebooks/figures
+notebooks/tables

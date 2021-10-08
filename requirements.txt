@@ -44,7 +44,7 @@ pywavelets==1.0.3         # via scikit-image
 pyyaml==5.1.2             # via panoptes-utils
 pyzmq==18.1.0             # via panoptes-utils
 requests==2.22.0          # via google-api-core
-rsa==4.0                  # via google-auth
+rsa==4.7                  # via google-auth
 ruamel.yaml.clib==0.2.0   # via ruamel.yaml
 ruamel.yaml==0.16.5       # via panoptes-utils
 scalpl==0.3.0             # via panoptes-utils

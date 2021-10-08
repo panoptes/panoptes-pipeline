@@ -41,7 +41,7 @@ pyserial==3.4             # via panoptes-utils
 python-dateutil==2.8.0    # via matplotlib, pandas, panoptes-utils
 pytz==2019.3              # via astroplan, google-api-core, pandas, panoptes-utils
 pywavelets==1.0.3         # via scikit-image
-pyyaml==5.1.2             # via panoptes-utils
+pyyaml==5.4             # via panoptes-utils
 pyzmq==18.1.0             # via panoptes-utils
 requests==2.22.0          # via google-api-core
 rsa==4.0                  # via google-auth

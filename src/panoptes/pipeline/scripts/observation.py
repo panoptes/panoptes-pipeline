@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Optional
 import multiprocessing
 from nbconvert import HTMLExporter
+from traitlets.config import Config
 
 import typer
 import papermill as pm
@@ -102,7 +103,9 @@ def process_notebook(sequence_id: str,
 
         # Convert to html.
         try:
-            exporter = HTMLExporter()
+            c = Config()
+            c.TemplateExporter.exclude_input_prompt = True
+            exporter = HTMLExporter(config=c)
             html_body, html_resources = exporter.from_notebook_node(notebook_output)
             with Path(out_notebook.replace('ipynb', 'html')).open('w') as f:
                 f.write(html_body)

@@ -104,9 +104,8 @@ def process_notebook(sequence_id: str,
         # Convert to html.
         try:
             c = Config()
-            c.TemplateExporter.exclude_input_prompt = True
-            exporter = HTMLExporter(config=c)
-            html_body, html_resources = exporter.from_notebook_node(notebook_output)
+            c.HTMLExporter.exclude_input_prompt = True
+            html_body, html_resources = HTMLExporter(config=c).from_notebook_node(notebook_output)
             with Path(out_notebook.replace('ipynb', 'html')).open('w') as f:
                 f.write(html_body)
         except Exception as e:

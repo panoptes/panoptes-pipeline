@@ -48,6 +48,7 @@ class ImageStatus(IntEnum):
 
 class ObservationStatus(IntEnum):
     ERROR = -10
+    TOO_MUCH_DRIFT = -5
     NOT_ENOUGH_FRAMES = -2
     UNKNOWN = -1
     CREATED = 0

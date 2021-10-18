@@ -12,6 +12,7 @@ dependencies:
   - h5py
   - ipython-autotime
   - matplotlib-base
+  - nbconvert
   - numexpr
   - numpy
   - pandas

@@ -2,15 +2,16 @@ import os
 import re
 import tempfile
 import logging
+from dateutil.parser import parse as parse_date
 from contextlib import suppress
 from pathlib import Path
 from typing import Optional
 import multiprocessing
+from nbconvert import HTMLExporter
 
 import typer
 import papermill as pm
 from google.cloud import firestore, storage
-from google.cloud import pubsub_v1
 
 from tqdm.auto import tqdm
 
@@ -98,6 +99,15 @@ def process_notebook(sequence_id: str,
                                               ),
                                               progress_bar=False
                                               )
+
+        # Convert to html.
+        try:
+            exporter = HTMLExporter()
+            html_body, html_resources = exporter.from_notebook_node(notebook_output)
+            with Path(out_notebook.replace('ipynb', 'html')).open() as f:
+                f.write(html_body)
+        except Exception as e:
+            typer.secho(f'Problem converting rendered notebook to html: {e!r}')
     except Exception as e:
         typer.secho(f'Error processing notebook: {e!r}', color='yellow')
         seq_ref.set(dict(status=ObservationStatus.ERROR.name), merge=True)
@@ -106,7 +116,7 @@ def process_notebook(sequence_id: str,
         try:
             doc_updates = notebook_output['cells'][-4]['outputs'][0]['data']['application/json']
         except Exception as e:
-            typer.secho('Error getting output from notebook: {e!r}')
+            typer.secho(f'Error getting output from notebook: {e!r}')
 
         # Upload any assets to storage bucket.
         if upload:
@@ -114,13 +124,11 @@ def process_notebook(sequence_id: str,
                                          bucket=processed_bucket)
             doc_updates['urls'] = output_url_list
 
+        doc_updates['status'] = ObservationStatus.PROCESSED.name
+        doc_updates['time'] = parse_date(doc_updates['time'])
         seq_ref.set(doc_updates, merge=True)
-    finally:
+
         typer.secho(f'Finished processing for {sequence_id=} in {output_dir!r}')
-
-        # Specifically update the status.
-        seq_ref.set(dict(status=ObservationStatus.PROCESSED.name), merge=True)
-
         return output_url_list
 
 

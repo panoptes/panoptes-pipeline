@@ -4,8 +4,6 @@ from pathlib import Path
 from typing import Tuple, Optional
 
 from fastapi import FastAPI
-from google.cloud import firestore
-from google.cloud import pubsub
 from google.cloud import storage
 from panoptes.utils.serializers import from_json
 from pydantic import BaseModel, HttpUrl, ValidationError
@@ -18,8 +16,6 @@ from panoptes.pipeline.utils.metadata import ImageStatus
 
 app = FastAPI()
 storage_client = storage.Client()
-firestore_db = firestore.Client()
-publisher = pubsub.PublisherClient()
 
 PROJECT_ID = os.getenv('PROJECT_ID', 'panoptes-exp')
 EXTRACT_TOPIC = os.getenv('EXTRACT_STAMP_TOPIC', 'extract-stamps')

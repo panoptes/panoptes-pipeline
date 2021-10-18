@@ -54,4 +54,5 @@ input
 output
 notebooks/figures
 notebooks/tables
+notebooks/data
 .ipynb_checkpoints

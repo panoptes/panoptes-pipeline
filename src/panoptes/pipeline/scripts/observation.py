@@ -104,7 +104,7 @@ def process_notebook(sequence_id: str,
         try:
             exporter = HTMLExporter()
             html_body, html_resources = exporter.from_notebook_node(notebook_output)
-            with Path(out_notebook.replace('ipynb', 'html')).open() as f:
+            with Path(out_notebook.replace('ipynb', 'html')).open('w') as f:
                 f.write(html_body)
         except Exception as e:
             typer.secho(f'Problem converting rendered notebook to html: {e!r}')
@@ -124,7 +124,10 @@ def process_notebook(sequence_id: str,
                                          bucket=processed_bucket)
             doc_updates['urls'] = output_url_list
 
-        doc_updates['status'] = ObservationStatus.PROCESSED.name
+        # Update status if successfully processed.
+        if ObservationStatus[obs_status] > 0:
+            doc_updates['status'] = ObservationStatus.PROCESSED.name
+
         doc_updates['time'] = parse_date(doc_updates['time'])
         seq_ref.set(doc_updates, merge=True)
 

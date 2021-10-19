@@ -127,7 +127,7 @@ def process_notebook(sequence_id: str,
         if upload:
             output_url_list = upload_dir(output_dir, prefix=f'{sequence_path}/',
                                          bucket=processed_bucket)
-            doc_updates['urls'] = output_url_list
+            doc_updates['urls'] = [url.split('/')[-1] for url in output_url_list]
 
         # Update status if successfully processed.
         if ObservationStatus[doc_updates['status']] > 0:

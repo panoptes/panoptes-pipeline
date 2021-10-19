@@ -124,7 +124,7 @@ def process_observation(params: ObservationParams):
                                                            upload=params.upload,
                                                            force_new=params.force_new
                                                            )
-            return_dict = {'success': True, 'urls': [url.split('/')[-1] for url in public_url_list]}
+            return_dict = {'success': True, 'urls': public_url_list}
         except FileExistsError as e:
             print(f'Skipping already processed observation {sequence_id}')
             return_dict = {'success': False, 'error': f'{e!r}'}

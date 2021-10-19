@@ -17,6 +17,7 @@ from google.cloud import firestore, storage
 from tqdm.auto import tqdm
 
 from panoptes.pipeline.scripts.image import process_notebook as process_image_notebook
+from panoptes.pipeline.utils import error
 from panoptes.pipeline.utils.gcp.storage import upload_dir
 from panoptes.pipeline.utils.metadata import ObservationStatus
 
@@ -110,6 +111,9 @@ def process_notebook(sequence_id: str,
                 f.write(html_body)
         except Exception as e:
             typer.secho(f'Problem converting rendered notebook to html: {e!r}')
+    except error.TooFewFrames:
+        typer.secho('Not enough frames to process.')
+        seq_ref.set(dict(status=ObservationStatus.NOT_ENOUGH_FRAMES.name), merge=True)
     except Exception as e:
         typer.secho(f'Error processing notebook: {e!r}', color='yellow')
         seq_ref.set(dict(status=ObservationStatus.ERROR.name), merge=True)

@@ -254,7 +254,7 @@ def filter_plot(data, col, sequence_id):
     return fig
 
 
-def image_simple(d0, title=None):
+def image_simple(d0, title=None, output_file=None, savefig_kwargs=None):
     fig = Figure()
     fig.set_size_inches(18, 12)
     ax = fig.subplots()
@@ -270,6 +270,10 @@ def image_simple(d0, title=None):
 
     if title:
         ax.set_title(title)
+
+    if output_file:
+        savefig_kwargs = savefig_kwargs or dict()
+        fig.savefig(output_file, **savefig_kwargs)
 
     return fig
 

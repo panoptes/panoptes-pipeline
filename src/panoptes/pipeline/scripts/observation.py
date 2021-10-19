@@ -1,23 +1,21 @@
+import logging
+import multiprocessing
 import os
 import re
 import tempfile
-import logging
-from dateutil.parser import parse as parse_date
 from contextlib import suppress
 from pathlib import Path
 from typing import Optional
-import multiprocessing
+
+import papermill as pm
+import typer
+from dateutil.parser import parse as parse_date
+from google.cloud import firestore, storage
 from nbconvert import HTMLExporter
+from tqdm.auto import tqdm
 from traitlets.config import Config
 
-import typer
-import papermill as pm
-from google.cloud import firestore, storage
-
-from tqdm.auto import tqdm
-
 from panoptes.pipeline.scripts.image import process_notebook as process_image_notebook
-from panoptes.pipeline.utils import error
 from panoptes.pipeline.utils.gcp.storage import upload_dir
 from panoptes.pipeline.utils.metadata import ObservationStatus
 

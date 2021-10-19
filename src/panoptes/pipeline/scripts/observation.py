@@ -103,7 +103,7 @@ def process_notebook(sequence_id: str,
         # Convert to html.
         try:
             c = Config()
-            c.HTMLExporter.exclude_input_prompt = True
+            c.HTMLExporter.exclude_input = True
             html_body, html_resources = HTMLExporter(config=c).from_notebook_node(notebook_output)
             with Path(out_notebook.replace('ipynb', 'html')).open('w') as f:
                 f.write(html_body)

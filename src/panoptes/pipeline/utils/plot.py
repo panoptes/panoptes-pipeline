@@ -272,7 +272,7 @@ def image_simple(d0, title=None, output_file=None, savefig_kwargs=None):
         ax.set_title(title)
 
     if output_file:
-        savefig_kwargs = savefig_kwargs or dict()
+        savefig_kwargs = savefig_kwargs or dict(bbox_inches='tight')
         fig.savefig(output_file, **savefig_kwargs)
 
     return fig

@@ -111,12 +111,13 @@ def process_notebook(sequence_id: str,
                 f.write(html_body)
         except Exception as e:
             typer.secho(f'Problem converting rendered notebook to html: {e!r}')
-    except error.TooFewFrames:
-        typer.secho('Not enough frames to process.')
-        seq_ref.set(dict(status=ObservationStatus.NOT_ENOUGH_FRAMES.name), merge=True)
     except Exception as e:
-        typer.secho(f'Error processing notebook: {e!r}', color='yellow')
-        seq_ref.set(dict(status=ObservationStatus.ERROR.name), merge=True)
+        if 'TooFewFrames' in e:
+            typer.secho('Not enough frames to process.')
+            seq_ref.set(dict(status=ObservationStatus.NOT_ENOUGH_FRAMES.name), merge=True)
+        else:
+            typer.secho(f'Error processing notebook: {e!r}', color='yellow')
+            seq_ref.set(dict(status=ObservationStatus.ERROR.name), merge=True)
     else:
         doc_updates = dict()
         try:

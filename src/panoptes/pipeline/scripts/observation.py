@@ -110,7 +110,7 @@ def process_notebook(sequence_id: str,
         except Exception as e:
             typer.secho(f'Problem converting rendered notebook to html: {e!r}')
     except Exception as e:
-        if 'TooFewFrames' in e:
+        if 'TooFewFrames' in str(e):
             typer.secho('Not enough frames to process.')
             seq_ref.set(dict(status=ObservationStatus.NOT_ENOUGH_FRAMES.name), merge=True)
         else:

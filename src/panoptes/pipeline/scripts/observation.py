@@ -130,7 +130,7 @@ def process_notebook(sequence_id: str,
             doc_updates['urls'] = output_url_list
 
         # Update status if successfully processed.
-        if ObservationStatus[obs_status] > 0:
+        if ObservationStatus[doc_updates['status']] > 0:
             doc_updates['status'] = ObservationStatus.PROCESSED.name
 
         doc_updates['time'] = parse_date(doc_updates['time'])

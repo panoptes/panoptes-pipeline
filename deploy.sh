@@ -36,4 +36,4 @@ gcloud run deploy "${TOPIC/image/observation}" \
   --memory "8Gi" \
   --max-instances 50 \
   --concurrency 1 \
-  --timeout "20m"
+  --timeout "30m"

@@ -183,6 +183,10 @@ def plot_raw_bg_overlay(data, rgb_background, title=None, wcs=None, size=(18, 12
     if title is not None:
         ax.set_title(title)
 
+    height, width = data.shape
+    ax.set_xlim([0, width])
+    ax.set_ylim([0, height])
+
     return fig
 
 
@@ -226,6 +230,10 @@ def plot_bg_overlay(data, rgb_background, title=None, wcs=None, size=(18, 12)):
         ax.set_title(title)
 
     ax.grid(False)
+
+    height, width = data.shape
+    ax.set_xlim([0, width])
+    ax.set_ylim([0, height])
 
     return fig
 

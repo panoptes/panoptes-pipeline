@@ -1,3 +1,5 @@
 build
 input
 output
+notebooks/data
+**/.ipynb_checkpoints

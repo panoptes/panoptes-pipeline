@@ -13,7 +13,9 @@ ENV PYTHONUNBUFFERED True
 ENV PORT 8080
 
 RUN apt-get update && apt-get install --yes --no-install-recommends \
-    astrometry.net astrometry-data-tycho2 git
+    astrometry.net astrometry-data-tycho2 \
+    libcfitsio-bin \
+    git
 
 WORKDIR /build
 COPY . .

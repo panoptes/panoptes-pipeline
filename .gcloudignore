@@ -4,3 +4,4 @@ output
 notebooks/data
 notebooks/figures
 notebooks/tables
+.ipynb_checkpoints

@@ -4,7 +4,6 @@ services:
     build:
       context: .
       dockerfile: ./Dockerfile
-    restart: never
     init: true
     tty: true
     container_name: panoptes-pipeline

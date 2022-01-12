@@ -33,7 +33,7 @@ import papermill as pm
 
 
 class FileSettings(BaseModel):
-    reduced_filename: Path = 'image.fits'
+    reduced_filename: Path = 'reduced.fits'
     extras_filename: Path = 'extras.fits'
     metadata_filename: Path = 'metadata.json'
     sources_filename: Path = 'sources.parquet'
@@ -112,7 +112,7 @@ def process_notebook(fits_path: str,
 
         # Upload any assets to storage bucket.
         if upload:
-            output_url_list = upload_dir(output_dir, prefix=f'{full_image_id}/',
+            output_url_list = upload_dir(output_dir, prefix=f'{full_image_id}-',
                                          bucket=processed_bucket)
     finally:
         typer.secho(f'Finished processing for {fits_path} in {image_settings.output_dir!r}')

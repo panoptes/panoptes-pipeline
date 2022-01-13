@@ -31,7 +31,7 @@ numpy==1.17.2
 pandas==0.25.1
 panoptes-utils==0.0.8
 photutils==0.7.1
-pillow==8.3.2             # via imageio, scikit-image
+pillow==9.0.0             # via imageio, scikit-image
 protobuf==3.10.0          # via google-api-core, googleapis-common-protos
 psycopg2-binary==2.8.3
 pyasn1-modules==0.2.7     # via google-auth

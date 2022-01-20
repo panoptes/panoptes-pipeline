@@ -13,9 +13,21 @@ ENV PYTHONUNBUFFERED True
 ENV PORT 8080
 
 RUN apt-get update && apt-get install --yes --no-install-recommends \
-    astrometry.net astrometry-data-tycho2 \
-    libcfitsio-bin \
-    git
+    astrometry.net libcfitsio-bin git
+
+ADD http://data.astrometry.net/4100/index-4107.fits /usr/share/astrometry
+ADD http://data.astrometry.net/4100/index-4108.fits /usr/share/astrometry
+ADD http://data.astrometry.net/4100/index-4109.fits /usr/share/astrometry
+ADD http://data.astrometry.net/4100/index-4110.fits /usr/share/astrometry
+ADD http://data.astrometry.net/4100/index-4111.fits /usr/share/astrometry
+ADD http://data.astrometry.net/4100/index-4112.fits /usr/share/astrometry
+ADD http://data.astrometry.net/4100/index-4113.fits /usr/share/astrometry
+ADD http://data.astrometry.net/4100/index-4114.fits /usr/share/astrometry
+ADD http://data.astrometry.net/4100/index-4115.fits /usr/share/astrometry
+ADD http://data.astrometry.net/4100/index-4116.fits /usr/share/astrometry
+ADD http://data.astrometry.net/4100/index-4117.fits /usr/share/astrometry
+ADD http://data.astrometry.net/4100/index-4118.fits /usr/share/astrometry
+ADD http://data.astrometry.net/4100/index-4118.fits /usr/share/astrometry
 
 WORKDIR /build
 COPY . .

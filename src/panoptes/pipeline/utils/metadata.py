@@ -540,10 +540,11 @@ def record_metadata(bucket_path: str, metadata: dict, **kwargs) -> str:
             metadata['unit']['total_exptime'] = firestore.Increment(exptime)
             metadata['sequence']['total_exptime'] = firestore.Increment(exptime)
 
+        metadata['sequence']['received_time'] = firestore.SERVER_TIMESTAMP
+        metadata['image']['received_time'] = firestore.SERVER_TIMESTAMP
+
         unit_doc_ref.set(metadata['unit'], merge=True)
         sequence_doc_ref.set(metadata['sequence'], merge=True)
-
-        metadata['image']['received_time'] = firestore.SERVER_TIMESTAMP
         image_doc_ref.set(metadata['image'], merge=True)
 
     except Exception as e:

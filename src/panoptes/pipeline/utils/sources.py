@@ -131,8 +131,7 @@ def get_stars(
         results = bq_client.query(sql)
         if return_dataframe:
             results = results.result().to_dataframe()
-            print(
-                f'Found {len(results)} in Vmag=[{vmag_min}, {vmag_max}) and bounds=[{shape}]')
+            print(f'Found {len(results)} in Vmag=[{vmag_min}, {vmag_max}) and bounds=[{shape}]')
     except Exception as e:
         print(e)
 
@@ -254,8 +253,7 @@ def get_catalog_match(point_sources,
     )
 
     # Do catalog matching
-    print(
-        f'Matching {len(catalog_coords)} catalog stars to {len(stars_coords)} detected stars')
+    print(f'Matching {len(catalog_coords)} catalog stars to {len(stars_coords)} detected stars')
     idx, d2d, d3d = stars_coords.match_to_catalog_sky(catalog_coords)
     print(f'Got {len(idx)} matched sources (includes duplicates) for wcs={wcs.wcs.crval}')
 

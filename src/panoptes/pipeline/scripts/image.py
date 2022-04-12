@@ -99,7 +99,7 @@ def process_notebook(fits_path: str,
                             progress_bar=False,
                             )
     except Exception as e:
-        typer.secho(f'Problem processing notebook: {e!r}', color='yellow')
+        typer.secho(f'Problem processing notebook: {e!r}')
         image_doc_ref.set(dict(status=ImageStatus.ERROR.name), merge=True)
     else:
         with (Path(image_settings.output_dir) / 'metadata.json').open() as f:
@@ -250,7 +250,7 @@ def detect_sources(solved_wcs0, reduced_data, combined_bg_data, combined_bg_resi
     deblended_segments = segmentation.deblend_sources(reduced_data,
                                                       image_segments,
                                                       npixels=settings.params.catalog.num_detect_pixels,
-                                                      filter_kernel=kernel,
+                                                      kernel=kernel,
                                                       nlevels=32,
                                                       contrast=0.01)
     typer.secho(

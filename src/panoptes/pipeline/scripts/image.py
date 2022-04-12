@@ -243,7 +243,7 @@ def detect_sources(solved_wcs0, reduced_data, combined_bg_data, combined_bg_resi
     image_segments = segmentation.detect_sources(reduced_data,
                                                  threshold,
                                                  npixels=settings.params.catalog.num_detect_pixels,
-                                                 filter_kernel=kernel,
+                                                 kernel=kernel,
                                                  mask=reduced_data.mask
                                                  )
     typer.secho(f'De-blending image segments')

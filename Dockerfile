@@ -6,14 +6,25 @@ LABEL description="Development environment for working with the PIPELINE"
 LABEL maintainers="developers@projectpanoptes.org"
 LABEL repo="github.com/panoptes/panoptes-pipeline"
 
+ARG install_opts=""
+
 ENV DEBIAN_FRONTEND=noninteractive
 ENV LANG=C.UTF-8 LC_ALL=C.UTF-8
 ENV PYTHONUNBUFFERED True
 
 ENV PORT 8080
 
-RUN apt-get update && apt-get install --yes --no-install-recommends \
-    astrometry.net libcfitsio-bin git
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        astrometry.net source-extractor dcraw exiftool \
+        libcfitsio-dev libcfitsio-bin \
+        libpng-dev libjpeg-dev \
+        libfreetype6-dev \
+        libffi-dev && \
+    # Cleanup
+    apt-get autoremove --purge --yes && \
+    apt-get autoclean --yes && \
+    rm -rf /var/lib/apt/lists/*
 
 ADD http://data.astrometry.net/4100/index-4108.fits /usr/share/astrometry
 ADD http://data.astrometry.net/4100/index-4110.fits /usr/share/astrometry
@@ -30,7 +41,7 @@ ADD http://data.astrometry.net/4100/index-4119.fits /usr/share/astrometry
 WORKDIR /build
 COPY . .
 RUN pip install --upgrade pip && \
-    pip install --no-cache-dir "." && mkdir /input /output
+    pip install --no-cache-dir ".${install_opts}" && mkdir /input /output
 
 WORKDIR /app
 COPY ./services/* /app/

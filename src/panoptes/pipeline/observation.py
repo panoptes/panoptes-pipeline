@@ -1,7 +1,6 @@
 from typing import List
 from urllib.error import HTTPError
 
-import numpy.typing as npt
 import pandas
 import pandas as pd
 from google.cloud import firestore
@@ -28,7 +27,7 @@ def get_stamp_locations(sources_file_list: List[str]) -> pandas.DataFrame:
             pos_df = pd.read_parquet(url, columns=[settings.COLUMN_X, settings.COLUMN_Y])
             position_dfs.append(pos_df)
         except HTTPError as e:
-            logger.warning(f'Problem loading parquet at {url=} {e!r}')
+            logger.warning(f'Problem loading parquet at {url} {e!r}')
 
     num_frames = len(position_dfs)
     print(f'Combining {num_frames} position files')
@@ -50,14 +49,14 @@ def get_stamp_locations(sources_file_list: List[str]) -> pandas.DataFrame:
     y_catalog_diff = (xy_catalog.catalog_wcs_y.max() - xy_catalog.catalog_wcs_y.min()).max()
 
     if x_catalog_diff >= 18 or y_catalog_diff >= 18:
-        raise RuntimeError(f'Too much drift! {x_catalog_diff=} {y_catalog_diff}')
+        raise RuntimeError(f'Too much drift! {x_catalog_diff} {y_catalog_diff}')
 
     stamp_width = 10 if x_catalog_diff < 10 else 18
     stamp_height = 10 if y_catalog_diff < 10 else 18
 
     # Determine stamp size
     stamp_size = (stamp_width, stamp_height)
-    print(f'Using {stamp_size=}.')
+    print(f'Using {stamp_size}.')
 
     # Get the mean positions
     xy_mean = xy_catalog.mean()
@@ -94,14 +93,12 @@ def get_stamp_locations(sources_file_list: List[str]) -> pandas.DataFrame:
     return stamp_positions
 
 
-def make_stamps(stamp_positions: pandas.DataFrame,
-                data: npt.DTypeLike,
-                ) -> pandas.DataFrame:
+def make_stamps(stamp_positions, data) -> pandas.DataFrame:
     stamp_width = int(stamp_positions.stamp_x_max.mean() - stamp_positions.stamp_x_min.mean())
     stamp_height = int(stamp_positions.stamp_y_max.mean() - stamp_positions.stamp_y_min.mean())
     total_stamp_size = int(stamp_width * stamp_height)
     logger.debug(
-        f'Making stamps of {total_stamp_size=} for {len(stamp_positions)} sources from data {data.shape}')
+        f'Making stamps of {total_stamp_size} for {len(stamp_positions)} sources from data {data.shape}')
 
     stamps = []
     for picid, row in stamp_positions.iterrows():

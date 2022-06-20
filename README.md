@@ -4,22 +4,16 @@ PANOPTES Image Processing for the Extraction of Lightcurves in Nearby Exoplanets
 
 ## Description
 
-So many planets, such little time...
+This repository contains code that allows for the processing and discovering of [PANOPTES](https://www.projectpanoptes.org) data.
 
-### Deploy
+Most processing is done in the cloud using dedicated Google Cloud Platform services, but the code contained in this repository can be used to process results locally.
 
-See [Deployment](../README.md#deploy) in main README for preferred deployment method.
+In general the processing is set up as series of Jupyter Notebooks that are processed automatically using [papermill](https://papermill.readthedocs.io/en/latest/). The processed notebooks are stored as artifcats in storage buckets.
 
-#### Notification Creation
+## Usage
 
-The bucket notification only needs to be created once, which can be done with the following command:
+### Online
 
-```sh
-gsutil notification create -t process-raw-image -f json -e OBJECT_FINALIZE gs://panoptes-images-raw/
-```
+#### Binder
 
-You can list existing notifications with:
-
-```sh
-gsutil notification list gs://panoptes-images-incoming/
-```
+[![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/panoptes/panoptes-pipeline/prepare-cleanup)

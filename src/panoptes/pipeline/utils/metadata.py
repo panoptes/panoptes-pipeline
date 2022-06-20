@@ -1,4 +1,5 @@
 import re
+import warnings
 import traceback
 from enum import IntEnum, auto
 from contextlib import suppress
@@ -17,12 +18,17 @@ from astropy.coordinates import SkyCoord
 from astropy.time import Time
 from astropy.io.fits.header import Header
 from astropy.utils.data import download_file
+from astropy.nddata import CCDData, Cutout2D
+from astropy.wcs import WCS, FITSFixedWarning
 
 from loguru import logger
 
 from panoptes.utils.utils import listify
 from panoptes.utils.time import current_time, flatten_time
 from panoptes.utils.images import fits as fits_utils
+
+
+warnings.filterwarnings('ignore', category=FITSFixedWarning)
 
 
 class SequenceStatus(IntEnum):
@@ -57,7 +63,9 @@ class ObservationStatus(IntEnum):
     PROCESSED = 35
 
 
+IMG_BASE_URL = 'https://storage.googleapis.com/'
 OBS_BASE_URL = 'https://storage.googleapis.com/panoptes-observations'
+IMG_METADATA_URL = 'https://us-central1-panoptes-exp.cloudfunctions.net/get-observation-metadata'
 OBSERVATIONS_URL = 'https://storage.googleapis.com/panoptes-exp.appspot.com/observations.csv'
 
 PATH_MATCHER: Pattern[str] = re.compile(r"""^
@@ -121,7 +129,7 @@ class ObservationPathInfo:
         if self.path is not None:
             path_match = PATH_MATCHER.match(self.path)
             if path_match is None:
-                raise ValueError(f'Invalid path received: {self.path=}')
+                raise ValueError(f'Invalid path received: {self.path}')
 
             self.unit_id = path_match.group('unit_id')
             self.camera_id = path_match.group('camera_id')
@@ -188,6 +196,37 @@ class ObservationPathInfo:
 
         return new_instance
 
+
+class ObservationInfo():
+    def __init__(self, sequence_id):
+        """Initialize the observation info with a sequence_id"""
+        self.firestore_db = firestore.Client()
+        
+        self.sequence_id = sequence_id
+        self.image_metadata = get_observation_metadata(self.sequence_id, firestore_db=self.firestore_db)
+        self.raw_images = get_observation_images(self.image_metadata)
+        self.processed_images = get_observation_images(self.image_metadata, raw=False)
+        
+    def get_image_data(self, idx=0, coords=None, box_size=None, use_raw=True):
+        """Downloads the image data."""
+        
+        if use_raw:
+            image_list = self.raw_images
+        else:
+            image_list = self.processed_images
+            
+        data_img = image_list[idx]
+        wcs_img = self.processed_images[idx]
+        
+        data0 = fits_utils.getdata(data_img)
+        wcs0 = fits_utils.getwcs(wcs_img)
+        ccd0 = CCDData(data0, wcs=wcs0, unit='adu')
+            
+        if coords is not None and box_size is not None:
+            ccd0 = Cutout2D(ccd0, coords, box_size)
+
+        return ccd0
+                
 
 def extract_metadata(header: Header) -> dict:
     """Get the metadata from a FITS image."""
@@ -263,66 +302,33 @@ def extract_metadata(header: Header) -> dict:
     return dict(unit=unit_info, sequence=sequence_info, image=image_info)
 
 
-def get_observation_metadata(sequence_ids, fields=None, show_progress=False):
-    """Get the metadata for the given sequence_id(s).
+def get_observation_metadata(sequence_id):
+    """Download the image metadata associated with the observation."""
+    images_df = pd.read_csv(f'{IMG_METADATA_URL}?sequence_id={sequence_id}')
 
-    NOTE: This is slated for removal soon.
+    # Set a time index.
+    images_df.time = pd.to_datetime(images_df.time)
+    images_df = images_df.set_index(['time']).sort_index()
 
-    This function will search for pre-processed observations that have a stored
-    parquet file.
-
-    Note that since the files are stored in parquet format, specifying the `fields`
-    does in fact save on the size of the returned data. If requesting many `sequence_ids`
-    it may be worth figuring out exactly what columns you need first.
-
-    Args:
-        sequence_ids (list): A list of sequence_ids as strings.
-        fields (list|None):  A list of fields to fetch from the database in addition
-            to the 'time' and 'sequence_id' columns. If None, returns all fields.
-        show_progress (bool): If True, show a progress bar, default False.
-
-    Returns:
-        `pandas.DataFrame`: DataFrame containing the observation metadata.
-    """
-    sequence_ids = listify(sequence_ids)
-
-    observation_dfs = list()
-
-    if show_progress:
-        iterator = tqdm(sequence_ids, desc='Getting image metadata')
+    print(f'Found {len(images_df)} images in observation')
+    
+    return images_df
+    
+    
+def get_observation_images(images_df, raw=True):
+    """Get the images for the observation."""
+    if raw:
+        bucket = 'panoptes-images-raw'
+        file_ext = '.fits.fz'
     else:
-        iterator = sequence_ids
-
-    logger.debug(f'Getting images metadata for {len(sequence_ids)} files')
-    for sequence_id in iterator:
-        df_file = f'{OBS_BASE_URL}/{sequence_id}-metadata.parquet'
-        if fields:
-            fields = listify(fields)
-            # Always return the ID fields.
-            fields.insert(0, 'time')
-            fields.insert(1, 'sequence_id')
-            fields = list(set(fields))
-        try:
-            df = pd.read_parquet(df_file, columns=fields)
-        except Exception as e:
-            logger.warning(f'Problem reading {df_file}: {e!r}')
-        else:
-            observation_dfs.append(df)
-
-    if len(observation_dfs) == 0:
-        logger.info(f'No documents found for sequence_ids={sequence_ids}')
-        return
-
-    df = pd.concat(observation_dfs)
-
-    # Return column names in sorted order
-    df = df.reindex(sorted(df.columns), axis=1)
-
-    # TODO(wtgee) any data cleaning or preparation for observations here.
-
-    logger.success(f'Returning {len(df)} rows of metadata sorted by time')
-    return df.sort_values(by=['time'])
-
+        bucket = 'panoptes-images-processed'
+        file_ext = '-reduced.fits.fz'
+        
+    image_list = [IMG_BASE_URL + bucket + '/' + str(s).replace("_", "/") + file_ext for s in images_df.uid.values]
+    
+    return image_list
+    
+    
 
 def search_observations(
         coords=None,
@@ -332,10 +338,12 @@ def search_observations(
         ra=None,
         dec=None,
         radius=10,  # degrees
-        status='matched',
+        status='CREATED',
         min_num_images=1,
         source_url=OBSERVATIONS_URL,
-        source=None
+        source=None,
+        ra_col='coordinates_mount_ra',
+        dec_col='coordinates_mount_dec',
 ):
     """Search PANOPTES observations.
 
@@ -428,9 +436,9 @@ def search_observations(
     # Perform filtering on other fields here.
     logger.debug(f'Filtering observations')
     obs_df.query(
-        f'dec >= {dec_min} and dec <= {dec_max}'
+        f'{dec_col} >= {dec_min} and {dec_col} <= {dec_max}'
         ' and '
-        f'ra >= {ra_min} and ra <= {ra_max}'
+        f'{ra_col} >= {ra_min} and {ra_col} <= {ra_max}'
         ' and '
         f'time >= "{start_date}"'
         ' and '
@@ -475,7 +483,7 @@ def search_observations(
     ]
 
     logger.success(f'Returning {len(obs_df)} observations')
-    return obs_df.reindex(columns=columns)
+    return obs_df #.reindex(columns=columns)
 
 
 def get_firestore_refs(
@@ -518,7 +526,7 @@ def record_metadata(bucket_path: str, metadata: dict, **kwargs) -> str:
     if not metadata:
         raise RuntimeError('Need valid metadata')
 
-    print(f'Recording header metadata in firestore for {bucket_path=}')
+    print(f'Recording header metadata in firestore for {bucket_path}')
 
     path_info = ObservationPathInfo(path=bucket_path)
     sequence_id = path_info.sequence_id
@@ -546,5 +554,5 @@ def record_metadata(bucket_path: str, metadata: dict, **kwargs) -> str:
         print(f'Error in adding record: {traceback.format_exc()!r}')
         raise e
     else:
-        print(f'Recorded metadata for {path_info.get_full_id()} with {image_doc_ref.id=}')
+        print(f'Recorded metadata for {path_info.get_full_id()} with id={image_doc_ref.id}')
         return image_doc_ref.path

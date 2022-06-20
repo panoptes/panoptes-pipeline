@@ -65,6 +65,7 @@ class ObservationStatus(IntEnum):
 
 IMG_BASE_URL = 'https://storage.googleapis.com/'
 OBS_BASE_URL = 'https://storage.googleapis.com/panoptes-observations'
+IMG_METADATA_URL = 'https://us-central1-panoptes-exp.cloudfunctions.net/get-observation-metadata'
 OBSERVATIONS_URL = 'https://storage.googleapis.com/panoptes-exp.appspot.com/observations.csv'
 
 PATH_MATCHER: Pattern[str] = re.compile(r"""^
@@ -301,32 +302,15 @@ def extract_metadata(header: Header) -> dict:
     return dict(unit=unit_info, sequence=sequence_info, image=image_info)
 
 
-def get_observation_metadata(sequence_id, firestore_db = None):
+def get_observation_metadata(sequence_id):
     """Download the image metadata associated with the observation."""
-    firestore_db = firestore_db or firestore.Client()
-
-    unit_id, camera_id, sequence_time = sequence_id.split('_')
-
-    # Get sequence information
-    sequence_doc_path = f'units/{unit_id}/observations/{sequence_id}'
-    sequence_doc_ref = firestore_db.document(sequence_doc_path)
-    
-    sequence_info = sequence_doc_ref.get().to_dict()
-
-    exptime = sequence_info['total_exptime'] / sequence_info['num_images']
-    sequence_info['exptime'] = int(exptime)
-    
-    # Get and show the metadata about the observation.
-    matched_query = sequence_doc_ref.collection('images')
-    matched_docs = [d.to_dict() for d in matched_query.stream()]
-    images_df = pd.json_normalize(matched_docs, sep='_')
+    images_df = pd.read_csv(f'{IMG_METADATA_URL}?sequence_id={sequence_id}')
 
     # Set a time index.
     images_df.time = pd.to_datetime(images_df.time)
     images_df = images_df.set_index(['time']).sort_index()
 
-    num_frames = len(images_df)
-    print(f'Found {num_frames} images in observation')
+    print(f'Found {len(images_df)} images in observation')
     
     return images_df
     

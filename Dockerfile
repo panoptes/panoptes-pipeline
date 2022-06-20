@@ -1,4 +1,4 @@
-FROM debian:11-slim
+FROM continuumio/miniconda3
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \

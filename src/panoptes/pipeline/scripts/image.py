@@ -203,6 +203,13 @@ def match_sources(detected_sources: pandas.DataFrame, solved_wcs0: WCS, settings
         f'catalog_wcs_y_int > {image_edge} and '
         f'catalog_wcs_y_int < {settings.params.camera.image_height - image_edge}'
     ).copy()
+    
+    # Remove catalog matches that are too far away.
+    if settings.params.catalog.max_separation_arcsec is not None:
+        max_separation_arcsec = settings.params.catalog.max_separation_arcsec
+        print(f'Removing matches > {max_separation_arcsec} arcsec from catalog.')
+        matched_sources = matched_sources.query('catalog_sep <= @max_separation_arcsec')
+    
     typer.secho(f'Found {len(matched_sources)} matching sources')
 
     # There should not be too many duplicates at this point and they are returned in order
@@ -243,14 +250,14 @@ def detect_sources(solved_wcs0, reduced_data, combined_bg_data, combined_bg_resi
     image_segments = segmentation.detect_sources(reduced_data,
                                                  threshold,
                                                  npixels=settings.params.catalog.num_detect_pixels,
-                                                 filter_kernel=kernel,
+                                                 kernel=kernel,
                                                  mask=reduced_data.mask
                                                  )
     typer.secho(f'De-blending image segments')
     deblended_segments = segmentation.deblend_sources(reduced_data,
                                                       image_segments,
                                                       npixels=settings.params.catalog.num_detect_pixels,
-                                                      filter_kernel=kernel,
+                                                      kernel=kernel,
                                                       nlevels=32,
                                                       contrast=0.01)
     typer.secho(
@@ -288,8 +295,7 @@ def detect_sources(solved_wcs0, reduced_data, combined_bg_data, combined_bg_resi
     return detected_sources
 
 
-def plate_solve(settings: Settings, filename=None):
-    filename = filename or settings.files.reduced_filename
+def plate_solve(filename):
     typer.secho(f'Plate solving {filename}')
     solved_headers = fits_utils.get_solve_field(str(filename),
                                                 skip_solved=False,

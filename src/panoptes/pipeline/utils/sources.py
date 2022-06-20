@@ -14,7 +14,7 @@ def get_stars_from_coords(ra: float, dec: float, radius: float = 8.0, **kwargs) 
         dec_min=dec - radius,
     )
 
-    print(f'Using {limits=} for get_stars')
+    print(f'Using limits={limits} for get_stars')
     catalog_stars = get_stars(shape=limits, **kwargs)
 
     return catalog_stars
@@ -49,7 +49,7 @@ def get_stars_from_wcs(wcs0: WCS, round_to: int = 0, pad: float = 1.0, pad_size=
         dec_min=dec_min
     )
 
-    print(f'Searching square shape with {round_to=} and {pad=}: {limits!r}')
+    print(f'Searching square shape with round_to={round_to} and pad={pad}: {limits!r}')
     catalog_stars = get_stars(shape=limits, **kwargs)
 
     return catalog_stars
@@ -121,7 +121,7 @@ def get_stars(
         (vmag_partition BETWEEN {vmag_min} AND {vmag_max - 1})
     """
 
-    print(f'{sql=}')
+    print(f'sql={sql}')
 
     if bq_client is None or bqstorage_client is None:
         bq_client, bqstorage_client = get_bq_clients()
@@ -142,7 +142,6 @@ def get_stars(
 def get_catalog_match(point_sources,
                       wcs=None,
                       catalog_stars=None,
-                      max_separation_arcsec=None,
                       ra_column='measured_ra',
                       dec_column='measured_dec',
                       **kwargs):
@@ -201,10 +200,6 @@ def get_catalog_match(point_sources,
         The best policy would be to try to minimize calls to this function. The
         resulting dataframe can be saved locally with `point_sources.to_csv(path_name)`.
 
-    If a `max_separation_arcsec` is given then results will be filtered if their
-    match with `source-extractor` was larger than the number given. Typical values would
-    be in the range of 20-30 arcsecs, which corresponds to 2-3 pixels.
-
     Returns:
         `pandas.DataFrame`: A dataframe with the catalog information added to the
         sources.
@@ -220,8 +215,6 @@ def get_catalog_match(point_sources,
         ra_column (str): The column name to use for the RA coordinates, default `measured_ra`.
         dec_column (str): The column name to use for the Dec coordinates, default `measured_dec`.
         origin (int, optional): The origin for catalog matching, either 0 or 1 (default).
-        max_separation_arcsec (float|None, optional): If not None, sources more
-            than this many arcsecs from catalog will be filtered.
         return_unmatched (bool, optional): If all results from catalog should be
             returned, not just those with a positive match.
         origin (int): The origin for the WCS. See `all_world2pix`. Default 1.
@@ -288,13 +281,6 @@ def get_catalog_match(point_sources,
     #     new_column_order.remove(col)
     #     new_column_order.insert(i, col)
     # matched_sources = matched_sources.reindex(columns=new_column_order)
-
-    print(f'Point sources: {len(matched_sources)} for wcs={wcs.wcs.crval!r}')
-
-    # Remove catalog matches that are too far away.
-    if max_separation_arcsec is not None:
-        print(f'Removing matches > {max_separation_arcsec} arcsec from catalog.')
-        matched_sources = matched_sources.query('catalog_sep <= @max_separation_arcsec')
 
     print(f'Returning matched sources: {len(matched_sources)} for wcs={wcs.wcs.crval!r}')
     return matched_sources

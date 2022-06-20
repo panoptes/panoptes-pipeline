@@ -25,8 +25,8 @@ ADD http://data.astrometry.net/4100/index-4118.fits /usr/share/astrometry
 ADD http://data.astrometry.net/4100/index-4119.fits /usr/share/astrometry
 
 RUN conda update -n base conda && \
-    conda init && \
-    conda create -n pipeline -c conda-forge \
+    conda install -c conda-forge mamba && \
+    mamba install -c conda-forge \
         astropy astroplan astroquery photutils \
         scipy numpy pandas scikit-learn scikit-image numexpr \
         bokeh seaborn plotly panel \

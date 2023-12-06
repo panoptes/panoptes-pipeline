@@ -14,7 +14,8 @@ from astropy.wcs import WCS
 from google.cloud import firestore, storage
 from photutils import segmentation
 from photutils.utils import calc_total_error
-from pydantic import BaseModel, BaseSettings
+from pydantic import BaseModel
+from pydantic_settings import BaseSettings
 from loguru import logger
 
 from panoptes.pipeline.settings import PipelineParams
@@ -243,14 +244,12 @@ def detect_sources(solved_wcs0, reduced_data, combined_bg_data, combined_bg_resi
     image_segments = segmentation.detect_sources(reduced_data,
                                                  threshold,
                                                  npixels=settings.params.catalog.num_detect_pixels,
-                                                 filter_kernel=kernel,
                                                  mask=reduced_data.mask
                                                  )
     typer.secho(f'De-blending image segments')
     deblended_segments = segmentation.deblend_sources(reduced_data,
                                                       image_segments,
                                                       npixels=settings.params.catalog.num_detect_pixels,
-                                                      filter_kernel=kernel,
                                                       nlevels=32,
                                                       contrast=0.01)
     typer.secho(
@@ -288,12 +287,12 @@ def detect_sources(solved_wcs0, reduced_data, combined_bg_data, combined_bg_resi
     return detected_sources
 
 
-def plate_solve(settings: Settings, filename=None):
+def plate_solve(settings: Settings, filename=None, **kwargs):
     filename = filename or settings.files.reduced_filename
     typer.secho(f'Plate solving {filename}')
     solved_headers = fits_utils.get_solve_field(str(filename),
                                                 skip_solved=False,
-                                                timeout=300)
+                                                timeout=300, **kwargs)
     solved_path = solved_headers.pop('solved_fits_file')
     typer.secho(f'Solving completed successfully for {solved_path}')
     solved_wcs0 = WCS(solved_headers)

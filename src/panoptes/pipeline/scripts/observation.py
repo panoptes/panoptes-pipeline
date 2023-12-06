@@ -10,7 +10,6 @@ import multiprocessing
 import typer
 import papermill as pm
 from google.cloud import firestore, storage
-from google.cloud import pubsub_v1
 
 from tqdm.auto import tqdm
 

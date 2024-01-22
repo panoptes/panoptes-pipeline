@@ -1,32 +1,28 @@
 import re
-import warnings
 import traceback
-from enum import IntEnum, auto
+import warnings
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import datetime
+from enum import IntEnum
 from pathlib import Path
-from typing import Pattern, Union, Optional, Tuple
+from typing import Pattern, Union, Tuple
 
-from dateutil.parser import parse as parse_date
-from dateutil.tz import UTC
 import pandas as pd
-from google.cloud import firestore
-from tqdm.auto import tqdm
 from astropy import units as u
 from astropy.coordinates import SkyCoord
-from astropy.time import Time
 from astropy.io.fits.header import Header
-from astropy.utils.data import download_file
 from astropy.nddata import CCDData, Cutout2D
-from astropy.wcs import WCS, FITSFixedWarning
-
+from astropy.time import Time
+from astropy.utils.data import download_file
+from astropy.wcs import FITSFixedWarning
+from dateutil.parser import parse as parse_date
+from dateutil.tz import UTC
+from google.cloud import firestore
 from loguru import logger
-
-from panoptes.utils.utils import listify
-from panoptes.utils.time import current_time, flatten_time
 from panoptes.utils.images import fits as fits_utils
-
+from panoptes.utils.time import current_time, flatten_time
+from panoptes.utils.utils import listify
 
 warnings.filterwarnings('ignore', category=FITSFixedWarning)
 
@@ -64,9 +60,8 @@ class ObservationStatus(IntEnum):
 
 
 IMG_BASE_URL = 'https://storage.googleapis.com/'
-OBS_BASE_URL = 'https://storage.googleapis.com/panoptes-observations'
-IMG_METADATA_URL = 'https://us-central1-panoptes-exp.cloudfunctions.net/get-observation-metadata'
-OBSERVATIONS_URL = 'https://storage.googleapis.com/panoptes-exp.appspot.com/observations.csv'
+IMG_METADATA_URL = 'https://us-central1-project-panoptes-01.cloudfunctions.net/get-observation-info'
+OBSERVATIONS_URL = 'https://storage.googleapis.com/panoptes-assets/observations.csv'
 
 PATH_MATCHER: Pattern[str] = re.compile(r"""^
                                 (?P<pre_info>.*)?                       # Anything before unit_id

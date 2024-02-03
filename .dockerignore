@@ -1,3 +1,7 @@
 build
-input
-output
+.ipynb_checkpoints
+# Ignore everything in notebooks
+notebooks
+# Except the notebooks
+!notebooks/ProcessFITS.ipynb
+!notebooks/ProcessObservation.ipynb

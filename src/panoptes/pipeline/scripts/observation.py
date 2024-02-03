@@ -15,7 +15,7 @@ from tqdm.auto import tqdm
 
 from panoptes.pipeline.scripts.image import process_notebook as process_image_notebook
 from panoptes.pipeline.utils.gcp.storage import upload_dir
-from panoptes.pipeline.utils.metadata import ObservationStatus
+from panoptes.data.images import ImagePathInfo
 
 app = typer.Typer()
 
@@ -109,8 +109,7 @@ def process_notebook(sequence_id: str,
 
         # Upload any assets to storage bucket.
         if upload:
-            output_url_list = upload_dir(output_dir, prefix=f'{sequence_path}/',
-                                         bucket=processed_bucket)
+            output_url_list = upload_dir(output_dir, prefix=f'{sequence_path}', bucket=processed_bucket)
             doc_updates['urls'] = output_url_list
 
         seq_ref.set(doc_updates, merge=True)

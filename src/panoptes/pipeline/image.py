@@ -8,7 +8,7 @@ from astropy.coordinates import SkyCoord, HADec, EarthLocation
 from astropy.io import fits
 from astropy.stats import gaussian_fwhm_to_sigma
 from astropy.wcs import WCS
-from panoptes.data.observations import ObservationPathInfo
+from panoptes.data.images import ImagePathInfo
 from photutils import segmentation
 from photutils.utils import calc_total_error
 from pydantic import BaseModel
@@ -48,7 +48,7 @@ def process_notebook(fits_path: str,
     print(f'Starting image processing for {fits_path} in {output_dir!r}')
     print(f'Checking if got a fits file at {fits_path}')
     try:
-        path_info = ObservationPathInfo(path=fits_path)
+        path_info = ImagePathInfo(path=fits_path)
     except ValueError as e:
         raise RuntimeError(f'Need a FITS file, got {fits_path}')
 
@@ -88,7 +88,7 @@ def save_fits(filename, data_list, header, force_new=False):
     print(f'Saved {len(data_list)} dataset(s) to {filename}')
 
 
-def get_metadata(settings: Settings, path_info: ObservationPathInfo) -> dict:
+def get_metadata(settings: Settings, path_info: PathInfo) -> dict:
     header = fits.getheader(settings.files.reduced_filename)
 
     # Puts metadata into better structures.

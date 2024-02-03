@@ -1,7 +1,7 @@
 from typing import Tuple
 
 from google.cloud import firestore
-from panoptes.data.observations import ObservationPathInfo
+from panoptes.data.images import ImagePathInfo
 
 
 def get_firestore_refs(
@@ -14,7 +14,7 @@ def get_firestore_refs(
     """Gets the firestore image document reference"""
     firestore_db = firestore_db or firestore.Client()
 
-    path_info = ObservationPathInfo(path=bucket_path)
+    path_info = ImagePathInfo(path=bucket_path)
     sequence_id = path_info.sequence_id
     image_id = path_info.image_id
 

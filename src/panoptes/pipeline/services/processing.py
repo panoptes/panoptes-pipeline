@@ -6,7 +6,7 @@ from typing import Tuple, Optional
 from fastapi import FastAPI
 from google.cloud import firestore
 from google.cloud import storage
-from panoptes.data.observations import ObservationPathInfo
+from panoptes.data.images import ImagePathInfo
 from panoptes.utils.serializers import from_json
 from pydantic import BaseModel, HttpUrl, ValidationError
 
@@ -84,7 +84,7 @@ def process_image(bucket_path, image_settings: ImageSettings, upload: bool = Tru
     print(f'Updating status for {bucket_path} to {ImageStatus.PROCESSING.name}')
     image_doc_ref.set({'status': ImageStatus.PROCESSING.name}, merge=True)
 
-    path_info = ObservationPathInfo(path=bucket_path)
+    path_info = ImagePathInfo(path=bucket_path)
 
     upload_prefix = path_info.get_full_id(sep='/')
     upload_bucket = processing_bucket

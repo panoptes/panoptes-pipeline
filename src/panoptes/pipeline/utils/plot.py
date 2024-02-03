@@ -169,7 +169,7 @@ def plot_raw_bg_overlay(data, rgb_background, title=None, wcs=None, size=(18, 12
 
     ax.imshow(data, origin='lower', norm=simple_norm(data, 'log', min_cut=0), cmap='Greys')
     ax.grid(False)
-    rgb_background.plot_meshes(axes=ax, outlines=True, alpha=0.3, marker='', color='red')
+    rgb_background.plot_meshes(ax=ax, outlines=True, alpha=0.3, marker='', color='red')
 
     if title is not None:
         ax.set_title(title)
@@ -210,7 +210,7 @@ def plot_bg_overlay(data, rgb_background, title=None, wcs=None, size=(18, 12)):
     fig.set_size_inches(*size)
 
     im = ax.imshow(data, origin='lower', cmap='Greys_r', norm=simple_norm(data, 'linear'))
-    rgb_background.plot_meshes(axes=ax, outlines=True, alpha=0.1, marker='', color='red')
+    rgb_background.plot_meshes(ax=ax, outlines=True, alpha=0.1, marker='', color='red')
     plot.add_colorbar(im)
 
     if title is not None:

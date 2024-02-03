@@ -1,7 +1,8 @@
 from pathlib import Path
 from typing import Tuple, Optional
 
-from pydantic import BaseModel, BaseSettings
+from pydantic import BaseModel
+from pydantic_settings import BaseSettings
 
 
 class CameraSettings(BaseModel):

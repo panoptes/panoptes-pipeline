@@ -1,6 +1,7 @@
 import google.auth
 from google.cloud import bigquery
 from google.cloud import bigquery_storage
+import pandas_gbq
 
 
 def get_bq_clients():
@@ -21,3 +22,8 @@ def get_bq_clients():
     bqstorageclient = bigquery_storage.BigQueryReadClient(credentials=credentials)
 
     return bqclient, bqstorageclient
+
+
+def to_bigquery(df, table_id='images.sources', project_id='project-panoptes-01'):
+    """Save a dataframe to a BigQuery table."""
+    pandas_gbq.to_gbq(df, table_id, project_id=project_id, if_exists='append')

@@ -88,14 +88,14 @@ def save_fits(filename, data_list, header, force_new=False):
     print(f'Saved {len(data_list)} dataset(s) to {filename}')
 
 
-def get_metadata(settings: Settings, path_info: PathInfo) -> dict:
+def get_metadata(settings: Settings, path_info: ImagePathInfo) -> dict:
     header = fits.getheader(settings.files.reduced_filename)
 
     # Puts metadata into better structures.
     metadata = extract_metadata(header, path_info)
     wcs_meta = WCS(header).to_header(relax=True)
 
-    obstime = metadata['image']['time']
+    obstime = metadata['image']['image_time']
 
     # Clean up the coordinates and get the HA and AltAz.
     radec_coord = SkyCoord(ra=wcs_meta['CRVAL1'],

@@ -16,6 +16,8 @@ from panoptes.pipeline.scripts.observation import process_notebook as process_ob
 from panoptes.pipeline.utils.gcp.firestore import get_firestore_refs
 from panoptes.data.images import ImageStatus
 
+from panoptes.pipeline.utils.gcp.storage import move_blob_to_bucket, upload_dir
+
 app = FastAPI()
 storage_client = storage.Client()
 firestore_db = firestore.Client()
@@ -134,24 +136,15 @@ def process_image(bucket_path, image_settings: ImageSettings, upload: bool = Tru
                 raise FileNotFoundError(f'No metadata file found in {image_settings.output_dir}!')
         finally:
             # Move image from the incoming bucket to the processed bucket using the mounted volumes.
-            try:
-                ext = '.fits' if image_settings.compress_fits is False else '.fits.fz'
-                outgoing_image_path = path_info.as_path(base=f'/{upload_bucket}', ext=ext)
-                print(f'Moving {incoming_image_path} to {outgoing_image_path}')
-                Path(incoming_image_path).rename(outgoing_image_path)
-                return_dict['processed_bucket_path'] = outgoing_image_path
-            except Exception as e3:
-                print(f'Error moving {incoming_image_path} to {upload_bucket}: {e3!r}')
-                return_dict['error_3'] = f'{e3!r}'
+            upload_bucket = storage_client.get_bucket(upload_bucket)
+            new_blob = move_blob_to_bucket(bucket_path, storage_client.get_bucket(incoming_bucket), upload_bucket)
+            return_dict['processed_bucket_path'] = new_blob.id
 
             # Copy any assets to the upload bucket.
             if upload:
-                output_url_list = list()
-                for fn in Path(output_dir).glob('*'):
-                    print(f'Moving {fn} to {upload_bucket}')
-                    new_path = Path(fn).rename(f'{upload_bucket}/{fn.name}')
-                    output_url_list.append(new_path.as_posix())
-
+                output_url_list = upload_dir(Path(output_dir),
+                                             prefix=path_info.get_full_id(sep='/'),
+                                             bucket=upload_bucket)
                 return_dict['output_url_list'] = output_url_list
 
     print(f'Finished processing for {bucket_path} in {image_settings.output_dir!r}')

@@ -17,13 +17,14 @@ def process_image_notebook(fits_path: str,
     print(f'Starting image processing for {fits_path} in {output_dir!r}')
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    output_notebook = None
     try:
         # Run papermill process to execute the notebook.
-        process_notebook(fits_path, input_notebook, output_dir=output_dir)
+        output_notebook, has_errors = process_notebook(fits_path, input_notebook, output_dir=output_dir)
     except Exception as e:
         print(f'Error processing {fits_path}: {e!r}')
 
-    return
+    return output_notebook
 
 
 if __name__ == '__main__':

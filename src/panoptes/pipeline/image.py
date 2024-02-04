@@ -44,7 +44,7 @@ def process_notebook(fits_path: str,
                      input_notebook: Path,
                      output_dir: Path = Path('.'),
                      settings: Settings = None
-                     ) -> str:
+                     ) -> (str, bool):
     print(f'Starting image processing for {fits_path} in {output_dir!r}')
     print(f'Checking if got a fits file at {fits_path}')
     try:
@@ -60,6 +60,7 @@ def process_notebook(fits_path: str,
 
     # Run papermill process to execute the notebook.
     out_notebook = f'{output_dir}/{path_info.get_full_id()}-processing.ipynb'
+    has_errors = False
     try:
         pm.execute_notebook(str(input_notebook),
                             str(out_notebook),
@@ -72,9 +73,10 @@ def process_notebook(fits_path: str,
                             )
 
     except Exception as e:
+        has_errors = True
         print(f'Problem processing image for {fits_path}: {e!r}')
 
-    return out_notebook
+    return out_notebook, has_errors
 
 
 def save_fits(filename, data_list, header, force_new=False):

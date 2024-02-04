@@ -14,7 +14,6 @@ from panoptes.pipeline.image import Settings as ImageSettings
 from panoptes.pipeline.image import process_notebook
 from panoptes.pipeline.scripts.observation import process_notebook as process_observation_notebook
 from panoptes.pipeline.utils.gcp.firestore import get_firestore_refs
-from panoptes.pipeline.utils.gcp.storage import move_blob_to_bucket
 from panoptes.data.images import ImageStatus
 from panoptes.pipeline.utils.gcp.storage import upload_dir
 
@@ -26,9 +25,9 @@ PROJECT_ID = os.getenv('PROJECT_ID', 'panoptes-project-01')
 ROOT_URL = os.getenv('PUBLIC_URL_BASE', 'https://storage.googleapis.com')
 INPUT_NOTEBOOK = os.getenv('INPUT_NOTEBOOK', '/app/notebooks/ProcessFITS.ipynb')
 
-processing_bucket = storage_client.get_bucket(os.getenv('OUTPUT_BUCKET', 'panoptes-processed-images'))
-incoming_bucket = storage_client.get_bucket(os.getenv('INPUT_BUCKET', 'panoptes-image-processing'))
-error_bucket = storage_client.get_bucket(os.getenv('ERROR_BUCKET', 'panoptes-images-error'))
+incoming_bucket = os.getenv('INPUT_BUCKET', 'panoptes-image-processing')
+processing_bucket = os.getenv('OUTPUT_BUCKET', 'panoptes-processed-images')
+error_bucket = os.getenv('ERROR_BUCKET', 'panoptes-images-error')
 
 
 class ObservationInfo(BaseModel):
@@ -55,14 +54,15 @@ def process_image_from_pubsub(message: dict):
 
     response = dict(success=False)
     bucket = message['bucket']
-    bucket_path = Path(f'/{bucket}') / message['name']
-    image_settings = ImageSettings(output_dir='temp', **from_json(message.get('imageSettings', '{}')))
+    if bucket == incoming_bucket:
+        bucket_path = message['name']
+        image_settings = ImageSettings(output_dir='temp', **from_json(message.get('imageSettings', '{}')))
 
-    try:
-        response = process_image(bucket_path.as_posix(), image_settings)
-        response['success'] = True
-    except Exception as e:
-        print(f'Problem with processing from pubsub notification: {e}')
+        try:
+            response = process_image(bucket_path, image_settings)
+            response['success'] = True
+        except Exception as e:
+            print(f'Problem with processing from pubsub notification: {e}')
 
     return response
 
@@ -86,20 +86,25 @@ def process_image(bucket_path, image_settings: ImageSettings, upload: bool = Tru
 
     path_info = ImagePathInfo(path=bucket_path)
 
-    upload_prefix = path_info.get_full_id(sep='/')
+    full_error_path = path_info.get_full_id(sep='/')
     upload_bucket = processing_bucket
 
     with tempfile.TemporaryDirectory() as output_dir:
         image_settings.output_dir = output_dir
 
-        print(f'Processing {bucket_path} with {image_settings}')
+        full_bucket_path = f'/{processing_bucket}/{bucket_path}'
+        print(f'Processing {full_bucket_path} with {image_settings}')
 
         try:
-            notebook_path = process_notebook(bucket_path,
-                                             Path(INPUT_NOTEBOOK),
-                                             settings=image_settings,
-                                             output_dir=Path(output_dir),
-                                             )
+            notebook_path, has_errors = process_notebook(full_bucket_path,
+                                                         Path(INPUT_NOTEBOOK),
+                                                         settings=image_settings,
+                                                         output_dir=Path(output_dir),
+                                                         )
+
+            # If there is an error processing the notebook, it is still generated but with errors.
+            if has_errors:
+                raise Exception(f'Notebook {notebook_path} had errors.')
 
             return_dict = {'success': True, 'url_list': notebook_path}
         except FileExistsError as e:
@@ -107,21 +112,20 @@ def process_image(bucket_path, image_settings: ImageSettings, upload: bool = Tru
             return_dict = {'success': False, 'error': f'{e!r}'}
         except Exception as e:
             print(f'Problem processing image for {bucket_path}: {e!r}')
-            return_dict = {'success': False, 'error': f'{e!r}'}
-
-            image_doc_ref.set({'status': ImageStatus.ERROR.name}, merge=True)
-
-            # Move to error bucket.
-            # Set the upload bucket to error bucket.
             upload_bucket = error_bucket
-            upload_prefix = f'notebook-errors/{upload_prefix}'
 
+            # Move the file to the error bucket.
             try:
-                new_blob = move_blob_to_bucket(bucket_path, incoming_bucket, error_bucket)
-                return_dict['error_bucket_path'] = new_blob.path
+                full_error_path = f'/{error_bucket}/notebook-errors/{full_error_path}/{bucket_path}'
+                print(f'Moving {full_bucket_path} to {full_error_path}')
+                Path(full_bucket_path).rename(full_error_path)
+                return_dict['error_bucket_path'] = full_error_path
             except Exception as e2:
-                print(f'Error moving {bucket_path} to {error_bucket} from {incoming_bucket}: {e2!r}')
+                print(f'Error moving {full_error_path} from {incoming_bucket}: {e2!r}')
                 return_dict['error_2'] = f'{e2!r}'
+            finally:
+                image_doc_ref.set({'status': ImageStatus.ERROR.name}, merge=True)
+                return_dict = {'success': False, 'error': f'{e!r}'}
         else:
             # If successful, write metadata to firestore and then remove the file.
             try:
@@ -142,9 +146,14 @@ def process_image(bucket_path, image_settings: ImageSettings, upload: bool = Tru
             except FileNotFoundError:
                 raise FileNotFoundError(f'No metadata file found in {image_settings.output_dir}!')
         finally:
-            # Upload any assets to storage bucket.
+            # Copy any assets to the upload bucket.
             if upload:
-                output_url_list = upload_dir(Path(output_dir), prefix=f'{upload_prefix}', bucket=upload_bucket)
+                output_url_list = list()
+                for fn in Path(output_dir).glob('*'):
+                    print(f'Moving {fn} to {upload_bucket}')
+                    new_path = Path(fn).rename(f'{upload_bucket}/{fn.name}')
+                    output_url_list.append(new_path.as_posix())
+
                 return_dict['output_url_list'] = output_url_list
 
     print(f'Finished processing for {bucket_path} in {image_settings.output_dir!r}')

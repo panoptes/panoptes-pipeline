@@ -26,9 +26,9 @@ PROJECT_ID = os.getenv('PROJECT_ID', 'panoptes-project-01')
 ROOT_URL = os.getenv('PUBLIC_URL_BASE', 'https://storage.googleapis.com')
 INPUT_NOTEBOOK = os.getenv('INPUT_NOTEBOOK', '/app/notebooks/ProcessFITS.ipynb')
 
-incoming_bucket = os.getenv('INPUT_BUCKET', 'panoptes-image-processing')
-processed_bucket = os.getenv('OUTPUT_BUCKET', 'panoptes-processed-images')
-error_bucket = os.getenv('ERROR_BUCKET', 'panoptes-images-error')
+incoming_bucket = storage_client.get_bucket(os.getenv('INPUT_BUCKET', 'panoptes-image-processing'))
+processed_bucket = storage_client.get_bucket(os.getenv('OUTPUT_BUCKET', 'panoptes-processed-images'))
+error_bucket = storage_client.get_bucket(os.getenv('ERROR_BUCKET', 'panoptes-images-error'))
 
 
 class ObservationInfo(BaseModel):
@@ -54,27 +54,34 @@ def process_image_from_pubsub(message: dict):
     print(f'Received {message}')
 
     response = dict(success=False)
-    bucket = message['bucket']
-    if bucket == incoming_bucket:
-        bucket_path = message['name']
-        image_settings = ImageSettings(output_dir='temp', **from_json(message.get('imageSettings', '{}')))
+    bucket_path = message['id']
+    image_settings = ImageSettings(output_dir='temp', **from_json(message.get('imageSettings', '{}')))
 
-        try:
-            response = process_image(bucket_path, image_settings)
-            response['success'] = True
-        except Exception as e:
-            print(f'Problem with processing from pubsub notification: {e}')
+    try:
+        response = process_image(bucket_path, image_settings)
+        response['success'] = True
+    except Exception as e:
+        print(f'Problem with processing from pubsub notification: {e}')
 
     return response
 
 
 @app.post('/image/process/notebook')
 def process_image(bucket_path, image_settings: ImageSettings, upload: bool = True):
+    try:
+        print(f'Checking if got a fits file at {bucket_path}')
+        path_info = ImagePathInfo(path=bucket_path)
+        print(f'Got image info: {path_info}')
+    except ValueError as e:
+        raise RuntimeError(f'Need a FITS file, got {bucket_path}')
+
     unit_doc_ref, seq_doc_ref, image_doc_ref = get_firestore_refs(bucket_path)
 
     try:
         image_status = image_doc_ref.get(['status']).to_dict()['status']
-    except Exception:
+        print(f'Current status for {bucket_path} is {ImageStatus[image_status].name}')
+    except (KeyError, ValueError):
+        print(f'No status found for {bucket_path}, setting to {ImageStatus.UNKNOWN.name}')
         image_status = ImageStatus.UNKNOWN.name
 
     if ImageStatus[image_status] >= ImageStatus.PROCESSING:
@@ -82,21 +89,18 @@ def process_image(bucket_path, image_settings: ImageSettings, upload: bool = Tru
         return dict(success=False, error=f'Skipping image with status of {image_status}')
 
     # Update the image status.
-    print(f'Updating status for {bucket_path} to {ImageStatus.PROCESSING.name}')
+    print(f'Updating status for {bucket_path} from {image_status} to {ImageStatus.PROCESSING.name}')
     image_doc_ref.set({'status': ImageStatus.PROCESSING.name}, merge=True)
 
     # Assume we will upload to the processed bucket.
-    upload_bucket = processed_bucket
+    outgoing_bucket = processed_bucket
 
-    path_info = ImagePathInfo(path=bucket_path)
     with tempfile.TemporaryDirectory() as output_dir:
         image_settings.output_dir = output_dir
-
-        incoming_image_path = f'/{incoming_bucket}/{bucket_path}'
-        print(f'Processing {incoming_image_path} with {image_settings}')
+        print(f'Processing {bucket_path=} with {image_settings}')
 
         try:
-            notebook_path, has_errors = process_notebook(incoming_image_path,
+            notebook_path, has_errors = process_notebook(path_info,
                                                          Path(INPUT_NOTEBOOK),
                                                          settings=image_settings,
                                                          output_dir=Path(output_dir),
@@ -112,7 +116,7 @@ def process_image(bucket_path, image_settings: ImageSettings, upload: bool = Tru
             return_dict = {'success': False, 'error': f'{e!r}'}
         except Exception as e:
             print(f'Problem processing image for {bucket_path}: {e!r}')
-            upload_bucket = error_bucket
+            outgoing_bucket = error_bucket
             image_doc_ref.set({'status': ImageStatus.ERROR.name}, merge=True)
             return_dict = {'success': False, 'error': f'{e!r}'}
         else:
@@ -136,15 +140,15 @@ def process_image(bucket_path, image_settings: ImageSettings, upload: bool = Tru
                 raise FileNotFoundError(f'No metadata file found in {image_settings.output_dir}!')
         finally:
             # Move image from the incoming bucket to the processed bucket using the mounted volumes.
-            upload_bucket = storage_client.get_bucket(upload_bucket)
-            new_blob = move_blob_to_bucket(bucket_path, storage_client.get_bucket(incoming_bucket), upload_bucket)
-            return_dict['processed_bucket_path'] = new_blob.id
+            new_blob = move_blob_to_bucket(bucket_path, incoming_bucket, outgoing_bucket)
+            if new_blob is not None and hasattr(new_blob, 'name'):
+                return_dict['processed_bucket_path'] = new_blob.name
 
             # Copy any assets to the upload bucket.
             if upload:
                 output_url_list = upload_dir(Path(output_dir),
                                              prefix=path_info.get_full_id(sep='/'),
-                                             bucket=upload_bucket)
+                                             bucket=outgoing_bucket)
                 return_dict['output_url_list'] = output_url_list
 
     print(f'Finished processing for {bucket_path} in {image_settings.output_dir!r}')

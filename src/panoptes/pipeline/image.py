@@ -40,17 +40,12 @@ class Settings(BaseSettings):
     output_dir: Path
 
 
-def process_notebook(fits_path: str,
+def process_notebook(path_info: ImagePathInfo,
                      input_notebook: Path,
                      output_dir: Path = Path('.'),
                      settings: Settings = None
                      ) -> (str, bool):
-    print(f'Starting image processing for {fits_path} in {output_dir!r}')
-    print(f'Checking if got a fits file at {fits_path}')
-    try:
-        path_info = ImagePathInfo(path=fits_path)
-    except ValueError as e:
-        raise RuntimeError(f'Need a FITS file, got {fits_path}')
+    print(f'Starting image processing for {path_info} with {input_notebook} in {output_dir!r}')
 
     # Set proper names for the image settings.
     image_settings = settings if settings is not None else Settings(output_dir=output_dir, files=dict(
@@ -61,11 +56,12 @@ def process_notebook(fits_path: str,
     # Run papermill process to execute the notebook.
     out_notebook = f'{output_dir}/{path_info.get_full_id()}-processing.ipynb'
     has_errors = False
+    print(f'Running {input_notebook} to {out_notebook}')
     try:
         pm.execute_notebook(str(input_notebook),
                             str(out_notebook),
                             parameters=dict(
-                                fits_path=str(fits_path),
+                                fits_path=str(path_info.path),
                                 output_dir=str(image_settings.output_dir),
                                 image_settings=image_settings.model_dump_json()
                             ),
@@ -74,8 +70,9 @@ def process_notebook(fits_path: str,
 
     except Exception as e:
         has_errors = True
-        print(f'Problem processing image for {fits_path}: {e!r}')
+        print(f'Problem processing image for {path_info}: {e!r}')
 
+    print(f'Finished processing {path_info} to {out_notebook}: {has_errors=}')
     return out_notebook, has_errors
 
 

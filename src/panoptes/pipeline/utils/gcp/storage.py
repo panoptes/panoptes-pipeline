@@ -39,12 +39,13 @@ def move_blob_to_bucket(blob_name: str,
     if isinstance(new_bucket, str):
         new_bucket = storage.Client().get_bucket(new_bucket)
 
-    print(f'Moving {blob_name} → {new_bucket}')
+    print(f'Moving {old_bucket=} {blob_name} → {new_bucket=}')
     new_blob = None
     try:
         new_blob = old_bucket.copy_blob(old_bucket.get_blob(blob_name), new_bucket)
         if remove:
             old_bucket.delete_blob(blob_name)
+            print(f'Removed {blob_name} from {old_bucket}')
     except Exception as e:
         print(f'Error moving {blob_name} to {new_bucket} from {old_bucket}: {e!r}')
 

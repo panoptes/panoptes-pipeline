@@ -25,7 +25,7 @@ ROOT_URL = os.getenv('PUBLIC_URL_BASE', 'https://storage.googleapis.com')
 INPUT_NOTEBOOK = os.getenv('INPUT_NOTEBOOK', '/app/notebooks/ProcessFITS.ipynb')
 
 incoming_bucket = os.getenv('INPUT_BUCKET', 'panoptes-image-processing')
-processing_bucket = os.getenv('OUTPUT_BUCKET', 'panoptes-processed-images')
+processed_bucket = os.getenv('OUTPUT_BUCKET', 'panoptes-processed-images')
 error_bucket = os.getenv('ERROR_BUCKET', 'panoptes-images-error')
 
 
@@ -83,19 +83,18 @@ def process_image(bucket_path, image_settings: ImageSettings, upload: bool = Tru
     print(f'Updating status for {bucket_path} to {ImageStatus.PROCESSING.name}')
     image_doc_ref.set({'status': ImageStatus.PROCESSING.name}, merge=True)
 
+    # Assume we will upload to the processed bucket.
+    upload_bucket = processed_bucket
+
     path_info = ImagePathInfo(path=bucket_path)
-
-    full_error_path = path_info.get_full_id(sep='/')
-    upload_bucket = processing_bucket
-
     with tempfile.TemporaryDirectory() as output_dir:
         image_settings.output_dir = output_dir
 
-        full_bucket_path = f'/{incoming_bucket}/{bucket_path}'
-        print(f'Processing {full_bucket_path} with {image_settings}')
+        incoming_image_path = f'/{incoming_bucket}/{bucket_path}'
+        print(f'Processing {incoming_image_path} with {image_settings}')
 
         try:
-            notebook_path, has_errors = process_notebook(full_bucket_path,
+            notebook_path, has_errors = process_notebook(incoming_image_path,
                                                          Path(INPUT_NOTEBOOK),
                                                          settings=image_settings,
                                                          output_dir=Path(output_dir),
@@ -112,19 +111,8 @@ def process_image(bucket_path, image_settings: ImageSettings, upload: bool = Tru
         except Exception as e:
             print(f'Problem processing image for {bucket_path}: {e!r}')
             upload_bucket = error_bucket
-
-            # Move the file to the error bucket.
-            try:
-                full_error_path = f'/{error_bucket}/notebook-errors/{full_error_path}/{bucket_path}'
-                print(f'Moving {full_bucket_path} to {full_error_path}')
-                Path(full_bucket_path).rename(full_error_path)
-                return_dict['error_bucket_path'] = full_error_path
-            except Exception as e2:
-                print(f'Error moving {full_error_path} from {incoming_bucket}: {e2!r}')
-                return_dict['error_2'] = f'{e2!r}'
-            finally:
-                image_doc_ref.set({'status': ImageStatus.ERROR.name}, merge=True)
-                return_dict = {'success': False, 'error': f'{e!r}'}
+            image_doc_ref.set({'status': ImageStatus.ERROR.name}, merge=True)
+            return_dict = {'success': False, 'error': f'{e!r}'}
         else:
             # If successful, write metadata to firestore and then remove the file.
             try:
@@ -141,10 +129,21 @@ def process_image(bucket_path, image_settings: ImageSettings, upload: bool = Tru
                     print(f'Recorded metadata for {bucket_path} with {image_doc_ref.id=}')
 
                     # Remove the metadata file.
-                    metadata_file.unlink()
+                    # metadata_file.unlink()
             except FileNotFoundError:
                 raise FileNotFoundError(f'No metadata file found in {image_settings.output_dir}!')
         finally:
+            # Move image from the incoming bucket to the processed bucket using the mounted volumes.
+            try:
+                ext = '.fits' if image_settings.compress_fits is False else '.fits.fz'
+                outgoing_image_path = path_info.as_path(base=f'/{upload_bucket}', ext=ext)
+                print(f'Moving {incoming_image_path} to {outgoing_image_path}')
+                Path(incoming_image_path).rename(outgoing_image_path)
+                return_dict['processed_bucket_path'] = outgoing_image_path
+            except Exception as e3:
+                print(f'Error moving {incoming_image_path} to {upload_bucket}: {e3!r}')
+                return_dict['error_3'] = f'{e3!r}'
+
             # Copy any assets to the upload bucket.
             if upload:
                 output_url_list = list()

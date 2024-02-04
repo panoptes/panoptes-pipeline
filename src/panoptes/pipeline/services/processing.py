@@ -15,7 +15,6 @@ from panoptes.pipeline.image import process_notebook
 from panoptes.pipeline.scripts.observation import process_notebook as process_observation_notebook
 from panoptes.pipeline.utils.gcp.firestore import get_firestore_refs
 from panoptes.data.images import ImageStatus
-from panoptes.pipeline.utils.gcp.storage import upload_dir
 
 app = FastAPI()
 storage_client = storage.Client()
@@ -92,7 +91,7 @@ def process_image(bucket_path, image_settings: ImageSettings, upload: bool = Tru
     with tempfile.TemporaryDirectory() as output_dir:
         image_settings.output_dir = output_dir
 
-        full_bucket_path = f'/{processing_bucket}/{bucket_path}'
+        full_bucket_path = f'/{incoming_bucket}/{bucket_path}'
         print(f'Processing {full_bucket_path} with {image_settings}')
 
         try:

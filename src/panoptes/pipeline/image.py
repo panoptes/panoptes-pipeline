@@ -40,11 +40,18 @@ class Settings(BaseSettings):
     output_dir: Path
 
 
-def process_notebook(path_info: ImagePathInfo,
+def process_notebook(bucket_path: str,
                      input_notebook: Path,
                      output_dir: Path = Path('.'),
                      settings: Settings = None
                      ) -> (str, bool):
+    try:
+        print(f'Checking if got a fits file at {bucket_path}')
+        path_info = ImagePathInfo(path=bucket_path)
+        print(f'Got image info: {path_info}')
+    except ValueError as e:
+        raise RuntimeError(f'Need a FITS file, got {bucket_path}')
+
     print(f'Starting image processing for {path_info} with {input_notebook} in {output_dir!r}')
 
     # Set proper names for the image settings.

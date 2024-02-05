@@ -26,7 +26,7 @@ PROJECT_ID = os.getenv('PROJECT_ID', 'panoptes-project-01')
 ROOT_URL = os.getenv('PUBLIC_URL_BASE', 'https://storage.googleapis.com')
 INPUT_NOTEBOOK = os.getenv('INPUT_NOTEBOOK', '/app/notebooks/ProcessFITS.ipynb')
 
-incoming_bucket = storage_client.get_bucket(os.getenv('INPUT_BUCKET', 'panoptes-image-processing'))
+incoming_bucket = storage_client.get_bucket(os.getenv('INPUT_BUCKET', 'panoptes-images-incoming'))
 processed_bucket = storage_client.get_bucket(os.getenv('OUTPUT_BUCKET', 'panoptes-processed-images'))
 error_bucket = storage_client.get_bucket(os.getenv('ERROR_BUCKET', 'panoptes-images-error'))
 
@@ -54,7 +54,12 @@ def process_image_from_pubsub(message: dict):
     print(f'Received {message}')
 
     response = dict(success=False)
-    bucket_path = message['id']
+    try:
+        bucket_path = message['attributes']['bucket_path']
+    except KeyError:
+        print(f'Missing bucket_path in message attributes.')
+        return response
+
     image_settings = ImageSettings(output_dir='temp', **from_json(message.get('imageSettings', '{}')))
 
     try:
@@ -68,13 +73,6 @@ def process_image_from_pubsub(message: dict):
 
 @app.post('/image/process/notebook')
 def process_image(bucket_path, image_settings: ImageSettings, upload: bool = True):
-    try:
-        print(f'Checking if got a fits file at {bucket_path}')
-        path_info = ImagePathInfo(path=bucket_path)
-        print(f'Got image info: {path_info}')
-    except ValueError as e:
-        raise RuntimeError(f'Need a FITS file, got {bucket_path}')
-
     unit_doc_ref, seq_doc_ref, image_doc_ref = get_firestore_refs(bucket_path)
 
     try:
@@ -96,11 +94,29 @@ def process_image(bucket_path, image_settings: ImageSettings, upload: bool = Tru
     outgoing_bucket = processed_bucket
 
     with tempfile.TemporaryDirectory() as output_dir:
-        image_settings.output_dir = output_dir
-        print(f'Processing {bucket_path=} with {image_settings}')
+        try:
+            local_path = Path(output_dir) / bucket_path
+            local_path_info = ImagePathInfo(path=local_path.as_posix())
+        except Exception as e:
+            print(f'Problem with local path info: {e!r}')
+            return dict(success=False, error=f'Problem with local path info: {e!r}')
 
         try:
-            notebook_path, has_errors = process_notebook(path_info,
+            # Move the file into the temp dir.
+            blob = incoming_bucket.blob(bucket_path)
+            if not blob.exists():
+                raise FileNotFoundError(f'File not found at {blob.path}')
+
+            print(f'Downloading {bucket_path} to {local_path_info.path}')
+            blob.download_to_filename(local_path_info.path)
+
+            if not Path(local_path_info.path).exists():
+                raise FileNotFoundError(f'File not found at {local_path_info.path}')
+
+            image_settings.output_dir = output_dir
+            print(f'Processing {local_path_info=} with {image_settings}')
+
+            notebook_path, has_errors = process_notebook(local_path_info.path,
                                                          Path(INPUT_NOTEBOOK),
                                                          settings=image_settings,
                                                          output_dir=Path(output_dir),
@@ -127,6 +143,7 @@ def process_image(bucket_path, image_settings: ImageSettings, upload: bool = Tru
                     with metadata_file.open() as f:
                         image_metadata = from_json(f.read())
 
+                    image_metadata['image']['public_url'] = bucket_path
                     image_metadata['image']['processed_time'] = firestore.SERVER_TIMESTAMP
 
                     unit_doc_ref.set(image_metadata['unit'], merge=True)
@@ -139,16 +156,17 @@ def process_image(bucket_path, image_settings: ImageSettings, upload: bool = Tru
             except FileNotFoundError:
                 raise FileNotFoundError(f'No metadata file found in {image_settings.output_dir}!')
         finally:
-            # Move image from the incoming bucket to the processed bucket using the mounted volumes.
-            new_blob = move_blob_to_bucket(bucket_path, incoming_bucket, outgoing_bucket)
-            if new_blob is not None and hasattr(new_blob, 'name'):
-                return_dict['processed_bucket_path'] = new_blob.name
+            # Move image from the incoming bucket to the processed bucket.
+            # new_blob = move_blob_to_bucket(bucket_path, incoming_bucket, outgoing_bucket)
+            # if new_blob is not None and hasattr(new_blob, 'name'):
+            #     return_dict['processed_bucket_path'] = new_blob.name
 
             # Copy any assets to the upload bucket.
             if upload:
                 output_url_list = upload_dir(Path(output_dir),
-                                             prefix=path_info.get_full_id(sep='/'),
+                                             prefix=local_path_info.get_full_id(sep='/'),
                                              bucket=outgoing_bucket)
+                image_doc_ref.set({'match_assets': output_url_list}, merge=True)
                 return_dict['output_url_list'] = output_url_list
 
     print(f'Finished processing for {bucket_path} in {image_settings.output_dir!r}')

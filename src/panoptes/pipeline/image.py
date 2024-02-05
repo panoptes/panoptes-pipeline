@@ -77,7 +77,7 @@ def process_notebook(bucket_path: str,
 
     except Exception as e:
         has_errors = True
-        print(f'Problem processing image for {path_info}: {e!r}')
+        print(f'Problem processing papermill notebook for {path_info}: {e!r}')
 
     print(f'Finished processing {path_info} to {out_notebook}: {has_errors=}')
     return out_notebook, has_errors

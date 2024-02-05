@@ -64,7 +64,9 @@ def process_image_from_pubsub(envelope: dict):
 
     try:
         print(f'Processing {public_url} with {image_settings}')
-        response = process_image(public_url, image_settings)
+        response = process_image(public_url, image_settings,
+                                 upload=attributes.get('upload', True),
+                                 force_process=attributes.get('force_process', False))
         print(f'Finished processing {public_url} with {response}')
         response['success'] = True
     except Exception as e:
@@ -74,7 +76,7 @@ def process_image_from_pubsub(envelope: dict):
 
 
 @app.post('/image/process/notebook')
-def process_image(bucket_path, image_settings: ImageSettings, upload: bool = True):
+def process_image(bucket_path, image_settings: ImageSettings, upload: bool = True, force_process: bool = False):
     unit_doc_ref, seq_doc_ref, image_doc_ref = get_firestore_refs(bucket_path)
     path_info = ImagePathInfo(path=bucket_path)
 
@@ -85,7 +87,7 @@ def process_image(bucket_path, image_settings: ImageSettings, upload: bool = Tru
         print(f'No status found for {bucket_path}, setting to {ImageStatus.UNKNOWN.name}')
         image_status = ImageStatus.UNKNOWN.name
 
-    if ImageStatus[image_status] >= ImageStatus.PROCESSING:
+    if force_process is False and ImageStatus[image_status] >= ImageStatus.PROCESSING:
         print(f'Skipping image with status of {image_status}')
         return dict(success=False, error=f'Skipping image with status of {image_status}')
 
@@ -143,11 +145,13 @@ def process_image(bucket_path, image_settings: ImageSettings, upload: bool = Tru
         finally:
             # Copy any assets to the upload bucket.
             if upload:
+                print(f'Uploading assets in {Path(output_dir)} for {bucket_path} to {outgoing_bucket}')
                 output_url_list = upload_dir(Path(output_dir),
                                              prefix=path_info.get_full_id(sep='/'),
                                              bucket=outgoing_bucket)
-                image_doc_ref.set({'match_assets': output_url_list}, merge=True)
-                return_dict['output_url_list'] = output_url_list
+                if len(output_url_list) > 0:
+                    image_doc_ref.set({'assets': output_url_list}, merge=True)
+                    return_dict['output_url_list'] = output_url_list
 
     print(f'Finished processing for {bucket_path} in {image_settings.output_dir!r}')
 

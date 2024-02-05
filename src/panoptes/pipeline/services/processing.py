@@ -84,6 +84,9 @@ def process_image(bucket_path, image_settings: ImageSettings, upload: bool = Tru
         image_dict = image_doc_ref.get(['status', 'forced_process']).to_dict()
         image_status = image_dict.get('status', ImageStatus.UNKNOWN.name)
         already_forced_process = image_dict.get('forced_process', False)
+        if isinstance(already_forced_process, str):
+            if already_forced_process.lower() == 'true':
+                already_forced_process = True
         print(f'Current status for {bucket_path} is {ImageStatus[image_status].name}')
     except Exception:
         print(f'No status found for {bucket_path}, setting to {ImageStatus.UNKNOWN.name}')

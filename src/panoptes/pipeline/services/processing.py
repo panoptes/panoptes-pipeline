@@ -97,6 +97,7 @@ def process_image(bucket_path, image_settings: ImageSettings, upload: bool = Tru
 
     # Assume we will upload to the processed bucket.
     outgoing_bucket = processed_bucket
+    upload_prefix = path_info.get_full_id(sep='/')
 
     with tempfile.TemporaryDirectory() as output_dir:
         try:
@@ -120,6 +121,7 @@ def process_image(bucket_path, image_settings: ImageSettings, upload: bool = Tru
         except Exception as e:
             print(f'Problem processing image for {bucket_path}: {e!r}')
             outgoing_bucket = error_bucket
+            upload_prefix = f'notebook-errors/{upload_prefix}'
             image_doc_ref.set({'status': ImageStatus.ERROR.name}, merge=True)
             return_dict = {'success': False, 'error': f'{e!r}'}
         else:
@@ -147,7 +149,7 @@ def process_image(bucket_path, image_settings: ImageSettings, upload: bool = Tru
             if upload:
                 print(f'Uploading assets in {Path(output_dir)} for {bucket_path} to {outgoing_bucket}')
                 output_url_list = upload_dir(Path(output_dir),
-                                             prefix=path_info.get_full_id(sep='/'),
+                                             prefix=upload_prefix,
                                              bucket=outgoing_bucket)
                 if len(output_url_list) > 0:
                     image_doc_ref.set({'assets': output_url_list}, merge=True)

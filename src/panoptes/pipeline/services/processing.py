@@ -6,24 +6,22 @@ from typing import Tuple, Optional
 from fastapi import FastAPI
 from google.cloud import firestore
 from google.cloud import storage
-from panoptes.data.images import ImagePathInfo
-from panoptes.utils.serializers import from_json
 from pydantic import BaseModel, HttpUrl, ValidationError
+
+from panoptes.data.images import ImagePathInfo
+from panoptes.data.images import ImageStatus
+from panoptes.utils.serializers import from_json
 
 from panoptes.pipeline.image import Settings as ImageSettings
 from panoptes.pipeline.image import process_notebook
 from panoptes.pipeline.scripts.observation import process_notebook as process_observation_notebook
 from panoptes.pipeline.utils.gcp.firestore import get_firestore_refs
-from panoptes.data.images import ImageStatus
-
-from panoptes.pipeline.utils.gcp.storage import move_blob_to_bucket, upload_dir
+from panoptes.pipeline.utils.gcp.storage import upload_dir
 
 app = FastAPI()
 storage_client = storage.Client()
 firestore_db = firestore.Client()
 
-PROJECT_ID = os.getenv('PROJECT_ID', 'panoptes-project-01')
-ROOT_URL = os.getenv('PUBLIC_URL_BASE', 'https://storage.googleapis.com')
 INPUT_NOTEBOOK = os.getenv('INPUT_NOTEBOOK', '/app/notebooks/ProcessFITS.ipynb')
 
 incoming_bucket = storage_client.get_bucket(os.getenv('INPUT_BUCKET', 'panoptes-images-incoming'))
@@ -50,20 +48,24 @@ class ObservationParams(BaseModel):
 
 
 @app.post('/image/process')
-def process_image_from_pubsub(message: dict):
-    print(f'Received {message}')
+def process_image_from_pubsub(envelope: dict):
+    print(f'Received {envelope}')
+    message = envelope['message']
+    attributes = message['attributes']
 
     response = dict(success=False)
     try:
-        bucket_path = message['attributes']['bucket_path']
+        public_url = attributes['public_url']
     except KeyError:
         print(f'Missing bucket_path in message attributes.')
         return response
 
-    image_settings = ImageSettings(output_dir='temp', **from_json(message.get('imageSettings', '{}')))
+    image_settings = ImageSettings(output_dir='temp', **from_json(attributes.get('imageSettings', '{}')))
 
     try:
-        response = process_image(bucket_path, image_settings)
+        print(f'Processing {public_url} with {image_settings}')
+        response = process_image(public_url, image_settings)
+        print(f'Finished processing {public_url} with {response}')
         response['success'] = True
     except Exception as e:
         print(f'Problem with processing from pubsub notification: {e}')
@@ -74,6 +76,7 @@ def process_image_from_pubsub(message: dict):
 @app.post('/image/process/notebook')
 def process_image(bucket_path, image_settings: ImageSettings, upload: bool = True):
     unit_doc_ref, seq_doc_ref, image_doc_ref = get_firestore_refs(bucket_path)
+    path_info = ImagePathInfo(path=bucket_path)
 
     try:
         image_status = image_doc_ref.get(['status']).to_dict()['status']
@@ -95,28 +98,10 @@ def process_image(bucket_path, image_settings: ImageSettings, upload: bool = Tru
 
     with tempfile.TemporaryDirectory() as output_dir:
         try:
-            local_path = Path(output_dir) / bucket_path
-            local_path_info = ImagePathInfo(path=local_path.as_posix())
-        except Exception as e:
-            print(f'Problem with local path info: {e!r}')
-            return dict(success=False, error=f'Problem with local path info: {e!r}')
-
-        try:
-            # Move the file into the temp dir.
-            blob = incoming_bucket.blob(bucket_path)
-            if not blob.exists():
-                raise FileNotFoundError(f'File not found at {blob.path}')
-
-            print(f'Downloading {bucket_path} to {local_path_info.path}')
-            blob.download_to_filename(local_path_info.path)
-
-            if not Path(local_path_info.path).exists():
-                raise FileNotFoundError(f'File not found at {local_path_info.path}')
-
             image_settings.output_dir = output_dir
-            print(f'Processing {local_path_info=} with {image_settings}')
+            print(f'Processing {bucket_path=} with {image_settings}')
 
-            notebook_path, has_errors = process_notebook(local_path_info.path,
+            notebook_path, has_errors = process_notebook(bucket_path,
                                                          Path(INPUT_NOTEBOOK),
                                                          settings=image_settings,
                                                          output_dir=Path(output_dir),
@@ -156,15 +141,10 @@ def process_image(bucket_path, image_settings: ImageSettings, upload: bool = Tru
             except FileNotFoundError:
                 raise FileNotFoundError(f'No metadata file found in {image_settings.output_dir}!')
         finally:
-            # Move image from the incoming bucket to the processed bucket.
-            # new_blob = move_blob_to_bucket(bucket_path, incoming_bucket, outgoing_bucket)
-            # if new_blob is not None and hasattr(new_blob, 'name'):
-            #     return_dict['processed_bucket_path'] = new_blob.name
-
             # Copy any assets to the upload bucket.
             if upload:
                 output_url_list = upload_dir(Path(output_dir),
-                                             prefix=local_path_info.get_full_id(sep='/'),
+                                             prefix=path_info.get_full_id(sep='/'),
                                              bucket=outgoing_bucket)
                 image_doc_ref.set({'match_assets': output_url_list}, merge=True)
                 return_dict['output_url_list'] = output_url_list

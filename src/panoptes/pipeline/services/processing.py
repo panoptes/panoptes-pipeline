@@ -81,15 +81,22 @@ def process_image(bucket_path, image_settings: ImageSettings, upload: bool = Tru
     path_info = ImagePathInfo(path=bucket_path)
 
     try:
-        image_status = image_doc_ref.get(['status']).to_dict()['status']
+        image_dict = image_doc_ref.get(['status', 'forced_process']).to_dict()
+        image_status = image_dict.get('status', ImageStatus.UNKNOWN.name)
+        already_forced_process = image_dict.get('forced_process', False)
         print(f'Current status for {bucket_path} is {ImageStatus[image_status].name}')
-    except (KeyError, ValueError):
+    except Exception:
         print(f'No status found for {bucket_path}, setting to {ImageStatus.UNKNOWN.name}')
         image_status = ImageStatus.UNKNOWN.name
+        already_forced_process = False
+
+    if already_forced_process:
+        print(f'Already forced process for {bucket_path}, not forcing again.')
+        force_process = False
 
     if force_process is False and ImageStatus[image_status] >= ImageStatus.PROCESSING:
-        print(f'Skipping image with status of {image_status}')
-        return dict(success=False, error=f'Skipping image with status of {image_status}')
+        print(f'Skipping image with status of {image_status} and {force_process=}')
+        return dict(success=False, error=f'Skipping image with status of {image_status} and {force_process=}')
 
     # Update the image status.
     print(f'Updating status for {bucket_path} from {image_status} to {ImageStatus.PROCESSING.name}')
@@ -132,6 +139,7 @@ def process_image(bucket_path, image_settings: ImageSettings, upload: bool = Tru
                     with metadata_file.open() as f:
                         image_metadata = from_json(f.read())
 
+                    image_metadata['image']['forced_process'] = force_process
                     image_metadata['image']['public_url'] = bucket_path
                     image_metadata['image']['processed_time'] = firestore.SERVER_TIMESTAMP
 

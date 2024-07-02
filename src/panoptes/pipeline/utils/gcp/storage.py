@@ -7,16 +7,17 @@ from google.cloud import storage
 def upload_dir(directory: Path, prefix: str = '', bucket: storage.Bucket = None) -> List[str]:
     """Uploads all files in directory to storage bucket."""
     public_urls = list()
-    for f in Path(directory).glob('*'):
-        print(f'Uploading {prefix}/{f} to {bucket}')
-        bucket_path = f'{prefix}/{f.name}'
-        blob = bucket.blob(bucket_path)
-        print(f'Uploading {bucket_path}')
-        try:
-            blob.upload_from_filename(str(f.absolute()))
-            public_urls.append(blob.id)
-        except ConnectionError as e:
-            print(f'Error during upload of  {bucket_path}. {e!r}')
+    for f in Path(directory).rglob('*'):
+        if f.is_file():
+            print(f'Uploading {prefix}/{f} to {bucket}')
+            bucket_path = f'{prefix}/{f.name}' if prefix != '' else str(f.name)
+            blob = bucket.blob(bucket_path)
+            try:
+                blob.upload_from_filename(str(f.absolute()))
+                public_urls.append(blob.public_url)
+                print(f'Uploaded {bucket_path} to {blob.public_url}')
+            except ConnectionError as e:
+                print(f'Error during upload of  {bucket_path}. {e!r}')
 
     return public_urls
 
@@ -24,7 +25,8 @@ def upload_dir(directory: Path, prefix: str = '', bucket: storage.Bucket = None)
 def move_blob_to_bucket(blob_name: str,
                         old_bucket: str | storage.Bucket,
                         new_bucket: str | storage.Bucket,
-                        remove: bool = True) -> storage.Blob:
+                        remove: bool = True
+                        ) -> storage.Blob:
     """Copy and optionally remove the blob from old to new bucket.
 
     Args:

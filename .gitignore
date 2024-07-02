@@ -8,7 +8,7 @@
 *.orig
 *.log
 *.pot
-__pycache__/*
+__pycache__/
 .cache/*
 .*.swp
 */.ipynb_checkpoints/*
@@ -27,6 +27,7 @@ tags
 *.eggs/
 .installed.cfg
 *.egg-info
+*.egg-info/
 
 # Unittest and coverage
 htmlcov/*
@@ -52,6 +53,7 @@ MANIFEST
 # Results
 input
 output
-notebooks/figures
-notebooks/tables
+notebooks/
+!notebooks/ProcessFITS.ipynb
+!notebooks/ProcessObservation.ipynb
 .ipynb_checkpoints

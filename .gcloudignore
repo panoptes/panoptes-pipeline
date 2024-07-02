@@ -1,14 +1,11 @@
-!.git
-build
-input
-.ipynb_checkpoints
-# Ignore everything in notebooks
-notebooks/data
-notebooks/figures
-notebooks/output
+#!include:.gitignore
 
-dist
-node_modules
-vendor
-*.jar
-.idea
+# Ignore the notebooks folder.
+notebooks/**
+
+# Except for the folder itself.
+!notebooks/
+
+# And the processing notebooks in the folder.
+!notebooks/ProcessObservation.ipynb
+!notebooks/ProcessFITS.ipynb

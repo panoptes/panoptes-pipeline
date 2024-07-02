@@ -1,38 +1,21 @@
-from pathlib import Path
-
 import numpy as np
 import pandas
 import pandas as pd
 from astropy import convolution
-
 from astropy.coordinates import SkyCoord, EarthLocation, HADec
 from astropy.io import fits
 from astropy.stats import gaussian_fwhm_to_sigma
 from astropy.wcs import WCS
 from dateutil.parser import parse as parse_date
 from dateutil.tz import UTC
+from panoptes.data.images import ImagePathInfo
+from panoptes.utils.images import bayer, fits as fits_utils
 from photutils import segmentation
 from photutils.utils import calc_total_error
-from pydantic import BaseModel
-from pydantic_settings import BaseSettings
 
-from panoptes.pipeline.settings import PipelineParams
+from panoptes.pipeline.settings import ImageSettings
 from panoptes.pipeline.utils import sources
 from panoptes.pipeline.utils.gcp.bigquery import get_bq_clients
-
-
-class FileSettings(BaseModel):
-    reduced_filename: Path = 'image.fits'
-    extras_filename: Path = 'extras.fits'
-    metadata_filename: Path = 'metadata.json'
-    sources_filename: Path = 'sources.parquet'
-
-
-class Settings(BaseSettings):
-    params: PipelineParams = PipelineParams()
-    files: FileSettings = FileSettings()
-    compress_fits: bool = True
-    output_dir: Path
 
 
 def save_fits(filename, data_list, header, force_new=False):
@@ -46,7 +29,7 @@ def save_fits(filename, data_list, header, force_new=False):
     print(f'Saved {len(data_list)} dataset(s) to {filename}')
 
 
-def get_metadata(settings: Settings, path_info: ImagePathInfo) -> dict:
+def get_metadata(settings: ImageSettings, path_info: ImagePathInfo) -> dict:
     header = fits.getheader(settings.files.reduced_filename)
 
     # Puts metadata into better structures.
@@ -158,7 +141,7 @@ def extract_metadata(header, path_info) -> dict:
     return dict(unit=unit_info, sequence=sequence_info, image=image_info)
 
 
-def match_sources(detected_sources: pandas.DataFrame, solved_wcs0: WCS, settings: Settings,
+def match_sources(detected_sources: pandas.DataFrame, solved_wcs0: WCS, settings: ImageSettings,
                   image_edge: int = 10
                   ) -> pandas.DataFrame:
     print(f'Matching {len(detected_sources)} sources to wcs.')
@@ -227,7 +210,7 @@ def match_sources(detected_sources: pandas.DataFrame, solved_wcs0: WCS, settings
 
 
 def detect_sources(solved_wcs0, reduced_data, combined_bg_data, combined_bg_residual_data,
-                   settings: Settings
+                   settings: ImageSettings
                    ):
     print('Detecting sources in image')
     threshold = (settings.params.catalog.detection_threshold * combined_bg_residual_data)
@@ -289,7 +272,7 @@ def detect_sources(solved_wcs0, reduced_data, combined_bg_data, combined_bg_resi
     return detected_sources
 
 
-def plate_solve(settings: Settings, filename=None, timeout=30, **kwargs):
+def plate_solve(settings: ImageSettings, filename=None, timeout=30, **kwargs):
     filename = filename or settings.files.reduced_filename
     print(f'Plate solving {filename}')
 
@@ -328,7 +311,7 @@ def plate_solve(settings: Settings, filename=None, timeout=30, **kwargs):
     return solved_wcs0
 
 
-def subtract_background(data, settings: Settings):
+def subtract_background(data, settings: ImageSettings):
     # Get RGB background data.
     rgb_background = bayer.get_rgb_background(
         data=data,
@@ -351,14 +334,14 @@ def subtract_background(data, settings: Settings):
     return combined_bg_data, combined_bg_residual_data, reduced_data
 
 
-def mask_outliers(data, settings: Settings):
+def mask_outliers(data, settings: ImageSettings):
     # Mask min and max outliers.
     # data = np.ma.masked_less_equal(data, 0.)
     data = np.ma.masked_greater_equal(data, settings.params.camera.saturation)
     return data
 
 
-def subtract_bias(raw_data, settings: Settings):
+def subtract_bias(raw_data, settings: ImageSettings):
     # Bias subtract.
     data = raw_data - settings.params.camera.zero_bias
     return data

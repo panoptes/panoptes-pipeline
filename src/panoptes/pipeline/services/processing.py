@@ -1,18 +1,17 @@
 import os
 import tempfile
 from pathlib import Path
-from typing import Tuple, Optional
 
 from fastapi import FastAPI
 from google.cloud import firestore
 from google.cloud import storage
 from panoptes.data.images import ImageStatus, ImagePathInfo
 from panoptes.utils.serializers import from_json
-from pydantic import BaseModel, HttpUrl, ValidationError
+from pydantic import ValidationError
 
-from panoptes.pipeline.utils.images import Settings as ImageSettings
 from panoptes.pipeline.image import process_notebook as process_image_notebook
-from panoptes.pipeline.scripts.observation import process_notebook as process_observation_notebook
+from panoptes.pipeline.observation import process_notebook as process_observation_notebook
+from panoptes.pipeline.settings import ObservationSettings, ImageSettings
 from panoptes.pipeline.utils.gcp.firestore import get_firestore_refs
 from panoptes.pipeline.utils.gcp.storage import upload_dir
 from panoptes.pipeline.utils.notebooks import convert_notebook
@@ -27,24 +26,6 @@ OBS_NOTEBOOK = os.getenv('INPUT_NOTEBOOK', '/app/notebooks/ProcessObservation.ip
 incoming_bucket = storage_client.get_bucket(os.getenv('INPUT_BUCKET', 'panoptes-images-incoming'))
 processed_bucket = storage_client.get_bucket(os.getenv('OUTPUT_BUCKET', 'panoptes-processed-images'))
 error_bucket = storage_client.get_bucket(os.getenv('ERROR_BUCKET', 'panoptes-images-error'))
-
-
-class ObservationInfo(BaseModel):
-    sequence_id: str
-    frame_slice: Tuple[Optional[int], Optional[int]] = (None, None)
-    stamp_size: Tuple[int, int] = (10, 10)
-    base_url: HttpUrl = 'https://storage.googleapis.com/panoptes-images-processed'
-    image_filename: Path = 'image.fits.fz'
-    source_filename: Path = 'sources.parquet'
-    image_status: ImageStatus = ImageStatus.MATCHED
-    force_new: bool = False
-
-
-class ObservationParams(BaseModel):
-    sequence_id: str
-    process_images: bool = True
-    upload: bool = True
-    force_new: bool = False
 
 
 @app.post('/image/process')
@@ -202,7 +183,7 @@ def process_observation_from_pubsub(envelope: dict):
 
     # Build the observation processing params from the attributes. Must include a sequence_id.
     try:
-        params = ObservationParams(**attributes)
+        params = ObservationSettings(**attributes)
         response = process_observation(params)
     except ValidationError:
         print(f'Missing sequence_id param.')
@@ -211,7 +192,7 @@ def process_observation_from_pubsub(envelope: dict):
 
 
 @app.post('/observation/process/notebook')
-def process_observation(params: ObservationParams):
+def process_observation(params: ObservationSettings):
     sequence_id = params.sequence_id
     print(f'Received {params=}')
 

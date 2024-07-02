@@ -3,13 +3,13 @@ from pathlib import Path
 import papermill as pm
 from panoptes.data.images import ImagePathInfo
 
-from panoptes.pipeline.utils.images import Settings
+from panoptes.pipeline.settings import ImageSettings
 
 
 def process_notebook(bucket_path: str,
                      input_notebook: Path,
                      output_dir: Path = Path('.'),
-                     settings: Settings = None
+                     settings: ImageSettings = None
                      ) -> (str, bool):
     try:
         print(f'Checking if got a fits file at {bucket_path}')
@@ -21,7 +21,7 @@ def process_notebook(bucket_path: str,
     print(f'Starting image processing for {path_info} with {input_notebook} in {output_dir!r}')
 
     # Set proper names for the image settings.
-    image_settings = settings if settings is not None else Settings(
+    image_settings = settings if settings is not None else ImageSettings(
         output_dir=output_dir, files=dict(
             reduced_filename=f'{path_info.image_id}.fits.fz',
             sources_filename=f'{path_info.image_id}.sources.parquet'

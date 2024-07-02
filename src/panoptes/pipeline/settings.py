@@ -31,3 +31,24 @@ class PipelineParams(BaseSettings):
     camera: CameraSettings = CameraSettings()
     catalog: CatalogSettings = CatalogSettings()
     background: BackgroundSettings = BackgroundSettings()
+
+
+class ObservationSettings(BaseModel):
+    sequence_id: str
+    process_images: bool = True
+    upload: bool = True
+    force_new: bool = False
+
+
+class FileSettings(BaseModel):
+    reduced_filename: Path = 'image.fits'
+    extras_filename: Path = 'extras.fits'
+    metadata_filename: Path = 'metadata.json'
+    sources_filename: Path = 'sources.parquet'
+
+
+class ImageSettings(BaseSettings):
+    params: PipelineParams = PipelineParams()
+    files: FileSettings = FileSettings()
+    compress_fits: bool = True
+    output_dir: Path

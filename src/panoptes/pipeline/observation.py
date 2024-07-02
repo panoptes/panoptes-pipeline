@@ -1,5 +1,3 @@
-import logging
-import multiprocessing
 import os
 import re
 import tempfile
@@ -9,7 +7,6 @@ from pathlib import Path
 from typing import Optional
 
 import papermill as pm
-import typer
 from google.cloud import firestore, storage
 from panoptes.data.observations import ObservationStatus
 from tqdm.auto import tqdm
@@ -17,8 +14,6 @@ from tqdm.auto import tqdm
 from panoptes.pipeline.image import process_notebook as process_image_notebook
 from panoptes.pipeline.utils.gcp.storage import upload_dir
 from panoptes.pipeline.utils.notebooks import convert_notebook
-
-app = typer.Typer()
 
 OUTPUT_BUCKET = os.getenv('OUTPUT_BUCKET', 'panoptes-images-processed')
 IMAGE_BUCKET = os.getenv('INPUT_BUCKET', 'panoptes-images-incoming')
@@ -29,12 +24,7 @@ storage_client = storage.Client()
 # Only want to match properly named file.
 fits_matcher = re.compile(r'.*/\d{8}T\d{6}.fits.*?')
 
-multiprocessing.log_to_stderr()
-logger = multiprocessing.get_logger()
-logger.setLevel(logging.INFO)
 
-
-@app.command()
 def process_notebook(sequence_id: str,
                      input_notebook: Path = 'ProcessObservation.ipynb',
                      fits_notebook: Path = 'ProcessFITS.ipynb',
@@ -126,7 +116,3 @@ def process_notebook(sequence_id: str,
         seq_ref.set(dict(status=ObservationStatus.MATCHED.name), merge=True)
 
         return output_url_list
-
-
-if __name__ == '__main__':
-    app()

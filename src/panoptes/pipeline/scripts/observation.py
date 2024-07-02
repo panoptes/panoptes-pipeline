@@ -14,7 +14,7 @@ from google.cloud import firestore, storage
 from panoptes.data.observations import ObservationStatus
 from tqdm.auto import tqdm
 
-from panoptes.pipeline.scripts.image import process_notebook as process_image_notebook
+from panoptes.pipeline.image import process_notebook as process_image_notebook
 from panoptes.pipeline.utils.gcp.storage import upload_dir
 from panoptes.pipeline.utils.notebooks import convert_notebook
 

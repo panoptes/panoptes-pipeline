@@ -87,7 +87,8 @@ def process_notebook(sequence_id: str,
                 sequence_id=sequence_id,
                 output_dir=str(output_dir),
             ),
-            progress_bar=False
+            progress_bar=False,
+            log_output=True
         )
     except Exception as e:
         print(f'Error processing notebook: {e}')

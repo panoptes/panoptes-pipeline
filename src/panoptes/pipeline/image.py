@@ -48,6 +48,10 @@ def process_notebook(bucket_path: str,
     except Exception as e:
         has_errors = True
         print(f'Problem processing papermill notebook for {path_info}: {e!r}')
+    else:
+        # Upload the notebook to the processed bucket.
+        pass
 
-    print(f'Finished processing {path_info} to {out_notebook}: {has_errors=}')
-    return out_notebook, has_errors
+    finally:
+        print(f'Finished processing {path_info} to {out_notebook}: {has_errors=}')
+        return out_notebook, has_errors

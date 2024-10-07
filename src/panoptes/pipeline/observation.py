@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Optional
 
 import papermill as pm
+from dateutil.parser import parse as parse_date
 from google.cloud import firestore, storage
 from panoptes.data.observations import ObservationStatus
 from tqdm.auto import tqdm
@@ -28,7 +29,6 @@ fits_matcher = re.compile(r'.*/\d{8}T\d{6}.fits.*?')
 def process_notebook(sequence_id: str,
                      input_notebook: Path = 'ProcessObservation.ipynb',
                      fits_notebook: Path = 'ProcessFITS.ipynb',
-                     output_notebook: Path = 'ProcessedObservation.ipynb',
                      output_dir: Optional[Path] = None,
                      process_images: bool = False,
                      upload: bool = False,
@@ -77,7 +77,7 @@ def process_notebook(sequence_id: str,
                         process_image_notebook(fits_url, fits_notebook, Path(tmp_dir))
 
         # Run process.
-        out_notebook = output_dir / output_notebook
+        out_notebook = output_dir / f'{sequence_id}-processed.ipynb'
         print(f'Starting {input_notebook} processing for {sequence_id} and saving to {out_notebook}')
 
         notebook_output = pm.execute_notebook(
@@ -97,18 +97,21 @@ def process_notebook(sequence_id: str,
     else:
         doc_updates = dict()
         try:
-            doc_updates = notebook_output['cells'][-4]['outputs'][0]['data']['application/json']
+            doc_updates = notebook_output['cells'][-2]['outputs'][0]['data']['application/json']
             print(f'Got output from notebook: {doc_updates}')
         except Exception as e:
             print(f'Error getting output from notebook: {e!r}')
 
-        convert_notebook(out_notebook, output_dir, output_notebook)
+        convert_notebook(out_notebook, output_dir, out_notebook.with_suffix('.html'))
 
         # Upload any assets to storage bucket.
         if upload:
             output_url_list = upload_dir(output_dir, prefix=f'{sequence_id}', bucket=processed_bucket)
             doc_updates['urls'] = output_url_list
 
+        # Fix the time fields.
+        doc_updates['time'] = parse_date(doc_updates['time'])
+        doc_updates['sequence_time'] = parse_date(doc_updates['sequence_time'])
         seq_ref.set(doc_updates, merge=True)
     finally:
         print(f'Finished processing for {sequence_id=} in {output_dir!r}')

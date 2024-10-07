@@ -161,7 +161,7 @@ def process_image(bucket_path, image_settings: ImageSettings, upload: bool = Tru
                     # metadata_file.unlink()
                 else:
                     print(f'Metadata file not found at {metadata_file}')
-            except (FileNotFoundError):
+            except FileNotFoundError:
                 raise FileNotFoundError(f'No metadata file found in {image_settings.output_dir}!')
             except Exception as e:
                 print(f'Problem updating firestore with metadata: {e}')

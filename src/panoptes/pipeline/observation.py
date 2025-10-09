@@ -2,7 +2,6 @@ import os
 import re
 import tempfile
 import traceback
-from contextlib import suppress
 from pathlib import Path
 from typing import Optional
 
@@ -13,6 +12,7 @@ from panoptes.data.observations import ObservationStatus
 from tqdm.auto import tqdm
 
 from panoptes.pipeline.image import process_notebook as process_image_notebook
+from panoptes.pipeline.settings import ImageSettings
 from panoptes.pipeline.utils.gcp.storage import upload_dir
 from panoptes.pipeline.utils.notebooks import convert_notebook
 
@@ -56,6 +56,8 @@ def process_notebook(sequence_id: str,
 
     if ObservationStatus[obs_status] > ObservationStatus.CALIBRATED and force_new is False:
         raise FileExistsError(f'Skipping: status={ObservationStatus[obs_status].name}')
+    elif ObservationStatus[obs_status] == ObservationStatus.PROCESSING and force_new is True:
+        raise RuntimeError(f'Already processing: status={ObservationStatus[obs_status].name}')
     else:
         # Update status to show we're processing.
         seq_ref.set(dict(status=ObservationStatus.PROCESSING.name), merge=True)
@@ -73,8 +75,14 @@ def process_notebook(sequence_id: str,
             for fits_url in tqdm(fits_urls):
                 print(f'Processing image {fits_url}')
                 with tempfile.TemporaryDirectory(prefix=f'{str(output_dir.absolute())}/') as tmp_dir:
-                    with suppress(FileExistsError):
-                        process_image_notebook(fits_url, fits_notebook, Path(tmp_dir))
+                    try:
+                        process_image_notebook(
+                            fits_url, fits_notebook,
+                            image_settings=ImageSettings(force_new=force_new),
+                            output_dir=Path(tmp_dir)
+                            )
+                    except Exception:
+                        continue
 
         # Run process.
         out_notebook = output_dir / f'{sequence_id}-processed.ipynb'
@@ -112,11 +120,12 @@ def process_notebook(sequence_id: str,
         # Fix the time fields.
         doc_updates['time'] = parse_date(doc_updates['time'])
         doc_updates['sequence_time'] = parse_date(doc_updates['sequence_time'])
+
+        # Specifically update the status.
+        doc_updates['status'] = ObservationStatus.MATCHED.name
+
         seq_ref.set(doc_updates, merge=True)
     finally:
         print(f'Finished processing for {sequence_id=} in {output_dir!r}')
-
-        # Specifically update the status.
-        seq_ref.set(dict(status=ObservationStatus.MATCHED.name), merge=True)
 
         return output_url_list

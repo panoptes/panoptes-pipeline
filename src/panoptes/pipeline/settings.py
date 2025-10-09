@@ -6,8 +6,8 @@ from pydantic_settings import BaseSettings
 
 
 class CameraSettings(BaseModel):
-    zero_bias: float = 2048.
-    saturation: float = 11530.0  # ADU after bias subtraction.
+    zero_bias: float = 512.
+    saturation: float = 15872.0  # ADU after bias subtraction.
     effective_gain: float = 1.5
     image_width: int = 6000
     image_height: int = 4000

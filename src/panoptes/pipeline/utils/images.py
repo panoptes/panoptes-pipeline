@@ -2,14 +2,15 @@ import numpy as np
 import pandas
 import pandas as pd
 from astropy import convolution
-from astropy.coordinates import SkyCoord, EarthLocation, HADec
+from astropy.coordinates import EarthLocation, HADec, SkyCoord
 from astropy.io import fits
 from astropy.stats import gaussian_fwhm_to_sigma
 from astropy.wcs import WCS
 from dateutil.parser import parse as parse_date
 from dateutil.tz import UTC
 from panoptes.data.images import ImagePathInfo
-from panoptes.utils.images import bayer, fits as fits_utils
+from panoptes.utils.images import bayer
+from panoptes.utils.images import fits as fits_utils
 from photutils import segmentation
 from photutils.utils import calc_total_error
 
@@ -137,7 +138,7 @@ def extract_metadata(header, path_info) -> dict:
         print(f'Error in extracting metadata: {e!r}')
         raise e
 
-    print(f'Metadata extracted from header')
+    print('Metadata extracted from header')
     return dict(unit=unit_info, sequence=sequence_info, image=image_info)
 
 
@@ -150,7 +151,7 @@ def match_sources(detected_sources: pandas.DataFrame, solved_wcs0: WCS, settings
         print(f'Using catalog from {settings.params.catalog.catalog_filename}')
         catalog_sources = pd.read_parquet(settings.params.catalog.catalog_filename)
     else:
-        print(f'Getting catalog sources from bigquery for WCS')
+        print('Getting catalog sources from bigquery for WCS')
         # BQ client.
         bq_client, bqstorage_client = get_bq_clients()
         vmag_limits = settings.params.catalog.vmag_limits
@@ -216,13 +217,18 @@ def detect_sources(solved_wcs0, reduced_data, combined_bg_data, combined_bg_resi
     threshold = (settings.params.catalog.detection_threshold * combined_bg_residual_data)
     kernel = convolution.Gaussian2DKernel(3 * gaussian_fwhm_to_sigma)
     kernel.normalize()
+
+    # Check to make sure we have a valid mask, if not make empty.
+    if not reduced_data.mask:
+        reduced_data.mask = np.zeros_like(reduced_data.mask, dtype=bool)
+
     image_segments = segmentation.detect_sources(
         reduced_data,
         threshold,
         npixels=settings.params.catalog.num_detect_pixels,
         mask=reduced_data.mask
     )
-    print(f'De-blending image segments')
+    print('De-blending image segments')
     deblended_segments = segmentation.deblend_sources(
         reduced_data,
         image_segments,

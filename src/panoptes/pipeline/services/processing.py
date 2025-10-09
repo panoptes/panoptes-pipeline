@@ -3,18 +3,13 @@ import tempfile
 from pathlib import Path
 
 from fastapi import FastAPI
-from google.cloud import firestore
-from google.cloud import storage
-from panoptes.data.images import ImageStatus, ImagePathInfo
+from google.cloud import firestore, storage
 from panoptes.utils.serializers import from_json
 from pydantic import ValidationError
 
 from panoptes.pipeline.image import process_notebook as process_image_notebook
 from panoptes.pipeline.observation import process_notebook as process_observation_notebook
-from panoptes.pipeline.settings import ObservationSettings, ImageSettings
-from panoptes.pipeline.utils.gcp.firestore import get_firestore_refs
-from panoptes.pipeline.utils.gcp.storage import upload_dir
-from panoptes.pipeline.utils.notebooks import convert_notebook
+from panoptes.pipeline.settings import ImageSettings, ObservationSettings
 
 app = FastAPI()
 storage_client = storage.Client()
@@ -41,15 +36,10 @@ def process_image_from_pubsub(envelope: dict):
         print(f'Missing bucket_path in message attributes.')
         return response
 
-    image_settings = ImageSettings(output_dir='temp', **from_json(attributes.get('imageSettings', '{}')))
+    image_settings = ImageSettings(**from_json(attributes.get('imageSettings', '{}')))
 
     try:
-        print(f'Processing {public_url} with {image_settings}')
-        response = process_image(
-            public_url, image_settings,
-            upload=attributes.get('upload', True),
-            force_process=attributes.get('force_process', False)
-        )
+        response = process_image(public_url, image_settings)
         print(f'Finished processing {public_url} with {response}')
         response['success'] = True
     except Exception as e:
@@ -59,114 +49,27 @@ def process_image_from_pubsub(envelope: dict):
 
 
 @app.post('/image/process/notebook')
-def process_image(bucket_path, image_settings: ImageSettings, upload: bool = True, force_process: bool = False):
-    unit_doc_ref, seq_doc_ref, image_doc_ref = get_firestore_refs(bucket_path)
-    path_info = ImagePathInfo(path=bucket_path)
-
-    try:
-        image_dict = image_doc_ref.get(['status', 'forced_process']).to_dict()
-        image_status = image_dict.get('status', ImageStatus.UNKNOWN.name)
-        already_forced_process = image_dict.get('forced_process', False)
-        if isinstance(already_forced_process, str):
-            if already_forced_process.lower() == 'true':
-                already_forced_process = True
-        print(f'Current status for {bucket_path} is {ImageStatus[image_status].name}')
-    except Exception:
-        print(f'No status found for {bucket_path}, setting to {ImageStatus.UNKNOWN.name}')
-        image_status = ImageStatus.UNKNOWN.name
-        already_forced_process = False
-
-    if already_forced_process:
-        print(f'Already forced process for {bucket_path}, not forcing again.')
-        force_process = False
-
-    if force_process is False and ImageStatus[image_status] >= ImageStatus.PROCESSING:
-        print(f'Skipping image with status of {image_status} and {force_process=}')
-        return dict(success=False, error=f'Skipping image with status of {image_status} and {force_process=}')
-
-    # Update the image status.
-    print(f'Updating status for {bucket_path} from {image_status} to {ImageStatus.PROCESSING.name}')
-    image_doc_ref.set({'status': ImageStatus.PROCESSING.name}, merge=True)
-
-    # Assume we will upload to the processed bucket.
-    outgoing_bucket = processed_bucket
-    upload_prefix = path_info.sequence_id
-
-    with tempfile.TemporaryDirectory() as output_dir:
+def process_image(bucket_path, image_settings: ImageSettings):
+    with tempfile.TemporaryDirectory() as tmp_dir:
         try:
-            image_settings.output_dir = output_dir
             print(f'Processing {bucket_path=} with {image_settings}')
 
-            notebook_path, has_errors = process_image_notebook(
+            public_url_list = process_image_notebook(
                 bucket_path,
-                Path(FITS_NOTEBOOK),
-                settings=image_settings,
-                output_dir=Path(output_dir),
+                input_notebook=Path(FITS_NOTEBOOK),
+                image_settings=image_settings,
+                output_dir=Path(tmp_dir),
             )
 
-            # If there is an error processing the notebook, it is still generated but with errors.
-            if has_errors:
-                raise Exception(f'Notebook {notebook_path} had errors.')
-
-            return_dict = {'success': True, 'url_list': notebook_path}
+            return_dict = {'success': True, 'urls': public_url_list}
         except FileExistsError as e:
             print(f'Skipping already processed file.')
             return_dict = {'success': False, 'error': f'{e!r}'}
         except Exception as e:
             print(f'Problem processing image for {bucket_path}: {e!r}')
-            outgoing_bucket = error_bucket
-            upload_prefix = f'notebook-errors/{upload_prefix}'
-            image_doc_ref.set({'status': ImageStatus.ERROR.name}, merge=True)
             return_dict = {'success': False, 'error': f'{e!r}'}
         finally:
-            # Convert the notebook to html
-            convert_notebook(Path(notebook_path), Path(output_dir), Path(notebook_path).with_suffix('.html'))
-
-            # Copy any assets to the upload bucket.
-            output_url_list = list()
-            fits_public_url = ''
-            if upload:
-                print(f'Uploading assets in {Path(output_dir)} for {bucket_path} to {outgoing_bucket}')
-                output_url_list = upload_dir(
-                    Path(output_dir),
-                    prefix=upload_prefix,
-                    bucket=outgoing_bucket
-                )
-                if len(output_url_list) > 0:
-                    return_dict['output_url_list'] = output_url_list
-                    fits_public_url = list(filter(lambda a: 'fits' in a, output_url_list))
-                    fits_public_url = fits_public_url[0] if len(fits_public_url) else ''
-
-            # If successful, write metadata to firestore and then remove the file.
-            try:
-                metadata_files = list(Path(f'{output_dir}/assets').glob('*metadata.json'))
-                if len(metadata_files) == 0:
-                    raise FileNotFoundError(f'No metadata file found in {image_settings.output_dir}!')
-                metadata_file = metadata_files[0]
-                if metadata_file.exists():
-                    with metadata_file.open() as f:
-                        image_metadata = from_json(f.read())
-
-                    image_metadata['image']['forced_process'] = force_process
-                    image_metadata['image']['public_url'] = fits_public_url
-                    image_metadata['image']['assets'] = output_url_list
-                    image_metadata['image']['processed_time'] = firestore.SERVER_TIMESTAMP
-
-                    # unit_doc_ref.set(image_metadata['unit'], merge=True)
-                    seq_doc_ref.set(image_metadata['sequence'], merge=True)
-                    image_doc_ref.set(image_metadata['image'], merge=True)
-                    print(f'Recorded metadata for {bucket_path} with {image_doc_ref.id=}')
-
-                    # Remove the metadata file.
-                    # metadata_file.unlink()
-                else:
-                    print(f'Metadata file not found at {metadata_file}')
-            except FileNotFoundError:
-                raise FileNotFoundError(f'No metadata file found in {image_settings.output_dir}!')
-            except Exception as e:
-                print(f'Problem updating firestore with metadata: {e}')
-
-    print(f'Finished processing for {bucket_path} in {image_settings.output_dir!r}')
+            print(f'Finished processing for {bucket_path} in {tmp_dir!r}')
 
     # Return the status and any other relevant info.
     return return_dict
@@ -210,6 +113,9 @@ def process_observation(params: ObservationSettings):
             return_dict = {'success': True, 'urls': public_url_list}
         except FileExistsError as e:
             print(f'Skipping already processed observation {sequence_id}')
+            return_dict = {'success': False, 'error': f'{e!r}'}
+        except RuntimeError as e:
+            print(f'Skipping processing observation {sequence_id}')
             return_dict = {'success': False, 'error': f'{e!r}'}
         except Exception as e:
             print(f'Problem processing observation for {sequence_id}: {e!r}')

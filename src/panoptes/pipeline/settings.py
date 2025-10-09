@@ -52,3 +52,5 @@ class ImageSettings(BaseSettings):
     files: FileSettings = FileSettings()
     compress_fits: bool = True
     output_dir: Path
+    upload: bool = True
+    force_new: bool = False

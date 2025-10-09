@@ -1,9 +1,203 @@
 [build-system]
-# AVOID CHANGING REQUIRES: IT WILL BE UPDATED BY PYSCAFFOLD!
-requires = ["setuptools>=46.1.0", "setuptools_scm[toml]>=5"]
-build-backend = "setuptools.build_meta"
+requires = [
+    "hatchling>=1.25.0",
+    "hatch-vcs>=0.4"
+]
+build-backend = "hatchling.build"
 
-[tool.setuptools_scm]
-# For smarter version schemes and other configuration options,
-# check out https://github.com/pypa/setuptools_scm
-version_scheme = "no-guess-dev"
+[project]
+name = "panoptes-pipeline"
+description = "PANOPTES Image Processing for the Extraction of Lightcurves in Nearby Exoplanets!"
+readme = { file = "README.md", content-type = "text/markdown" }
+requires-python = ">=3.12"
+license = { file = "LICENSE.txt" }
+authors = [
+    { name = "PANOPTES Team", email = "developers@projectpanoptes.org" },
+]
+dynamic =["version"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Environment :: Console",
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: POSIX",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.8",
+  "Programming Language :: Python :: 3 :: Only",
+  "Topic :: Scientific/Engineering :: Astronomy",
+  "Topic :: Scientific/Engineering :: Physics",
+]
+dependencies = [
+  "importlib-metadata; python_version < '3.8'",
+  "fastapi",
+  "gcsfs",
+  "google-cloud-bigquery",
+  "google-cloud-bigquery-storage[pandas]==2.6.2",
+  "google-cloud-firestore",
+  "google-cloud-pubsub",
+  "google-cloud-storage",
+  "h5py",
+  "ipython-autotime",
+  "loguru",
+  "nbconvert",
+  "numpy",
+  "numexpr",
+  "pandas",
+  "papermill",
+  "panoptes-data>=0.1.5",
+  "panoptes-utils[images]>=0.2.33",
+  "photutils",
+  "pyarrow",
+  "pydantic",
+  "tables",
+  "tabulate",
+  "scipy",
+  "scikit-learn",
+  "seaborn",
+  "gunicorn",
+  "uvicorn[standard]",
+]
+
+[project.optional-dependencies]
+dev = [
+  "bokeh",
+  "ipywidgets",
+  "jupyterlab_beta",
+  "panel",
+  "seaborn",
+  "tqdm",
+]
+testing = [
+  "mocket",
+  "pytest",
+  "pytest-cov",
+  "pytest-doctestplus",
+  "pytest-remotedata>=0.3.1",
+]
+
+[project.urls]
+Homepage = "https://github.com/panoptes/panoptes-pipeline"
+Documentation = "https://panoptes-pipeline.readthedocs.io"
+"POCS Documentation" = "https://pocs.readthedocs.io"
+"Project PANOPTES" = "https://www.projectpanoptes.org"
+Forum = "https://forum.projectpanoptes.org"
+
+[project.scripts]
+panoptes-pipeline = "panoptes.pipeline.utils.cli.main:app"
+
+[tool.hatch.version]
+source = "vcs"
+
+[tool.hatch.build]
+include = [
+  "src/panoptes/**",
+  "README.md",
+  "LICENSE.txt",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/panoptes"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src", "README.md", "LICENSE.txt", "docs", "resources"]
+
+# Ruff configuration (formatting + linting)
+[tool.ruff]
+line-length = 100
+target-version = "py38"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+ignore = []
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"
+
+
+# Pytest configuration migrated from legacy tooling
+[tool.pytest.ini_options]
+addopts = [
+  "--strict-markers",
+  "--doctest-modules",
+  "--test-databases",
+  "all",
+  "-x",
+  "-vv",
+  "-ra",
+]
+# Doctest flags used by pytest-doctestplus
+# Available flags: ELLIPSIS, NORMALIZE_WHITESPACE, IGNORE_EXCEPTION_DETAIL, ALLOW_UNICODE
+# See: https://pytest-doctestplus.readthedocs.io
+# Note: Strings are space-separated
+#doctest_optionflags = "ELLIPSIS NORMALIZE_WHITESPACE IGNORE_EXCEPTION_DETAIL ALLOW_UNICODE"
+# Keep as list for better TOML compatibility with pytest >=7
+
+doctest_optionflags = [
+  "ELLIPSIS",
+  "NORMALIZE_WHITESPACE",
+  "IGNORE_EXCEPTION_DETAIL",
+  "ALLOW_UNICODE",
+]
+
+testpaths = ["tests", "src"]
+# Avoid recursing into non-test directories
+norecursedirs = ["script", "resources", "dist", "build", ".tox"]
+filterwarnings = [
+  "ignore:elementwise == comparison failed:DeprecationWarning",
+  "ignore::pytest.PytestDeprecationWarning",
+]
+# Enable pytest-doctestplus plugin features
+# https://github.com/astropy/pytest-doctestplus
+#doctest_plus = "enabled"  # String value required in pyproject
+
+
+# Hatch environments to replace tox tasks
+[tool.hatch.envs.test]
+features = ["testing"]
+
+[tool.hatch.envs.default]
+dependencies = [
+    "ruff>=0.5.0"
+]
+[tool.hatch.envs.default.scripts]
+lint = "ruff check ."
+lint-fix = "ruff check --fix ."
+fmt = "ruff format ."
+fmt-check = "ruff format --check ."
+
+[tool.hatch.envs.test.scripts]
+# Run tests: hatch run test:test [extra pytest args]
+# Example: hatch run test:test -k my_test -q
+test = "pytest {args}"
+
+[tool.hatch.envs.docs]
+dependencies = [
+  "sphinx>=3.2.1",
+  "myst-parser[linkify]",
+]
+[tool.hatch.envs.docs.env-vars]
+DOCSDIR = "{root}/docs"
+BUILDDIR = "{root}/docs/_build"
+[tool.hatch.envs.docs.scripts]
+build = "sphinx-build --color -b html -d \"{env:BUILDDIR}/doctrees\" \"{env:DOCSDIR}\" \"{env:BUILDDIR}/html\" {args}"
+linkcheck = "sphinx-build --color -b linkcheck -d \"{env:BUILDDIR}/doctrees\" \"{env:DOCSDIR}\" \"{env:BUILDDIR}/linkcheck\" {args}"
+_doctests = "sphinx-build --color -b doctest -d \"{env:BUILDDIR}/doctrees\" \"{env:DOCSDIR}\" \"{env:BUILDDIR}/doctest\" {args}"
+
+[tool.hatch.envs.build]
+dependencies = ["build[virtualenv]"]
+
+[tool.hatch.envs.build.scripts]
+build = "python -m build {args}"
+
+[tool.hatch.envs.maint]
+[tool.hatch.envs.maint.scripts]
+# Remove build artifacts, docs build, and stale egg-info
+clean = "python -c 'import shutil; [shutil.rmtree(p, True) for p in (\"build\", \"dist\", \"docs/_build\")]' && python -c 'import pathlib, shutil; [shutil.rmtree(p, True) for p in pathlib.Path(\"src\").glob(\"*.egg-info\")]'"
+
+[tool.hatch.envs.publish]
+dependencies = ["twine"]
+[tool.hatch.envs.publish.scripts]
+check = "python -m twine check dist/*"
+upload = "python -m twine upload {args:--repository {env:TWINE_REPOSITORY:testpypi}} dist/*"

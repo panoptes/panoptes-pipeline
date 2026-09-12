@@ -91,6 +91,80 @@ def is_superpixel_aligned(origin: tuple[int, int], shape: tuple[int, int]) -> bo
     return (y0 % 2 == 0) and (x0 % 2 == 0) and (height % 2 == 0) and (width % 2 == 0)
 
 
+def infer_green_offsets(
+    sky_stamps: np.ndarray,
+    stamp_shape: tuple[int, int],
+) -> set[tuple[int, int]]:
+    """Find which two of the four quad positions are green, from the data.
+
+    The two green pixels of a Bayer quad sit behind the same filter, so their
+    sky levels match each other and differ from red and blue. That identifies
+    the pattern family without trusting any convention -- which matters, because
+    getting it wrong silently mixes red and blue into one "green" channel and
+    every per-channel result is then mislabelled.
+
+    Args:
+        sky_stamps: ``(k, n)`` or ``(k, m, n)`` of star-free stamps. The faintest
+            sources in a sequence work well; their stamps are effectively sky.
+        stamp_shape: ``(height, width)``.
+
+    Returns:
+        The two ``(row % 2, col % 2)`` offsets that are green.
+    """
+    height, width = stamp_shape
+    flat = np.asarray(sky_stamps, dtype=float).reshape(-1, height * width)
+    grid = flat.reshape(-1, height, width)
+
+    levels = {
+        (dy, dx): float(np.median(grid[:, dy::2, dx::2]))
+        for dy in (0, 1)
+        for dx in (0, 1)
+    }
+    diagonal = abs(levels[(0, 0)] - levels[(1, 1)])
+    anti = abs(levels[(0, 1)] - levels[(1, 0)])
+    return {(0, 0), (1, 1)} if diagonal < anti else {(0, 1), (1, 0)}
+
+
+def infer_pattern(
+    sky_stamps: np.ndarray,
+    stamp_shape: tuple[int, int],
+    red_offset: tuple[int, int] | None = None,
+) -> str:
+    """Infer the Bayer pattern of stored data.
+
+    Green positions are recoverable from sky levels alone (see
+    :func:`infer_green_offsets`). Telling red from blue is not, reliably, so
+    pass ``red_offset`` -- the FITS header's ``MEASRGGB`` white-balance values,
+    which ``extract_metadata`` already parses, settle it.
+
+    Raises:
+        ValueError: if red and blue cannot be distinguished and no
+            ``red_offset`` was given. Guessing here silently swaps two channels.
+    """
+    greens = infer_green_offsets(sky_stamps, stamp_shape)
+    others = sorted({(0, 0), (0, 1), (1, 0), (1, 1)} - greens)
+
+    if red_offset is None:
+        raise ValueError(
+            f"Greens are at {sorted(greens)}, so red and blue are at {others}, but which is "
+            "which cannot be read from sky levels. Pass red_offset (from the MEASRGGB header) "
+            "rather than guessing -- a wrong choice swaps the red and blue lightcurves."
+        )
+    if tuple(red_offset) not in others:
+        raise ValueError(f"red_offset {tuple(red_offset)} is a green position; expected one of {others}")
+
+    blue_offset = [o for o in others if o != tuple(red_offset)][0]
+    layout = {tuple(red_offset): RED, blue_offset: BLUE}
+    for green in greens:
+        layout[green] = GREEN
+
+    block = ((layout[(0, 0)], layout[(0, 1)]), (layout[(1, 0)], layout[(1, 1)]))
+    for name, candidate in PATTERNS.items():
+        if tuple(tuple(row) for row in candidate) == block:
+            return name
+    raise ValueError(f"Inferred layout {block} matches no known pattern")
+
+
 def circular_aperture(
     shape: tuple[int, int],
     center: tuple[float, float],

@@ -104,3 +104,54 @@ def test_weighted_aperture_recovers_total_flux():
 def test_weighted_aperture_rejects_a_null_profile():
     with pytest.raises(ValueError, match="Degenerate"):
         masks.weighted_aperture(np.zeros(4), noise_variance=1.0)
+
+
+# --- Inferring the pattern from data rather than assuming it ---------------
+
+
+def _synthetic_sky(stamp_shape, pattern, levels=(700.0, 770.0, 640.0), seed=0):
+    """Star-free stamps with a per-colour sky level, in a known pattern."""
+    rng = np.random.default_rng(seed)
+    colours = masks.bayer_color_index(stamp_shape, pattern=pattern)
+    sky = np.zeros(stamp_shape)
+    for value, level in zip((masks.RED, masks.GREEN, masks.BLUE), levels):
+        sky[colours == value] = level
+    return sky + rng.normal(0, 2.0, (40, *stamp_shape))
+
+
+@pytest.mark.parametrize("pattern", sorted(masks.PATTERNS))
+def test_green_offsets_recovered_for_every_pattern(pattern):
+    stamps = _synthetic_sky((10, 18), pattern)
+    greens = masks.infer_green_offsets(stamps.reshape(40, -1), (10, 18))
+    expected = {
+        (dy, dx)
+        for dy in (0, 1)
+        for dx in (0, 1)
+        if masks.PATTERNS[pattern][dy][dx] == masks.GREEN
+    }
+    assert greens == expected
+
+
+@pytest.mark.parametrize("pattern", sorted(masks.PATTERNS))
+def test_pattern_round_trips_given_the_red_offset(pattern):
+    stamps = _synthetic_sky((10, 18), pattern)
+    red = next(
+        (dy, dx)
+        for dy in (0, 1)
+        for dx in (0, 1)
+        if masks.PATTERNS[pattern][dy][dx] == masks.RED
+    )
+    assert masks.infer_pattern(stamps.reshape(40, -1), (10, 18), red_offset=red) == pattern
+
+
+def test_infer_pattern_refuses_to_guess_red_versus_blue():
+    """Guessing silently swaps the red and blue lightcurves."""
+    stamps = _synthetic_sky((10, 18), "RGGB")
+    with pytest.raises(ValueError, match="cannot be read from sky levels"):
+        masks.infer_pattern(stamps.reshape(40, -1), (10, 18))
+
+
+def test_infer_pattern_rejects_a_green_position_as_red():
+    stamps = _synthetic_sky((10, 18), "RGGB")
+    with pytest.raises(ValueError, match="is a green position"):
+        masks.infer_pattern(stamps.reshape(40, -1), (10, 18), red_offset=(0, 1))

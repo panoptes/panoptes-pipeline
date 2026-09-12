@@ -230,6 +230,17 @@ data.
 hand-rolled version also follows the `numpy.ma` polarity (`True` means
 *excluded*) while reading as a selection mask. Nothing verifies the two agree.
 
+Confirmed empirically, and it bites. The two greens of a Bayer quad share a
+filter, so their sky levels match; measured on the star-free stamps of
+`PAN007_f6eb3d_20250930T030402` the matching pair sits on the **diagonal**
+(768 and 765 ADU) while the other two differ (699 and 642). The pattern in
+stored data is therefore GRBG or GBRG, and any code assuming RGGB assigns one
+green to "red" and mixes the true red and blue into "green". Work in this
+session made exactly that mistake before catching it, which is the argument for
+`masks.infer_pattern` deriving the phase from data rather than any module
+declaring a convention. Red versus blue is not recoverable from sky levels and
+needs the `MEASRGGB` header, which `extract_metadata` already parses.
+
 **5.6 -- The per-channel reference selection is computed and then thrown away.**
 Cell 27 intersects the R, G and B top-100 sets; cell 28 sets `num_refs` to the
 size of that intersection; cell 40 then indexes `top_matches.index[:num_refs]`

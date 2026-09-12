@@ -238,7 +238,7 @@ warning when the sky pedestal is left in.
 ### 2.3 Baseline measurement
 
 All numbers below: `PAN007_f6eb3d_20250930T030402`, 80 brightest unsaturated
-targets, red channel, 100 references, scored on **held-out frames** (references
+targets, one colour channel, 100 references, scored on **held-out frames** (references
 selected and coefficients fitted on alternate frames only, then scatter
 measured on the frames the fit never saw).
 
@@ -275,6 +275,15 @@ stellar wings on a 10x18 stamp and inflates every row of the second table. The
 relative comparison between variants is trustworthy because every variant sees
 the same data; the absolute numbers are pessimistic by an unknown factor. They
 stop being a guess once 3.1 is done.
+
+**Which colour channel, exactly, is not yet established.** These were taken
+with a hardcoded RGGB assumption. Measured afterwards from the sky levels of
+star-free stamps, the two greens in this data sit on the *diagonal*, so the
+pattern is GRBG or GBRG and the subset labelled "red" was in fact one of the
+greens. Every variant used the same pixel subset, so the comparison between
+them stands; the channel name does not. `masks.infer_pattern` now derives it
+from the data and refuses to guess red from blue without the `MEASRGGB` header.
+Re-label these once a sequence is reduced with the header available.
 
 **It is not overfitting.** Held-out scatter matches in-sample scatter to within
 3% for both OLS and ridge, so 100 free coefficients per target are not
@@ -411,7 +420,7 @@ the right one.
 Already implemented in `lightcurve.core`. What remains is putting it on the
 production path, which is section 4.
 
-**Expected gain: 1.15x on the red channel, winning on ~72% of targets**, once
+**Expected gain: 1.15x on the single colour channel, winning on ~72% of targets**, once
 the background is subtracted. Modest but real, and it is the step that makes
 the rest of section 3 worth doing -- an unweighted mean has no parameters to
 improve.
@@ -484,7 +493,7 @@ scoring on the other half:
 | per-colour plane | -- | worse |
 | 2-10 star-free PCA modes | 84-125 ADU | 0.52-0.78x |
 
-Every fitted model is worse than a per-colour constant, and downstream red-channel
+Every fitted model is worse than a per-colour constant, and downstream single-channel
 photometry degrades from 4.65% to 89%.
 
 The singular values of the star-free stamp population say why: `[1, 0.026,
@@ -752,7 +761,7 @@ Worth arranging before the first full-archive run.
 ## 7. Risks
 
 **Precision is much further away than the first measurement suggested.** The
-honest red-channel number is 4.8%, not the sub-percent figures the
+honest single-channel number is 4.8%, not the sub-percent figures the
 un-subtracted stamps produced. Some of that gap is the stopgap sky subtraction
 and will close with 3.1, but the distance to 0.5% should be assumed large until
 measured on properly reduced data.

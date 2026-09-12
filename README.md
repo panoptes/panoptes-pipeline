@@ -1,20 +1,70 @@
 # panoptes-pipeline
 
-PANOPTES Image Processing for the Extraction of Lightcurves in Nearby Exoplanets
+Differential photometry for [Project PANOPTES](https://www.projectpanoptes.org):
+recovering exoplanet transits from DSLR wide-field images with a Bayer colour
+filter array.
 
-## Description
+## The idea
 
-So many planets, such little time...
+A wide field gives any target many candidate reference stars whose light lands
+on the colour filter array the same way the target's does. Those references
+build an idealised star that behaves as the target would absent a transit, so
+the difference is zero unless the target's flux genuinely changed.
 
+Dividing a stamp by its own summed flux marginalises brightness out and leaves
+the spatial profile, which is what separates shape from brightness: match on
+shape, difference the brightness.
 
-## Deployment on  GCP
+The algorithm and the network are the same principle at two scales, and low unit
+cost enables both — many stars per unit to calibrate the systematic, many units
+at different longitudes to cover a transit longer than one night.
+
+## Status
+
+Under active rebuild on the `algorithm-v2` branch. The published description,
+[Gee et al., *On-sky Demonstration of Precision Photometry with Bayer Color
+Filter Arrays*](https://www.projectpanoptes.org), is earlier research and a
+building block rather than a specification.
+
+Start with the design documents:
+
+- **`plans/algorithm-design.md`** — what the algorithm is, independent of any
+  implementation, and the proposed architecture. Its section 5 says which
+  supporting measurements are solid and which are provisional.
+- `plans/conformance-audit.md` — defects in the existing implementation.
+  Historical context for the rebuild, not a task list.
+- `plans/improvement-plan.md` — metrics, benchmark selection, fleet
+  heterogeneity, and the open decisions in its section 6.
+
+`CLAUDE.md` carries the same orientation for agent sessions.
+
+## Install and test
+
+Python is run with [`uv`](https://docs.astral.sh/uv/); standalone scripts
+declare their dependencies inline per PEP 723.
+
+```shell
+uv run --no-project --with numpy --with scipy --with scikit-learn --with pytest \
+  python -m pytest tests/
+```
+
+`src/panoptes/pipeline/lightcurve/` holds the algorithm as pure array code —
+no I/O, no cloud, no notebook — and is where new work belongs.
+
+## Deployment (legacy pipeline)
+
+The notebook-and-papermill pipeline under `notebooks/` still deploys to GCP:
 
 ```shell
 gcloud builds submit --config cloudbuild.yaml
 ```
 
-Then change the sha id in the `pipeline-service.yaml` file, then
+Then update the sha in `pipeline-service.yaml` and:
 
 ```shell
 gcloud run services replace pipeline-service.yaml
 ```
+
+## License
+
+MIT. See `LICENSE.txt`.

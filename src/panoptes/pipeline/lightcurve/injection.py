@@ -92,7 +92,7 @@ class RecoveryResult:
 
         Positive values mean the comparison star partly absorbed the signal.
         This is the number that decides whether a reference-selection change is
-        safe (improvement plan 3.6).
+        safe (improvement plan 3.7).
         """
         if self.injected_depth == 0:
             return float("nan")

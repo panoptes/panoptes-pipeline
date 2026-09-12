@@ -72,6 +72,8 @@ HDF5, no cloud client and no notebook. Four modules:
 - `injection` -- box and trapezoid transit models, pixel-level injection,
   depth and suppression measurement.
 
+`core` also carries `subtract_stamp_sky`, the stopgap for 3.1.
+
 41 tests, all passing. Conventions that previously caused silent bugs are now
 explicit and enforced: selection masks are `True == included` throughout,
 `select_references` refuses a pool that still contains the target
@@ -80,49 +82,107 @@ same order the data is ravelled (conformance audit 5.4).
 
 ### 2.2 The benchmark harness
 
-`scripts/benchmark_lightcurve.py` (PEP 723, run with `uv run`) loads an
-`observation.h5` and prints one table comparing algorithm variants on the same
-target, including the current notebook behaviour as `legacy_mean`:
+Two scripts, both PEP 723, both offline.
+
+`scripts/benchmark_lightcurve.py` answers "what happened to this star": one
+table comparing variants on one target, including today's notebook behaviour as
+`legacy_mean` and a fair ensemble baseline as `ensemble_scaled`.
+
+`scripts/survey_targets.py` answers "what happens in general": the distribution
+of scatter across many targets and the fraction each variant actually wins on.
+A median improvement that only holds for half the sample is not an improvement.
 
 ```
-uv run scripts/benchmark_lightcurve.py notebooks/PAN007_.../observation.h5
-uv run scripts/benchmark_lightcurve.py OBS.h5 --channel r --inject-depth 0.01
+uv run scripts/benchmark_lightcurve.py OBS.h5 --channel r --sky-subtract --held-out
+uv run scripts/survey_targets.py OBS.h5 --channel r --sky-subtract
 ```
+
+`--held-out` selects references and fits coefficients on alternate frames, then
+scores only on frames the fit never saw. `--sky-subtract` applies the 3.1
+stopgap. Both default off in `benchmark_lightcurve.py`, which prints a loud
+warning when the sky pedestal is left in.
 
 ### 2.3 Baseline measurement
 
-`PAN007_f6eb3d_20250930T030402`, PICID 265064120, 3,234 sources, 42 frames,
-10x18 pixel stamps, 100 references:
+All numbers below: `PAN007_f6eb3d_20250930T030402`, 80 brightest unsaturated
+targets, red channel, 100 references, scored on **held-out frames** (references
+selected and coefficients fitted on alternate frames only, then scatter
+measured on the frames the fit never saw).
 
-| variant | full-stamp RMS | red-channel RMS |
+**On stamps as stored** -- which is to say, with the sky pedestal the pipeline
+failed to subtract (conformance audit 5.0):
+
+| variant | median RMS | beats ensemble |
 |---|---|---|
-| raw aperture | 0.38% | 1.14% |
-| `legacy_mean` (what the notebook does today) | 0.18% | 0.98% |
-| **fitted coefficients (paper 3.2.3-3.2.4)** | **0.15%** | **0.28%** |
+| raw aperture | 1.45% | -- |
+| `ensemble_scaled` (flux-scaled mean of references) | 1.29% | -- |
+| fitted coefficients (paper 3.2.3-3.2.4) | 0.63% | 98% of targets, 2.15x |
 
-Restoring the missing coefficient fit is worth a factor of **3.5 on the red
-channel**, where the Bayer systematic is strongest and the mean-of-references
-approach has least to work with. On the full stamp, where color effects
-partially cancel, the gain is modest -- which is exactly why the notebook's
-full-stamp-only photometry hid the problem.
+**With the sky pedestal removed** (`--sky-subtract`):
 
-Injection of a 1% transit over 0.4 h was recovered by every variant with
-suppression below 5%, so flux marginalisation is doing its job.
+| variant | median RMS | beats ensemble |
+|---|---|---|
+| raw aperture | 6.56% | -- |
+| `ensemble_scaled` | 5.99% | -- |
+| fitted coefficients | 4.80% | 72% of targets, **1.15x** |
 
-**These numbers are one target in one observation and are not yet a baseline.**
-The sequence is 42 frames over ~50 minutes, so the 30 min and beta columns have
-too few bins to mean anything. Establishing a real baseline is action item 6.2.
+Three things to take from this.
+
+**Most of the apparent gain was the background.** On un-subtracted stamps the
+coefficient fit looks like a 2x improvement. It is not fitting stellar
+morphology there -- it is fitting smooth background structure shared between
+neighbouring stars, which it does very well. Remove the pedestal and the honest
+gain is 1.15x, winning on roughly three targets in four. Real, worth having,
+and an order of magnitude less than the first measurement suggested.
+
+**The true precision is nowhere near the published result.** 4.8% on the red
+channel against the paper's 2-4%. Part of that is the stopgap sky subtraction
+used here -- a per-frame median of the stamp's outer pixels, which over-subtracts
+stellar wings on a 10x18 stamp and inflates every row of the second table. The
+relative comparison between variants is trustworthy because every variant sees
+the same data; the absolute numbers are pessimistic by an unknown factor. They
+stop being a guess once 3.1 is done.
+
+**It is not overfitting.** Held-out scatter matches in-sample scatter to within
+3% for both OLS and ridge, so 100 free coefficients per target are not
+absorbing noise. That was the main risk and it is cleared.
+
+Caveats: one observation, 42 frames over ~50 minutes, 21 of them held out. The
+30 min and beta columns have too few bins to mean anything yet. Establishing a
+real baseline is action item 6.2.
 
 ## 3. Precision work, in priority order
 
-### 3.1 Restore the coefficient fit
+### 3.1 Actually subtract the background
+
+Nothing else on this list can be measured honestly until this is fixed. One
+line in `ProcessFITS.ipynb` cell 18: write `reduced_data` to
+`reduced_filename` instead of `raw_data` (conformance audit 5.0). Then
+reprocess at least one observation so there is an uncontaminated fixture.
+
+While in there, restore the paper's 11x12 median filter (conformance audit
+4.1), and keep the background map as a saved product so per-stamp local
+background becomes possible later (3.5).
+
+`lightcurve.subtract_stamp_sky` exists as a stopgap for observations already
+processed, and the benchmark scripts take `--sky-subtract`. It estimates sky
+from the stamp's outer pixels, which over-subtracts stellar wings. It is a way
+to keep measuring, not a fix.
+
+**Expected gain: this does not improve precision, it reveals it.** Every number
+in 2.3 and every transit depth the survey produces is diluted until it lands.
+
+### 3.2 Restore the coefficient fit
 
 Already implemented in `lightcurve.core`. What remains is putting it on the
 production path, which is section 4.
 
-**Expected gain: large.** Measured at 3.5x on one channel of one target.
+**Expected gain: 1.15x on the red channel, winning on ~72% of targets**, once
+the background is subtracted. Modest but real, and it is the step that makes
+the rest of section 3 worth doing -- an unweighted mean has no parameters to
+improve.
 
-### 3.2 Choose and tune the regulariser
+### 3.3 Choose and tune the regulariser
 
 Open question, not a porting job. The paper does not state its regulariser; the
 46-of-100 sparsity in Figure 7 implies L1, but the strength is unknown.
@@ -141,7 +201,7 @@ wrong, not the method.
 
 **Expected gain: moderate.** Also the cheapest experiment available.
 
-### 3.3 Per-channel selection and fitting
+### 3.4 Per-channel selection and fitting
 
 The paper selects references and fits coefficients using all pixels, then
 splits color only at the final photometry. But the systematic being corrected
@@ -153,9 +213,9 @@ Against: each channel has a quarter (red, blue) or half (green) of the pixels,
 so the fit has proportionally less data constraining the same 100 coefficients,
 and may overfit. Test it, do not assume it.
 
-**Expected gain: moderate, and interacts with 3.2.**
+**Expected gain: moderate, and interacts with 3.3.**
 
-### 3.4 Apertures
+### 3.5 Apertures
 
 Two changes:
 
@@ -175,7 +235,7 @@ work.
 
 **Expected gain: moderate to large, especially per-channel.**
 
-### 3.5 Flat fields and local background
+### 3.6 Flat fields and local background
 
 Paper section 6.1 lists both. Flat-fielding removes the pixel-to-pixel
 sensitivity variation that currently has to be absorbed by the reference
@@ -193,7 +253,7 @@ uncertainty.
 
 **Expected gain: unknown, potentially large. Highest effort.**
 
-### 3.6 Signal-safe reference selection
+### 3.7 Signal-safe reference selection
 
 References are currently chosen by similarity across *all* frames, in-transit
 frames included. Flux marginalisation (Eq. 1) protects against most
@@ -207,7 +267,7 @@ protection breaks down. Add out-of-transit-only reference selection via
 **Expected gain: not precision, but it bounds a bias that would otherwise
 contaminate every depth measurement the survey produces.**
 
-### 3.7 Per-point uncertainties
+### 3.8 Per-point uncertainties
 
 There are none today. Every lightcurve is a bare array of relative fluxes with
 no error bars, so no transit fit downstream can be weighted or assessed. Needs
@@ -217,7 +277,7 @@ into the final ratio.
 **Expected gain: no RMS change, but nothing downstream is trustworthy without
 it.**
 
-### 3.8 Reference pool scale and search cost
+### 3.9 Reference pool scale and search cost
 
 Similarity search is O(p^2) (conformance audit 5.16). Paper section 3.2.2
 suggests clustering. Options: PCA on normalised stamps then approximate nearest
@@ -225,11 +285,11 @@ neighbours, or KD-tree in a reduced feature space.
 
 This is a throughput problem, not a precision problem -- but it becomes a
 precision problem the moment it is cheap enough to raise the reference pool
-well above 100, which 3.2 may want.
+well above 100, which 3.3 may want.
 
 **Expected gain: throughput; enables larger pools.**
 
-### 3.9 Frame and pixel quality weighting
+### 3.10 Frame and pixel quality weighting
 
 `frame_weights` is plumbed through but unused. Candidates: down-weight frames
 by measured FWHM, background level or airmass; mask individual hot pixels and
@@ -280,14 +340,18 @@ the numbers fails the build rather than being discovered months later.
 
 ## 5. Sequencing
 
-**Now** -- 3.1 on the production path, 3.2 alpha sweep, 3.4 superpixel
-apertures. All three are implemented or nearly so, and all three are measurable
-against benchmark 1 today.
+**First, and blocking** -- 3.1. One line, then reprocess one observation. Until
+that lands, every measurement in this plan is diluted by an unknown factor and
+no result can be defended.
 
-**Next** -- 3.3 per-channel fitting, 3.6 suppression mapping, 3.7 uncertainties,
+**Then** -- 3.2 on the production path, 3.3 alpha sweep, 3.5 superpixel
+apertures. All implemented or nearly so, and all measurable against benchmark 1
+the moment 3.1 is done.
+
+**Next** -- 3.4 per-channel fitting, 3.7 suppression mapping, 3.8 uncertainties,
 4.1-4.3 library and CLI.
 
-**After** -- 3.5 flat fields, 3.8 search scaling, 3.9 quality weighting,
+**After** -- 3.6 flat fields, 3.9 search scaling, 3.10 quality weighting,
 benchmark 4.
 
 Deliberately deferred: anything that improves throughput before precision is
@@ -297,6 +361,11 @@ first.
 ## 6. Action items
 
 These need a decision or something only you can provide.
+
+**6.0 -- Reprocess one observation after fixing the background write (3.1).**
+This is the unblocking item. Which sequence, and can the image-level pipeline
+still be run -- does it need the GCS/Firestore path, or can it go through
+`cli/main.py` against local FITS?
 
 **6.1 -- Recover the paper's HD 339461 data.** Benchmark 2 is the only dataset
 with a published number to reproduce, and it is the only way to tell a real
@@ -328,6 +397,12 @@ the right base, and whether the rebuilt pipeline should eventually land on
 `develop` or on a fresh `main`.
 
 ## 7. Risks
+
+**Precision is much further away than the first measurement suggested.** The
+honest red-channel number is 4.8%, not the sub-percent figures the
+un-subtracted stamps produced. Some of that gap is the stopgap sky subtraction
+and will close with 3.1, but the distance to 0.5% should be assumed large until
+measured on properly reduced data.
 
 **The 0.5% goal may not be reachable from a single camera.** The paper states
 its result "approaches the fundamental noise floor possible from a single

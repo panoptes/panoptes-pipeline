@@ -26,6 +26,71 @@ SolveMethod = Literal["ols", "ridge", "lasso", "nnls", "lasso_positive"]
 
 
 # --------------------------------------------------------------------------
+# Preprocessing (precedes paper 3.2.1)
+# --------------------------------------------------------------------------
+
+
+def subtract_stamp_sky(
+    psc: np.ndarray,
+    sky_mask: np.ndarray,
+    channel_masks: dict[str, np.ndarray] | None = None,
+) -> np.ndarray:
+    """Remove a per-frame, per-colour sky pedestal estimated from the stamp itself.
+
+    **This is a stopgap, not the right fix.** Paper section 4.2 subtracts a
+    global three-channel background from the full frame before stamps are cut,
+    and that is where it belongs. The current pipeline computes that background
+    and then discards it (conformance audit 5.0), so stamps stored in
+    ``observation.h5`` still carry bias plus sky -- typically 780 ADU per pixel,
+    which for a median source is over 95% of the stamp sum.
+
+    Any precision or transit depth measured on un-subtracted stamps is diluted
+    by that pedestal and is not a photometric result. Use this to get usable
+    numbers out of already-processed observations; fix ``ProcessFITS.ipynb`` to
+    stop needing it.
+
+    Args:
+        psc: ``(m, n)`` or ``(r, m, n)`` stamps.
+        sky_mask: ``(n,)`` selection mask of pixels taken to be sky -- typically
+            everything outside the central few pixels.
+        channel_masks: Optional ``{name: (n,) mask}``. Each colour gets its own
+            sky level, which matters because the Bayer channels have different
+            responses and the sky is not grey.
+
+    Returns:
+        Array of the same shape, pedestal removed.
+    """
+    psc = np.asarray(psc, dtype=float)
+    sky_mask = np.asarray(sky_mask, dtype=bool)
+
+    if not sky_mask.any():
+        raise ValueError("sky_mask selects no pixels")
+
+    if channel_masks is None:
+        channel_masks = {"all": np.ones(psc.shape[-1], dtype=bool)}
+
+    out = psc.copy()
+    for mask in channel_masks.values():
+        mask = np.asarray(mask, dtype=bool)
+        sky_pixels = mask & sky_mask
+        if not sky_pixels.any():
+            continue
+        level = np.median(psc[..., sky_pixels], axis=-1, keepdims=True)
+        out[..., mask] = psc[..., mask] - level
+
+    return out
+
+
+def central_sky_mask(stamp_shape: tuple[int, int], core_radius: float = 3.0) -> np.ndarray:
+    """Flat selection mask of pixels outside ``core_radius`` of the stamp centre."""
+    height, width = stamp_shape
+    yy, xx = np.mgrid[:height, :width]
+    centre_y, centre_x = (height - 1) / 2.0, (width - 1) / 2.0
+    outside = (np.abs(yy - centre_y) >= core_radius) | (np.abs(xx - centre_x) >= core_radius)
+    return outside.ravel()
+
+
+# --------------------------------------------------------------------------
 # 3.2.1 Prepare PSCs
 # --------------------------------------------------------------------------
 
@@ -81,7 +146,7 @@ def similarity_scores(
         refs_norm: ``(r, m, n)`` normalised reference PSCs.
         frame_weights: Optional ``(m,)`` non-negative weights. Frames with a
             weight of zero are excluded, which is how out-of-transit-only
-            reference selection is done (improvement plan 3.6).
+            reference selection is done (improvement plan 3.7).
 
     Returns:
         ``(r,)`` array of scores. References with no usable frames score
@@ -357,7 +422,7 @@ def make_lightcurve(
         select_on_channel: If True, run selection and the coefficient fit using
             only the channel's pixels rather than the whole stamp. The paper
             does selection on all pixels and splits color only at the last
-            step; this flag exists to test the alternative (improvement plan 3.3).
+            step; this flag exists to test the alternative (improvement plan 3.4).
         frame_weights: Optional ``(m,)`` weights, e.g. zero for in-transit
             frames so the comparison is built from out-of-transit data only.
 

@@ -16,17 +16,20 @@ from panoptes.pipeline.lightcurve import injection, masks, metrics
 from panoptes.pipeline.lightcurve.core import (
     LightcurveResult,
     build_comparison,
+    central_sky_mask,
     differential_lightcurve,
     make_lightcurve,
     normalize_psc,
     select_references,
     similarity_scores,
     solve_coefficients,
+    subtract_stamp_sky,
 )
 
 __all__ = [
     "LightcurveResult",
     "build_comparison",
+    "central_sky_mask",
     "differential_lightcurve",
     "injection",
     "make_lightcurve",
@@ -36,4 +39,5 @@ __all__ = [
     "select_references",
     "similarity_scores",
     "solve_coefficients",
+    "subtract_stamp_sky",
 ]

@@ -11,17 +11,27 @@ Audited at commit `dd813b2` (branch `pipeline-working`). Cite findings as
 
 ## 1. Summary
 
-**The published algorithm is not implemented.** Its first two steps are, and
-they are correct. Its central step -- building a synthetic comparison star from
-a fitted linear combination of references, paper sections 3.2.3 and 3.2.4 -- is
-absent. The code substitutes an unweighted arithmetic mean of the top 100
-reference stars.
+Two findings, in order of impact.
 
-That substitution discards the entire contribution of the paper. An unweighted
-mean of morphologically-similar stars is ordinary ensemble differential
-photometry; the linear combination in normalised space is what lets the
-comparison reproduce the target's *specific* interaction with the Bayer
-pattern.
+**The background is computed and then thrown away.** `ProcessFITS.ipynb` cell
+16 computes `reduced_data = data - bg_data` exactly as paper section 4.2
+describes, and cell 18 then writes `dict(raw=raw_data)` to
+`reduced_filename`. The background-subtracted array only reaches the *extras*
+file, and only when `save_extras=True`, which defaults to `False`. Every
+postage stamp in every `observation.h5` therefore carries bias plus sky.
+Measured on `PAN007_f6eb3d_20250930T030402`: the minimum pixel value across all
+stamps is 571 ADU and the median is 770, against a bias of 512. For a median
+source, the star is under 3% of its own stamp sum. This is a regression from
+the published pipeline, which does subtract a three-channel global background
+before cutting stamps. See 5.0.
+
+**The published algorithm's central step is not implemented.** Its first two
+steps are, and they are correct. Building a synthetic comparison star from a
+fitted linear combination of references -- paper sections 3.2.3 and 3.2.4 -- is
+absent. The code substitutes an unweighted arithmetic mean of the top 100
+reference stars, which is ordinary ensemble differential photometry; the
+linear combination in normalised space is what lets the comparison reproduce
+the target's *specific* interaction with the Bayer pattern.
 
 A least-squares solver matching paper section 3.2.3 did exist in this
 repository and was deleted in the PyScaffold reorganisation (it survives in
@@ -30,9 +40,12 @@ history at `src/panoptes/pipeline/utils/processing.py`, functions
 unregularised `scipy.linalg.lstsq`; the regularisation implied by paper
 Figure 7 has never existed in code.
 
-Measured consequence, on the red channel of the one observation checked
-(see improvement plan 2.3): restoring the coefficient fit takes the scatter
-from 0.98% to 0.28%.
+The two findings interact, and the order matters. Measured on stamps *as
+stored*, restoring the coefficient fit appears to improve red-channel scatter
+by 2x. Remove the sky pedestal first and that collapses to 1.15x -- because on
+un-subtracted stamps the fit is largely matching smooth background structure
+between neighbouring stars, not stellar morphology. Numbers in improvement
+plan 2.3.
 
 ## 2. Where the algorithm lives
 
@@ -85,7 +98,7 @@ Figure 7 shows 46 of 100 coefficients at exactly zero. Exact zeros are the
 signature of an L1 penalty; plain least squares does not produce them. So the
 published configuration is a *regularised* fit whose regulariser and strength
 are not stated in the paper. This is an open question, not just a porting job
--- see improvement plan 3.2.
+-- see improvement plan 3.3.
 
 ### 3.4 Build comparison star -- **not implemented**
 
@@ -110,13 +123,18 @@ correctly.
 
 ## 4. Pre-processing conformance
 
-### 4.1 Background subtraction -- conforms in method, diverges in parameters
+### 4.1 Background subtraction -- computed correctly, then discarded
 
-Per-channel `photutils.Background2D` with no interpolation across the Bayer
-pattern, as described in paper section 4.2. Box size matches the paper's
-79x84. **The low-resolution median filter is 3x3 in `settings.py`; the paper
-used 11x12.** A 3x3 filter over a 44x62 box grid smooths far less, so more
-small-scale background structure survives into the stamps.
+The computation conforms: per-channel `photutils.Background2D` with no
+interpolation across the Bayer pattern, as described in paper section 4.2, and
+a box size matching the paper's 79x84. Two problems follow.
+
+**The result is not saved** (5.0). `reduced_data` is computed and dropped.
+
+**The low-resolution median filter is 3x3 in `settings.py`; the paper used
+11x12.** A 3x3 filter over a 44x62 box grid smooths far less, so more
+small-scale background structure survives -- which matters more, not less,
+once the subtraction is actually applied.
 
 ### 4.2 PSC creation -- conforms
 
@@ -154,6 +172,26 @@ bias-contaminated stamp is not the same as normalisation of a clean one.
 ## 5. Defects
 
 Ordered by impact on photometric precision.
+
+**5.0 -- Background-subtracted data never reaches the stamps.**
+`ProcessFITS.ipynb` cell 18 writes `dict(raw=raw_data)` to `reduced_filename`;
+`reduced_data` goes only to `extras_filename`, gated on `save_extras`, which
+defaults to `False`. `ProcessObservation.ipynb` cell 57 then cuts stamps from
+that file. Consequences:
+
+- Paper Eq. 1 normalises a stamp that is mostly flat pedestal, so the
+  "morphology" being matched is dominated by background, not by the star.
+  Reference selection and the coefficient fit are solving the wrong problem.
+- Differential photometry ratios `(star + sky) / (star + sky)`, so every
+  measured transit depth is diluted. Measured dilution on
+  `PAN007_f6eb3d_20250930T030402`: 2.9x for a bright target, 44x for a median
+  one.
+- Fractional RMS computed on these stamps is not photometric precision. Faint
+  sources appear to have *lower* scatter than bright ones, because their stamp
+  sum is a stable sky pedestal.
+
+`lightcurve.subtract_stamp_sky` is a stopgap for already-processed data; the
+fix is to write `reduced_data` to `reduced_filename`.
 
 **5.1 -- The comparison star is an unweighted mean, not a fitted combination.**
 Paper sections 3.2.3 and 3.2.4 are absent. See 3.3 and 3.4 above. This is the

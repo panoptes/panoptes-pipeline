@@ -37,11 +37,20 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from panoptes.pipeline.lightcurve import core, injection, masks, metrics  # noqa: E402
 
-#: Variants compared on every run. `legacy_mean` is what the notebook in
-#: `notebooks/working/MakeLightcurves.ipynb` actually does today: a plain
-#: unweighted mean of the top references, with no coefficient fit at all.
+#: Variants compared on every run.
+#:
+#: `legacy_mean` is what `notebooks/working/MakeLightcurves.ipynb` does today:
+#: an unweighted mean of the top references' *raw* stamps, with no coefficient
+#: fit at all. Because the reference pool spans mV 6-13, that mean is dominated
+#: by whichever reference is brightest.
+#:
+#: `ensemble_scaled` is the fair comparison: each reference is scaled to the
+#: target's median flux before averaging, which is ordinary ensemble
+#: differential photometry. Any credit claimed for the coefficient fit must be
+#: measured against this, not against `legacy_mean`.
 VARIANTS = {
-    "legacy_mean": dict(method=None),
+    "legacy_mean": dict(builder="legacy_mean"),
+    "ensemble_scaled": dict(builder="ensemble_scaled"),
     "paper_ols": dict(method="ols"),
     "ridge": dict(method="ridge", alpha=1e-4),
     "lasso": dict(method="lasso", alpha=1e-7),
@@ -120,13 +129,28 @@ def pick_target(cube: np.ndarray, picids: np.ndarray, requested: int | None) -> 
     return int(ranked[len(ranked) // 20])  # ~95th percentile: bright but not the brightest
 
 
-def legacy_mean_lightcurve(target, pool, num_refs, channel_mask=None):
-    """Reproduce the current notebook: mean of the top references, no fit."""
+def unfitted_lightcurve(
+    target, pool, num_refs, builder, channel_mask=None, frame_weights=None
+):
+    """Comparison stars built without a coefficient fit.
+
+    ``legacy_mean`` averages the raw stamps (today's notebook behaviour);
+    ``ensemble_scaled`` first scales each reference to the target's median flux,
+    which is conventional ensemble differential photometry.
+    """
     target_norm = core.normalize_psc(target)
     pool_norm = core.normalize_psc(pool)
-    scores = core.similarity_scores(target_norm, pool_norm)
+    scores = core.similarity_scores(target_norm, pool_norm, frame_weights=frame_weights)
     chosen = core.select_references(scores, num_refs=num_refs)
-    comparison = pool[chosen].mean(axis=0)
+    refs = pool[chosen]
+
+    if builder == "ensemble_scaled":
+        target_median = np.median(target.sum(axis=1))
+        ref_medians = np.median(refs.sum(axis=2), axis=1)
+        comparison = (refs * (target_median / ref_medians)[:, None, None]).mean(axis=0)
+    else:
+        comparison = refs.mean(axis=0)
+
     flux = core.differential_lightcurve(target, comparison, pixel_mask=channel_mask)
     return core.LightcurveResult(
         flux=flux,
@@ -134,7 +158,7 @@ def legacy_mean_lightcurve(target, pool, num_refs, channel_mask=None):
         coefficients=np.full(len(chosen), 1.0 / len(chosen)),
         reference_indices=chosen,
         scores=scores[chosen],
-        meta=dict(method="legacy_mean", num_refs=num_refs),
+        meta=dict(method=builder, num_refs=num_refs),
     )
 
 
@@ -143,6 +167,18 @@ def run(args: argparse.Namespace) -> int:
     cube, picids, frames, stamp_shape = load_observation(args.observation)
     print(f"  {cube.shape[0]} complete sources x {cube.shape[1]} frames x {cube.shape[2]} pixels")
     print(f"  stamp_shape={stamp_shape}")
+
+    rgb_flat = {name: mask.ravel() for name, mask in masks.rgb_masks(stamp_shape).items()}
+    if args.sky_subtract:
+        sky = core.central_sky_mask(stamp_shape)
+        cube = core.subtract_stamp_sky(cube, sky, rgb_flat)
+        print("  sky pedestal removed per frame and colour (stopgap, see conformance audit 5.0)")
+    else:
+        print(
+            "  WARNING: stamps used as stored. ProcessFITS.ipynb writes RAW data to\n"
+            "  reduced_filename, so these carry bias + sky (~780 ADU/pixel). Every number\n"
+            "  below is diluted by that pedestal. Re-run with --sky-subtract."
+        )
 
     index = pick_target(cube, picids, args.picid)
     target = cube[index]
@@ -163,17 +199,38 @@ def run(args: argparse.Namespace) -> int:
 
     channel_mask = None
     if args.channel != "all":
-        channel_mask = masks.rgb_masks(stamp_shape)[args.channel].ravel()
+        channel_mask = rgb_flat[args.channel]
         print(f"  photometry restricted to the {args.channel} channel")
 
     # Raw aperture photometry, on the same pixels the variants will use.
     raw_pixels = target if channel_mask is None else np.where(channel_mask, target, 0.0)
     raw = raw_pixels.sum(axis=1)
-    rows = [("raw_aperture", metrics.report(frames, raw / np.median(raw)), None)]
+
+    # Held-out mode: select references and fit coefficients on alternate frames
+    # only, then score on the frames the fit never saw. With 100 free
+    # coefficients this is the check that the gain is not overfitting.
+    weights, keep = None, np.ones(len(frames), dtype=bool)
+    if args.held_out:
+        weights = np.zeros(len(frames))
+        weights[::2] = 1.0
+        keep = weights == 0
+        print(f"  held-out scoring on {int(keep.sum())} of {len(frames)} frames")
+
+    def score(flux, active=None):
+        return metrics.report(frames[keep], flux[keep], num_active_references=active)
+
+    rows = [("raw_aperture", score(raw / np.median(raw)), None)]
 
     for name, settings in VARIANTS.items():
-        if settings["method"] is None:
-            result = legacy_mean_lightcurve(target, pool, args.num_refs, channel_mask)
+        if "builder" in settings:
+            result = unfitted_lightcurve(
+                target,
+                pool,
+                args.num_refs,
+                settings["builder"],
+                channel_mask=channel_mask,
+                frame_weights=weights,
+            )
         else:
             result = core.make_lightcurve(
                 target,
@@ -183,11 +240,12 @@ def run(args: argparse.Namespace) -> int:
                 alpha=settings.get("alpha", 1e-5),
                 channel_mask=channel_mask,
                 channel=args.channel,
+                frame_weights=weights,
             )
-        card = metrics.report(
-            frames, result.flux, num_active_references=result.num_active_references
+        card = score(result.flux, result.num_active_references)
+        recovery = (
+            injection.measure_depth(result.flux, model) if model is not None else None
         )
-        recovery = injection.measure_depth(result.flux, model) if model is not None else None
         rows.append((name, card, recovery))
 
     _print_table(rows, model is not None)
@@ -239,6 +297,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--num-refs", type=int, default=100, help="References carried into the fit"
     )
     parser.add_argument("--channel", choices=["all", "r", "g", "b"], default="all")
+    parser.add_argument(
+        "--sky-subtract",
+        action="store_true",
+        help="Remove the per-frame, per-colour sky pedestal the pipeline failed to subtract",
+    )
+    parser.add_argument(
+        "--held-out",
+        action="store_true",
+        help="Fit on alternate frames and score only on the frames the fit never saw",
+    )
     parser.add_argument(
         "--inject-depth", type=float, default=0.0, help="Inject a transit of this depth"
     )

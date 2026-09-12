@@ -132,7 +132,7 @@ def weighted_aperture(profile: np.ndarray, noise_variance: np.ndarray | float) -
     Returns weights normalised so that ``sum(w * profile) == 1``, i.e. applying
     them to a frame recovers total flux rather than a weighted average. This is
     the standard optimal-extraction weighting and is the drop-in replacement for
-    a hard-edged aperture in improvement plan 3.4.
+    a hard-edged aperture in improvement plan 3.5.
     """
     profile = np.asarray(profile, dtype=float)
     weights = profile / np.asarray(noise_variance, dtype=float)

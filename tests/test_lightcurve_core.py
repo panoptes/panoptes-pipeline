@@ -211,3 +211,51 @@ def test_injection_requires_matching_frame_counts():
 def test_measure_depth_rejects_a_flat_model():
     with pytest.raises(ValueError, match="no transit"):
         injection.measure_depth(np.ones(10), np.ones(10))
+
+
+# --- Sky pedestal removal -------------------------------------------------
+
+
+def test_central_sky_mask_excludes_the_core():
+    sky = core.central_sky_mask((10, 18), core_radius=3.0).reshape(10, 18)
+    assert not sky[4, 8]
+    assert sky[0, 0]
+    assert sky.sum() == 180 - 36
+
+
+def test_subtract_stamp_sky_removes_a_flat_pedestal_per_colour():
+    """A pedestal 30x the stellar signal must not survive into the photometry."""
+    stamp_shape = (10, 18)
+    rgb = {name: mask.ravel() for name, mask in masks.rgb_masks(stamp_shape).items()}
+    sky = core.central_sky_mask(stamp_shape)
+
+    star = np.zeros((4, 180))
+    star[:, np.flatnonzero(~sky)[:8]] = 100.0
+
+    pedestal = np.zeros(180)
+    for name, level in zip("rgb", (780.0, 640.0, 900.0)):
+        pedestal[rgb[name]] = level
+
+    cleaned = core.subtract_stamp_sky(star + pedestal, sky, rgb)
+    assert np.allclose(cleaned, star, atol=1e-9)
+
+
+def test_subtract_stamp_sky_rejects_an_empty_mask():
+    with pytest.raises(ValueError, match="selects no pixels"):
+        core.subtract_stamp_sky(np.ones((2, 4)), np.zeros(4, dtype=bool))
+
+
+def test_pedestal_dilutes_a_transit_and_subtraction_restores_it():
+    """Why 5.0 matters: an un-subtracted pedestal shrinks every measured depth."""
+    sky = core.central_sky_mask((10, 18))
+    star = np.zeros((20, 180))
+    star[:, np.flatnonzero(~sky)[:8]] = 100.0
+    star[8:12] *= 0.90  # a real 10% transit
+
+    diluted = star + 780.0
+    measured = diluted.sum(axis=1) / np.median(diluted.sum(axis=1))
+    assert 1.0 - measured.min() < 0.02, "pedestal should crush the apparent depth"
+
+    restored = core.subtract_stamp_sky(diluted, sky)
+    recovered = restored.sum(axis=1) / np.median(restored.sum(axis=1))
+    assert 1.0 - recovered.min() == pytest.approx(0.10, abs=0.005)

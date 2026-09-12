@@ -14,7 +14,7 @@ section 3.2.3".
 ## Conventions
 
 - Cite a section as short name plus number: "conformance audit 5.3",
-  "improvement plan 3.4". Never a bare section number.
+  "improvement plan 3.5". Never a bare section number.
 - These are living documents. When an item is done, **delete it** -- do not
   strike it through or annotate it "complete". Git history is the record of
   what was finished; these files state where things stand now.

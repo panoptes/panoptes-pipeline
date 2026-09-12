@@ -98,7 +98,7 @@ Figure 7 shows 46 of 100 coefficients at exactly zero. Exact zeros are the
 signature of an L1 penalty; plain least squares does not produce them. So the
 published configuration is a *regularised* fit whose regulariser and strength
 are not stated in the paper. This is an open question, not just a porting job
--- see improvement plan 3.3.
+-- see improvement plan 3.4.
 
 ### 3.4 Build comparison star -- **not implemented**
 

@@ -3,7 +3,7 @@
 Plan for taking the PANOPTES photometry algorithm from its published ~1%
 (30 min binned) to the 0.5% needed for the transit survey.
 
-Cite sections as "improvement plan 3.4". Companion document: the
+Cite sections as "improvement plan 3.6". Companion document: the
 [conformance audit](conformance-audit.md), which records how far the current
 code has drifted from the published algorithm.
 
@@ -41,10 +41,19 @@ correlated term has to be attacked directly.
 
 ### 1.3 Benchmark datasets
 
-Roughly ten years of raw PANOPTES data is available, so benchmark selection is
-a choice rather than a constraint. Raw frames matter more than reprocessed
-products here: 3.1 changes the image-level reduction, so any fixture built from
-existing `observation.h5` files is already contaminated.
+Roughly ten years of raw PANOPTES data is available on the project's processing
+server, queryable through [`panoptes-data`](https://github.com/panoptes/panoptes-data)
+against Firestore. That repository is ours, so if selection needs a query the
+client cannot express, the fix is to add it there rather than to reimplement
+archive logic here.
+
+Benchmark selection is therefore a choice rather than a constraint. Raw frames
+matter more than reprocessed products: 3.1 changes the image-level reduction, so
+any fixture built from existing `observation.h5` files is already contaminated.
+
+Record measured drift alongside every selected sequence -- per 3.2 it is
+probably the strongest predictor of achievable precision, and selecting on it
+deliberately beats discovering it afterwards.
 
 Currently on disk and usable offline:
 `notebooks/PAN007_f6eb3d_20250930T030402/observation.h5` -- 3,234 sources, but
@@ -213,7 +222,108 @@ to keep measuring, not a fix.
 **Expected gain: this does not improve precision, it reveals it.** Every number
 in 2.3 and every transit depth the survey produces is diluted until it lands.
 
-### 3.2 Restore the coefficient fit
+### 3.2 Drift and sub-pixel sampling
+
+The algorithm assumes a star holds its position, so that its sub-pixel phase on
+the Bayer array is a fixed hidden parameter to be matched. In practice, across
+the archive and including the paper's own 2018-08-24 PAN012 sequence, stars
+drift -- and this is reported as the dominant cause of lost performance.
+
+**What drift does and does not break.** A pure rigid translation shared by every
+star is largely benign: star *k* sits at phase `φ_k + d_i`, the drift `d_i` is
+common, so target and references move together and Eq. 2 still matches what it
+is supposed to match. That is the case the paper tolerates when it claims
+robustness to multi-pixel tracking error. The damage comes from four other
+places:
+
+- **Superpixel boundary crossings.** A star whose phase crosses a boundary
+  changes which colour samples its core, discretely. Whether it crosses depends
+  on where it started, so the population splits and the "locally linear"
+  assumption in paper section 3.1 fails across the split.
+- **Field rotation.** With imperfect polar alignment the motion is not common
+  to all stars: it depends on field position. The effective reference pool
+  collapses to stars at similar radius and azimuth from the rotation centre,
+  which may be a small fraction of the 3,000 available.
+- **A fixed aperture cut at the mean position.** With drift the aperture samples
+  a varying and colour-dependent fraction of the PSF -- the same 0.5 to 4.5
+  green:red swing measured in conformance audit 5.8, now modulated at the
+  tracking period.
+- **Stamp inflation.** Large drift pushes the stamp from 10 to 18 pixels per
+  axis, and given conformance audit 5.0 that means proportionally more
+  background and less star in every sum.
+
+Intra-exposure drift -- trailing -- is a genuine PSF change and is not
+recoverable. Everything else is.
+
+**Recommendations, in order.**
+
+1. **Re-centre stamps per frame on the nearest superpixel.** Cut each frame's
+   stamp at that frame's position rounded to a whole superpixel, rather than
+   once at the sequence mean. Whole-superpixel shifts preserve Bayer phase
+   exactly, so this decouples bulk drift (absorbed by re-centring) from
+   sub-pixel phase (what the algorithm is actually designed to match). It keeps
+   a 10x10 stamp usable under multi-pixel drift, which also cuts the background
+   dilution. Cost: the stamp then covers different detector pixels over time, so
+   flat-field variation becomes a time-varying term -- test against a sky flat
+   (3.7) rather than assuming it is free.
+
+2. **Centre the aperture per frame**, grown to whole superpixels (3.6). A fixed
+   aperture under drift is wrong in a colour-dependent way on most frames.
+
+3. **Use the positions we already measure.** `catalog_wcs_x/y` is stored per
+   star per frame, so each star's sub-pixel phase is known, not hidden. Paper
+   section 3.1 deliberately chose an empirical morphology search over solving
+   for parameters like sub-pixel position. Drift is a good reason to revisit
+   that: condition reference selection on phase directly, or add it as a
+   feature, instead of hoping the search rediscovers it.
+
+4. **Treat this as the intrapixel problem it is.** Sub-pixel position modulating
+   measured flux is the Spitzer intrapixel effect, and the standard solution is
+   pixel-level decorrelation (Deming et al. 2015). PLD normalises each frame's
+   pixels by their sum -- *precisely* paper Eq. 1 -- and then uses those
+   normalised pixels as regressors against the lightcurve. PANOPTES computes the
+   same quantity and uses it only for star-to-star matching. Adding the target's
+   own normalised pixels as regressors is a small change to the existing design
+   and is the technique built for this failure mode. It carries a known risk of
+   absorbing the transit, which is what `frame_weights` and the suppression
+   metric already exist to bound.
+
+   This also inverts the framing. A star pinned to one sub-pixel gives no
+   leverage to measure the intrapixel response; a star that drifts *samples* it.
+   Ten years of drifting data is a training set for a sensitivity map rather
+   than a loss.
+
+5. **Time-local coefficients.** Eq. 4 fits one coefficient vector for the whole
+   sequence. If drift changes the character of the systematic across the
+   observation, fit in a sliding window instead. More free parameters, so pair
+   it with held-out scoring and injection before believing any gain.
+
+6. **Diagnose rotation versus translation** before any of the above. Fit the
+   per-star offsets to translation plus rotation about a free centre and report
+   the split. `ProcessObservation.ipynb` cell 44 filters frames on the *mean* xy
+   offset across all stars, which assumes pure translation and would hide
+   rotation entirely.
+
+7. **Down-weight trailed frames.** `photutils_eccentricity` and
+   `photutils_fwhm` are already computed per source. An elongated frame has a
+   different morphology, not a different position, and should be weighted down
+   rather than matched.
+
+**Measure before building.** Regress each target's residual flux against its
+measured `(Δx, Δy)` and the quadratic terms. The fraction of variance explained
+says how much is recoverable here and ranks items 1-5 on real data instead of
+argument.
+
+**Expected gain: potentially the largest item in this plan**, on the direct
+evidence that drift is what cost most of the performance.
+
+**Consequence for dataset selection (1.3).** Prioritise sequences spanning a
+range of drift behaviour, and record measured drift alongside each. Dataset A
+is then valuable as a hard case to beat rather than a number to match -- if its
+drift is severe, reproducing 2-4% on it is the wrong target and beating it is
+the right one.
+
+### 3.3 Restore the coefficient fit
 
 Already implemented in `lightcurve.core`. What remains is putting it on the
 production path, which is section 4.
@@ -223,7 +333,7 @@ the background is subtracted. Modest but real, and it is the step that makes
 the rest of section 3 worth doing -- an unweighted mean has no parameters to
 improve.
 
-### 3.3 Choose and tune the regulariser
+### 3.4 Choose and tune the regulariser
 
 Open question, not a porting job. The paper does not state its regulariser; the
 46-of-100 sparsity in Figure 7 implies L1, but the strength is unknown.
@@ -242,7 +352,7 @@ wrong, not the method.
 
 **Expected gain: moderate.** Also the cheapest experiment available.
 
-### 3.4 Per-channel selection and fitting
+### 3.5 Per-channel selection and fitting
 
 The paper selects references and fits coefficients using all pixels, then
 splits color only at the final photometry. But the systematic being corrected
@@ -254,9 +364,9 @@ Against: each channel has a quarter (red, blue) or half (green) of the pixels,
 so the fit has proportionally less data constraining the same 100 coefficients,
 and may overfit. Test it, do not assume it.
 
-**Expected gain: moderate, and interacts with 3.3.**
+**Expected gain: moderate, and interacts with 3.4.**
 
-### 3.5 Apertures
+### 3.6 Apertures
 
 Two changes:
 
@@ -276,7 +386,7 @@ work.
 
 **Expected gain: moderate to large, especially per-channel.**
 
-### 3.6 Flat fields and local background
+### 3.7 Flat fields and local background
 
 **Tested and rejected at stamp scale.** The obvious follow-on from conformance
 audit 5.0 is that if the coefficient fit models background that well, it should
@@ -340,7 +450,7 @@ uncertainty.
 
 **Expected gain: unknown, potentially large. Highest effort.**
 
-### 3.7 Signal-safe reference selection
+### 3.8 Signal-safe reference selection
 
 References are currently chosen by similarity across *all* frames, in-transit
 frames included. Flux marginalisation (Eq. 1) protects against most
@@ -354,7 +464,7 @@ protection breaks down. Add out-of-transit-only reference selection via
 **Expected gain: not precision, but it bounds a bias that would otherwise
 contaminate every depth measurement the survey produces.**
 
-### 3.8 Per-point uncertainties
+### 3.9 Per-point uncertainties
 
 There are none today. Every lightcurve is a bare array of relative fluxes with
 no error bars, so no transit fit downstream can be weighted or assessed. Needs
@@ -364,7 +474,7 @@ into the final ratio.
 **Expected gain: no RMS change, but nothing downstream is trustworthy without
 it.**
 
-### 3.9 Reference pool scale and search cost
+### 3.10 Reference pool scale and search cost
 
 Similarity search is O(p^2) (conformance audit 5.16). Paper section 3.2.2
 suggests clustering. Options: PCA on normalised stamps then approximate nearest
@@ -372,11 +482,11 @@ neighbours, or KD-tree in a reduced feature space.
 
 This is a throughput problem, not a precision problem -- but it becomes a
 precision problem the moment it is cheap enough to raise the reference pool
-well above 100, which 3.3 may want.
+well above 100, which 3.4 may want.
 
 **Expected gain: throughput; enables larger pools.**
 
-### 3.10 Frame and pixel quality weighting
+### 3.11 Frame and pixel quality weighting
 
 `frame_weights` is plumbed through but unused. Candidates: down-weight frames
 by measured FWHM, background level or airmass; mask individual hot pixels and
@@ -419,7 +529,37 @@ Once the library owns the algorithm, the notebooks import it and plot. They
 stop being the implementation. `notebooks/working/` -- 20 files including six
 `RunProcessFits-Copy*.ipynb` and two `Untitled` -- gets archived or deleted.
 
-### 4.5 CI
+### 4.5 Test data and the archive
+
+Three tiers, and only the first belongs in git.
+
+**Tier 1 -- committed fixtures, under ~5 MB, plain git, no LFS.** A trimmed
+slice of a real observation: 40 sources x 40 frames x 180 pixels in float32 is
+about 1.2 MB. Enough for unit tests and CI, small enough that nobody thinks
+about it. **Do not cut one until 3.1 lands** -- a fixture built from today's
+stamps would bake the un-subtracted background into the test suite permanently.
+
+**Tier 2 -- working datasets, GB scale, local only, never committed.** What gets
+committed is a manifest: sequence IDs, frame counts, checksums, and the
+`panoptes-data` call that fetches them. That buys reproducibility without the
+bytes, and a manifest diff is readable in a way a binary diff is not.
+
+**Tier 3 -- the full archive on the processing server**, over VPN, for parameter
+sweeps and final runs.
+
+**Skip git-lfs.** It exists for data with no other home. This data has a home,
+an owner and a client library, so LFS would duplicate the archive at the cost of
+setup friction, bandwidth quota, and a repository nobody can clone cheaply.
+Revisit only if some dataset becomes load-bearing for CI *and* cannot be trimmed
+to tier 1 -- and prefer trimming.
+
+**Develop locally, sweep on the server.** Running only on the server is the
+tempting shortcut and the wrong one: CI cannot reach it, and the code quietly
+becomes unable to run anywhere else. Keeping tier 1 and tier 2 working locally
+keeps the offline-first goal in 4 honest, and the server stays what it should
+be -- where the expensive runs happen.
+
+### 4.6 CI
 
 `.github/` is empty. Add: ruff, pytest, and a smoke run of
 `scripts/benchmark_lightcurve.py` against a trimmed fixture, so a regression in
@@ -431,14 +571,18 @@ the numbers fails the build rather than being discovered months later.
 that lands, every measurement in this plan is diluted by an unknown factor and
 no result can be defended.
 
-**Then** -- 3.2 on the production path, 3.3 alpha sweep, 3.5 superpixel
+**Then, and probably the big one** -- 3.2. Start with its diagnostic (how much
+variance the measured drift explains) and the rotation-versus-translation split,
+because those rank the rest of 3.2 on evidence rather than argument.
+
+**Alongside** -- 3.3 on the production path, 3.4 alpha sweep, 3.6 superpixel
 apertures. All implemented or nearly so, and all measurable against benchmark 1
 the moment 3.1 is done.
 
-**Next** -- 3.4 per-channel fitting, 3.7 suppression mapping, 3.8 uncertainties,
+**Next** -- 3.5 per-channel fitting, 3.8 suppression mapping, 3.9 uncertainties,
 4.1-4.3 library and CLI.
 
-**After** -- 3.6 flat fields, 3.9 search scaling, 3.10 quality weighting,
+**After** -- 3.7 flat fields, 3.10 search scaling, 3.11 quality weighting,
 benchmark 4.
 
 Deliberately deferred: anything that improves throughput before precision is
@@ -449,43 +593,37 @@ first.
 
 These need a decision or something only you can provide.
 
-**6.0 -- Reprocess one observation after fixing the background write (3.1).**
-This is the unblocking item. Which sequence, and can the image-level pipeline
-still be run -- does it need the GCS/Firestore path, or can it go through
-`cli/main.py` against local FITS?
+**6.1 -- Pick the first sequence and reprocess it after the 3.1 fix.** This is
+the unblocking item for everything else. Selection criteria are in 1.3; dataset
+B (300+ frames over 3+ hours, modern unit) is the one that makes the metrics in
+1.2 mean anything. Can the image-level pipeline run against local FITS on the
+server, or does it still require the GCS and Firestore path?
 
-**6.1 -- Select the benchmark sequences from the archive (1.3).** Ten years of
-raw data is available; what is needed is a way to search it. Is there queryable
-metadata -- Firestore or BigQuery observation records with field, unit, frame
-count, moon phase, airmass -- or is the archive effectively GCS paths? That
-answer decides whether selecting A-G is a query or a manual hunt. Dataset A
-also needs confirming: are the 122 raw PAN012 frames from 2018-08-24 still
-there?
+**6.2 -- Confirm the baseline scope.** Proposal: once dataset B is reduced, run
+the harness over ~200 targets spanning 8 < mV < 12 and freeze that as the
+reference baseline. Needs sign-off on the magnitude range and target count
+before it becomes the number everything is measured against. Not worth freezing
+on the 42-frame fixture.
 
-**6.2 -- Confirm the baseline scope.** Proposal: after 3.1 and once dataset B
-is reduced, run the harness over ~200 targets spanning 8 < mV < 12 and freeze
-that as the reference baseline. Needs sign-off on the magnitude range and
-target count before it becomes the number everything is measured against. Not
-worth freezing on the 42-frame fixture.
+**6.3 -- Flat fields (3.7).** Does any unit take them today? The sky-flat-by-
+median-stacking route needs no new acquisition procedure and should be tried
+first, so this may resolve without any change to POCS -- but it is worth knowing
+whether real flats exist anywhere in ten years of data.
 
-**6.3 -- Decide on the regulariser experiment scope (3.2).** Sweeping alpha x
-method x reference count over hundreds of targets is the single most
-informative experiment available, and the most compute. Should it run locally,
-or is Cloud Run still a live deployment target?
-
-**6.4 -- Flat fields (3.5).** Does any PANOPTES unit currently take flats, or
-would this need a new acquisition procedure in POCS? This gates the
-longest-lead item in the plan.
-
-**6.5 -- Confirm the camera fleet constants.** `settings.py` hardcodes
+**6.4 -- Confirm the camera fleet constants.** `settings.py` hardcodes
 `zero_bias=512` and `saturation=15872` for every camera, while the paper's
 EOS 100D is 2048 and 11535 (conformance audit 4.5). Which cameras are in the
-fleet now, and where should per-unit constants live?
+fleet now, and where should per-unit constants live -- here, or in
+`panoptes-data` alongside the unit records?
 
-**6.6 -- Branch disposition.** `algorithm-v2` is cut from `pipeline-working`,
-which has uncommitted changes and untracked deployment files. Confirm that is
+**6.5 -- Branch disposition.** `algorithm-v2` is cut from `pipeline-working`,
+which had uncommitted changes and untracked deployment files. Confirm that is
 the right base, and whether the rebuilt pipeline should eventually land on
 `develop` or on a fresh `main`.
+
+**6.6 -- VPN access, when it is time.** Not needed yet: 3.1, the 3.2
+diagnostics and the 3.4 sweep can all run against a downloaded tier 2 dataset.
+Worth arranging before the first full-archive run.
 
 ## 7. Risks
 

@@ -146,7 +146,7 @@ def similarity_scores(
         refs_norm: ``(r, m, n)`` normalised reference PSCs.
         frame_weights: Optional ``(m,)`` non-negative weights. Frames with a
             weight of zero are excluded, which is how out-of-transit-only
-            reference selection is done (improvement plan 3.7).
+            reference selection is done (improvement plan 3.8).
 
     Returns:
         ``(r,)`` array of scores. References with no usable frames score
@@ -422,7 +422,7 @@ def make_lightcurve(
         select_on_channel: If True, run selection and the coefficient fit using
             only the channel's pixels rather than the whole stamp. The paper
             does selection on all pixels and splits color only at the last
-            step; this flag exists to test the alternative (improvement plan 3.4).
+            step; this flag exists to test the alternative (improvement plan 3.5).
         frame_weights: Optional ``(m,)`` weights, e.g. zero for in-transit
             frames so the comparison is built from out-of-transit data only.
 

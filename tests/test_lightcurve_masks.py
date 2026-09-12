@@ -70,7 +70,7 @@ def test_raw_aperture_colour_ratio_swings_with_sub_pixel_position():
     the star sits, so the green:red pixel ratio inside it is not fixed at 2:1.
     Across half-pixel centroid shifts the ratio swings by more than a factor of
     four, which is a colour-dependent flux error the algorithm never sees. See
-    conformance audit 3.5 and improvement plan 3.5.
+    conformance audit 3.5 and improvement plan 3.6.
     """
     rgb = masks.rgb_masks((10, 10))
     ratios = []

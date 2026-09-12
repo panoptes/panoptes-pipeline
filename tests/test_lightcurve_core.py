@@ -259,3 +259,43 @@ def test_pedestal_dilutes_a_transit_and_subtraction_restores_it():
     restored = core.subtract_stamp_sky(diluted, sky)
     recovered = restored.sum(axis=1) / np.median(restored.sum(axis=1))
     assert 1.0 - recovered.min() == pytest.approx(0.10, abs=0.005)
+
+
+# --- Signal fidelity ------------------------------------------------------
+
+
+def test_amplitude_is_recovered_regardless_of_phase():
+    times = np.arange(400, dtype=float) * 35.0
+    for phase in (0.0, 1.1, 2.7, 4.9):
+        flux = injection.sinusoid(times, period_hours=2.0, amplitude=0.01, phase=phase)
+        assert injection.measure_amplitude(times, flux, 2.0) == pytest.approx(0.01, rel=1e-6)
+
+
+def test_transfer_is_unity_for_a_pipeline_that_does_nothing():
+    times = np.arange(600, dtype=float) * 35.0
+    transfer = injection.transfer_function(
+        lambda model: model, times, periods_hours=(0.5, 2.0, 6.0)
+    )
+    assert all(value == pytest.approx(1.0, abs=0.02) for value in transfer.values())
+
+
+def test_transfer_exposes_long_timescale_suppression():
+    """The failure mode this metric exists for.
+
+    A pipeline that detrends with a polynomial keeps short-period signal and
+    eats slow variation. A transit-shaped test at one duration can miss that
+    entirely; a sweep over period cannot.
+    """
+    times = np.arange(800, dtype=float) * 35.0
+    scaled = (times - times.mean()) / np.ptp(times)
+
+    def detrending_pipeline(model):
+        design = np.vander(scaled, 4)
+        coefficients, *_ = np.linalg.lstsq(design, model, rcond=None)
+        return model - design @ coefficients + 1.0
+
+    transfer = injection.transfer_function(
+        detrending_pipeline, times, periods_hours=(0.3, 8.0), num_phases=6
+    )
+    assert transfer[0.3] > 0.9, "short timescales should pass through"
+    assert transfer[8.0] < 0.5, "slow variation should be visibly eaten"

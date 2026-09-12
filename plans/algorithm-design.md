@@ -132,19 +132,50 @@ extraction for free.
 metrics, against the paper's method. The infrastructure to do that already
 exists.
 
-## 4. The objective is detection, not RMS
+## 4. Two objectives, at two layers
 
-The goal is transit detection, and that is not the same as minimising scatter.
-The figure of merit is **injection-recovery completeness at a fixed false-alarm
-rate**, over a grid of depth, duration and phase. RMS is a proxy for it, and a
-poor one where noise is correlated.
+These are not the same thing, and conflating them is how an algorithm gets
+quietly tuned toward its own prior.
 
-The noise that matters is on transit timescales -- roughly 1 to 4 hours -- not
-at an arbitrary 30 minutes. Bin sizes should be matched to the durations being
-searched, and the red-noise factor evaluated there.
+### 4.1 The algorithm's objective: fidelity
 
-A change that lowers RMS while lowering completeness is a regression. Only the
-second number decides.
+**The algorithm's job is to return the target's true relative flux -- nothing
+suppressed, nothing invented.** That is it. It should know nothing about
+transits.
+
+Optimising the algorithm for transit detection would bias it toward signals
+shaped like the assumed transit and against everything else in the data:
+long-duration events, stellar variability, flares, anything the survey has not
+thought of. It is also circular, since the same machinery later claims the
+detections.
+
+Measure it as a **signal transfer function**: inject sinusoids across a range of
+periods and measure recovered amplitude over injected amplitude.
+`injection.transfer_function` does this. A transfer of 1.0 at every timescale of
+interest is what fidelity means quantitatively, and sinusoids are used rather
+than transits precisely because they carry no assumption about signal shape.
+
+The failure mode to watch is a **long-timescale rolloff**. Any model with many
+free parameters fitted across a whole sequence will absorb slow variation, and a
+transit-shaped test at one duration can miss that entirely.
+
+Fidelity is one axis; residual noise is the other, measured with the scatter and
+red-noise metrics in `metrics`. A change is an improvement only if it lowers
+noise **without** lowering transfer. Reporting one without the other is how
+signal suppression gets sold as precision.
+
+### 4.2 The project's objective: detection
+
+The survey is judged on **injection-recovery completeness at a fixed false-alarm
+rate**, over a grid of depth, duration and phase. `detection.completeness` does
+this, with the threshold from `detection.false_alarm_threshold`.
+
+That metric belongs to the end-to-end survey, not to the algorithm, and the
+noise that matters for it is on transit timescales -- roughly 1 to 4 hours --
+rather than at an arbitrary 30 minutes.
+
+Scatter alone is a proxy for neither objective, and a poor one wherever the
+noise is correlated.
 
 ## 5. Status of the measurements in this document
 

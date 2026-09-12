@@ -98,12 +98,23 @@ uv run --no-project --with numpy --with scipy --with scikit-learn --with pytest 
 
 ## Measuring a change
 
-**The objective is detection, not scatter.** Score with
-`lightcurve.detection.completeness` -- the fraction of injected transits
-recovered above a false-alarm threshold, over a grid of depth and duration, with
-the threshold set by `false_alarm_threshold` (circular time shifts, which
-preserve red noise). A change that lowers RMS while lowering completeness is a
-regression. See algorithm design 4.
+**Two objectives at two layers, and they are not the same.** See algorithm
+design 4.
+
+The *algorithm's* job is to return the target's true relative flux -- nothing
+suppressed, nothing invented. It should know nothing about transits; optimising
+it for a transit shape biases it toward that prior and against everything else
+the data holds. Score it with `injection.transfer_function`: sinusoids injected
+across a range of periods, recovered amplitude over injected. 1.0 at every
+timescale is the goal, and a long-timescale rolloff is the failure mode -- any
+model with many free parameters fitted across a whole sequence will eat slow
+variation. Report transfer alongside noise, always: a change that lowers scatter
+while lowering transfer has suppressed signal, not removed noise.
+
+The *project's* objective is detection, scored with
+`detection.completeness` against a `detection.false_alarm_threshold` (built from
+circular time shifts, which preserve red noise). That belongs to the end-to-end
+survey, not to the algorithm.
 
 Also required of any precision claim:
 

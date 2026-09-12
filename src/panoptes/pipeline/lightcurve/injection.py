@@ -136,3 +136,87 @@ def measure_depth(flux: np.ndarray, model: np.ndarray, threshold: float = 0.5) -
         out_of_transit_rms=float(np.nanstd(flux[out_transit])) if out_transit.any() else np.nan,
         num_in_transit=int(in_transit.sum()),
     )
+
+
+# --------------------------------------------------------------------------
+# Signal fidelity -- the algorithm's own objective, independent of transits
+# --------------------------------------------------------------------------
+
+
+def sinusoid(
+    times: np.ndarray,
+    period_hours: float,
+    amplitude: float,
+    phase: float = 0.0,
+) -> np.ndarray:
+    """Relative flux model for a sinusoidal variation of known amplitude.
+
+    Sinusoids rather than transits, deliberately. Measuring fidelity with a
+    transit shape only tells you about transit-shaped signals; a sweep over
+    period measures what the algorithm does to *any* variation at that
+    timescale, which is what the algorithm is actually responsible for.
+    """
+    seconds = _to_seconds(times)
+    return 1.0 + amplitude * np.sin(2.0 * np.pi * seconds / (period_hours * 3600.0) + phase)
+
+
+def measure_amplitude(times: np.ndarray, flux: np.ndarray, period_hours: float) -> float:
+    """Least-squares amplitude of a known-period sinusoid in a lightcurve.
+
+    Fits ``a + b sin(wt) + c cos(wt)`` and returns ``sqrt(b^2 + c^2)``, so the
+    result is independent of the injected phase.
+    """
+    seconds = _to_seconds(times)
+    flux = np.asarray(flux, dtype=float)
+    good = np.isfinite(flux)
+    if good.sum() < 4:
+        return float("nan")
+
+    omega = 2.0 * np.pi / (period_hours * 3600.0)
+    design = np.column_stack(
+        [np.ones(good.sum()), np.sin(omega * seconds[good]), np.cos(omega * seconds[good])]
+    )
+    coefficients, *_ = np.linalg.lstsq(design, flux[good], rcond=None)
+    return float(np.hypot(coefficients[1], coefficients[2]))
+
+
+def transfer_function(
+    recover,
+    times: np.ndarray,
+    periods_hours: tuple[float, ...],
+    amplitude: float = 0.01,
+    num_phases: int = 4,
+) -> dict[float, float]:
+    """Fraction of an injected signal that survives the pipeline, by timescale.
+
+    This is the algorithm's objective. Its job is to return the target's true
+    relative flux -- nothing suppressed, nothing invented -- and a transfer
+    function of 1.0 at every timescale of interest is what that means
+    quantitatively. Detection is a property of the survey built on top, not of
+    the algorithm, and optimising the algorithm for a transit shape would bias
+    it toward signals matching that prior and against everything else the data
+    contains.
+
+    A long-timescale rolloff is the failure mode to watch for: a model with many
+    free parameters fitted across a whole sequence will absorb slow variation,
+    and a transit-shaped test at one duration can miss it entirely.
+
+    Args:
+        recover: ``recover(model) -> flux``, where ``model`` is a relative flux
+            array to imprint at the pixel level before the pipeline runs.
+        times: Observation times.
+        periods_hours: Timescales to probe.
+        amplitude: Injected amplitude, small enough to stay in the linear regime.
+        num_phases: Injections per period, averaged, to remove phase sensitivity.
+
+    Returns:
+        ``{period_hours: recovered / injected}``. 1.0 is perfect fidelity.
+    """
+    results = {}
+    for period in periods_hours:
+        recovered = []
+        for phase in np.linspace(0.0, 2.0 * np.pi, num_phases, endpoint=False):
+            model = sinusoid(times, period, amplitude, phase=phase)
+            recovered.append(measure_amplitude(times, recover(model), period))
+        results[float(period)] = float(np.nanmean(recovered) / amplitude)
+    return results

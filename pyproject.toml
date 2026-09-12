@@ -43,6 +43,7 @@ dependencies = [
   "numpy",
   "numexpr",
   "pandas",
+  "pandas_gbq",
   "papermill",
   "panoptes-data>=0.1.5",
   "panoptes-utils[images]>=0.2.33",
@@ -62,7 +63,7 @@ dependencies = [
 dev = [
   "bokeh",
   "ipywidgets",
-  "jupyterlab_beta",
+  "jupyterlab",
   "panel",
   "seaborn",
   "tqdm",
@@ -104,7 +105,7 @@ include = ["src", "README.md", "LICENSE.txt", "docs", "resources"]
 # Ruff configuration (formatting + linting)
 [tool.ruff]
 line-length = 100
-target-version = "py38"
+target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP"]
@@ -120,11 +121,6 @@ line-ending = "lf"
 [tool.pytest.ini_options]
 addopts = [
   "--strict-markers",
-  "--doctest-modules",
-  "--test-databases",
-  "all",
-  "-x",
-  "-vv",
   "-ra",
 ]
 # Doctest flags used by pytest-doctestplus

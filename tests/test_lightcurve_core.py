@@ -1,0 +1,213 @@
+"""Tests for the paper-faithful algorithm core (paper sections 3.2.1 - 3.2.5)."""
+
+from __future__ import annotations
+
+import numpy as np
+import pytest
+
+from panoptes.pipeline.lightcurve import core, injection, masks, metrics
+from tests.synthetic import make_observation
+
+# --- 3.2.1 Prepare PSCs ---------------------------------------------------
+
+
+def test_normalize_psc_frames_sum_to_one():
+    psc = np.arange(1, 21, dtype=float).reshape(4, 5)
+    normed = core.normalize_psc(psc)
+    assert np.allclose(normed.sum(axis=1), 1.0)
+
+
+def test_normalize_psc_handles_stacked_cubes():
+    cube = np.random.default_rng(0).uniform(1, 10, size=(3, 4, 5))
+    normed = core.normalize_psc(cube)
+    assert normed.shape == cube.shape
+    assert np.allclose(normed.sum(axis=2), 1.0)
+
+
+def test_normalize_psc_marks_dead_frames_nan_not_zero():
+    psc = np.array([[1.0, 1.0], [0.0, 0.0]])
+    normed = core.normalize_psc(psc)
+    assert np.allclose(normed[0], 0.5)
+    assert np.isnan(normed[1]).all(), "A zero-flux frame must not silently become zeros"
+
+
+def test_normalize_psc_pixel_mask_restricts_the_sum():
+    psc = np.array([[1.0, 3.0, 4.0, 2.0]])
+    mask = np.array([True, True, False, False])
+    normed = core.normalize_psc(psc, pixel_mask=mask)
+    assert np.allclose(normed[0], [0.25, 0.75, 0.0, 0.0])
+
+
+# --- 3.2.2 Find reference stars -------------------------------------------
+
+
+def test_identical_star_scores_zero():
+    obs = make_observation(num_stars=5, num_frames=6, seed=1)
+    normed = core.normalize_psc(obs.pscs)
+    scores = core.similarity_scores(normed[0], normed)
+    assert scores[0] == pytest.approx(0.0, abs=1e-12)
+    assert (scores[1:] > 0).all()
+
+
+def test_select_references_refuses_a_pool_containing_the_target():
+    with pytest.raises(ValueError, match="target is present"):
+        core.select_references(np.array([0.0, 1.0, 2.0]))
+
+
+def test_select_references_returns_best_first():
+    chosen = core.select_references(np.array([5.0, 1.0, 3.0, 2.0]), num_refs=3)
+    assert chosen.tolist() == [1, 3, 2]
+
+
+def test_frame_weights_exclude_frames_from_scoring():
+    obs = make_observation(num_stars=4, num_frames=6, seed=2)
+    normed = core.normalize_psc(obs.pscs)
+    weights = np.array([1.0, 1.0, 0.0, 0.0, 1.0, 1.0])
+    weighted = core.similarity_scores(normed[0], normed[1:], frame_weights=weights)
+    full = core.similarity_scores(normed[0], normed[1:])
+    assert (weighted < full).all()
+
+
+# --- 3.2.3 Determine coefficients -----------------------------------------
+
+
+def test_ols_recovers_an_exact_linear_combination():
+    """If the target *is* a mixture of the references, the fit must find it."""
+    rng = np.random.default_rng(7)
+    refs = rng.uniform(0.5, 1.5, size=(6, 8, 12))
+    refs = core.normalize_psc(refs)
+    truth = np.array([0.4, -0.15, 0.25, 0.0, 0.3, 0.2])
+    target = np.tensordot(truth, refs, axes=(0, 0))
+
+    coeffs = core.solve_coefficients(target, refs, method="ols")
+    assert np.allclose(coeffs, truth, atol=1e-8)
+
+
+def test_lasso_drives_coefficients_to_exactly_zero():
+    """Paper Fig. 7 shows 46 of 100 coefficients at zero - an L1 signature."""
+    obs = make_observation(num_stars=60, num_frames=12, seed=3)
+    normed = core.normalize_psc(obs.pscs)
+
+    ols = core.solve_coefficients(normed[0], normed[1:], method="ols")
+    lasso = core.solve_coefficients(normed[0], normed[1:], method="lasso", alpha=1e-6)
+
+    assert np.count_nonzero(ols) == len(ols)
+    assert 0 < np.count_nonzero(lasso) < len(lasso)
+
+
+def test_nnls_never_returns_a_negative_coefficient():
+    obs = make_observation(num_stars=30, num_frames=10, seed=4)
+    normed = core.normalize_psc(obs.pscs)
+    coeffs = core.solve_coefficients(normed[0], normed[1:], method="nnls")
+    assert (coeffs >= 0).all()
+
+
+def test_unknown_solver_is_rejected():
+    obs = make_observation(num_stars=5, num_frames=4, seed=5)
+    normed = core.normalize_psc(obs.pscs)
+    with pytest.raises(ValueError, match="Unknown solve"):
+        core.solve_coefficients(normed[0], normed[1:], method="magic")
+
+
+# --- 3.2.4 / 3.2.5 Build comparison and do photometry ---------------------
+
+
+def test_build_comparison_checks_coefficient_count():
+    refs = np.ones((3, 4, 5))
+    with pytest.raises(ValueError, match="coefficients for"):
+        core.build_comparison(refs, np.ones(2))
+
+
+def test_comparison_built_from_raw_flux_gives_a_flat_lightcurve():
+    """Coefficients fit in normalised space, applied to flux-carrying stamps."""
+    rng = np.random.default_rng(11)
+    refs = core.normalize_psc(rng.uniform(0.5, 1.5, size=(5, 10, 9)))
+    truth = np.array([0.3, 0.2, 0.1, 0.25, 0.15])
+    target = np.tensordot(truth, refs, axes=(0, 0))
+
+    comparison = core.build_comparison(refs, truth)
+    flux = core.differential_lightcurve(target, comparison)
+    assert np.allclose(flux, 1.0, atol=1e-10)
+
+
+def test_differential_lightcurve_respects_the_aperture():
+    target = np.array([[10.0, 10.0, 1000.0]])
+    comparison = np.array([[5.0, 5.0, 1.0]])
+    mask = np.array([True, True, False])
+    flux = core.differential_lightcurve(target, comparison, pixel_mask=mask, normalize=False)
+    assert flux[0] == pytest.approx(2.0)
+
+
+# --- End to end -----------------------------------------------------------
+
+
+def test_algorithm_beats_raw_aperture_photometry():
+    """The whole point: differential photometry must beat summing the stamp."""
+    obs = make_observation(num_stars=120, num_frames=30, seed=13)
+    target, pool = obs.pscs[0], obs.pscs[1:]
+
+    result = core.make_lightcurve(target, pool, num_refs=60, method="lasso", alpha=1e-7)
+
+    raw = target.sum(axis=1)
+    raw = raw / np.median(raw)
+
+    assert metrics.rms(result.flux) < metrics.rms(raw)
+    assert result.flux.shape == (30,)
+    assert result.num_active_references > 0
+
+
+def test_per_channel_lightcurves_are_produced_independently():
+    obs = make_observation(num_stars=80, num_frames=20, seed=17)
+    rgb = masks.rgb_masks(obs.stamp_shape)
+
+    curves = {
+        colour: core.make_lightcurve(
+            obs.pscs[0],
+            obs.pscs[1:],
+            num_refs=40,
+            channel_mask=rgb[colour].ravel(),
+            channel=colour,
+        )
+        for colour in "rgb"
+    }
+
+    for colour, result in curves.items():
+        assert result.channel == colour
+        assert np.isfinite(result.flux).all()
+    assert not np.allclose(curves["r"].flux, curves["b"].flux)
+
+
+def test_result_records_its_own_settings():
+    obs = make_observation(num_stars=30, num_frames=8, seed=19)
+    result = core.make_lightcurve(obs.pscs[0], obs.pscs[1:], num_refs=10, method="ridge")
+    assert result.meta["method"] == "ridge"
+    assert result.meta["num_refs"] == 10
+    assert result.meta["pool_size"] == 29
+    assert len(result.reference_indices) == 10
+
+
+# --- Injection and recovery ----------------------------------------------
+
+
+def test_injected_transit_is_recovered_without_large_suppression():
+    obs = make_observation(num_stars=140, num_frames=60, seed=23)
+    model = injection.trapezoid_transit(
+        obs.times, mid_transit=obs.times[len(obs.times) // 2], duration_hours=0.35, depth=0.02
+    )
+    target = injection.inject(obs.pscs[0], model)
+
+    result = core.make_lightcurve(target, obs.pscs[1:], num_refs=60, method="lasso", alpha=1e-7)
+    recovery = injection.measure_depth(result.flux, model)
+
+    assert recovery.recovered_depth == pytest.approx(0.02, abs=0.006)
+    assert abs(recovery.suppression) < 0.3
+
+
+def test_injection_requires_matching_frame_counts():
+    with pytest.raises(ValueError, match="frames"):
+        injection.inject(np.ones((5, 4)), np.ones(3))
+
+
+def test_measure_depth_rejects_a_flat_model():
+    with pytest.raises(ValueError, match="no transit"):
+        injection.measure_depth(np.ones(10), np.ones(10))

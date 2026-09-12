@@ -4,7 +4,7 @@ Notable changes, newest first, in the [Keep a
 Changelog](https://keepachangelog.com/en/1.1.0/) format. The versioning policy
 -- and why this project is deliberately pre-1.0 -- is in `CLAUDE.md`.
 
-## Unreleased
+## v0.3.0 -- 2026-09-12
 
 ### Added
 

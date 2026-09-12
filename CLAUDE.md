@@ -243,11 +243,9 @@ writing it at merge time prevents.
 - Anything needing a human decision goes in improvement plan 6 as its own item,
   immediately. Do not raise it in conversation and rely on it being remembered.
 - **When you start work on an issue, set its GitHub Project status to "In
-  Progress"** -- at the start, not on completion, so the board says who is on
-  what while the work is happening. `Status` is a Projects v2 field and the
-  GitHub MCP server exposes no project-item writes, so an agent session cannot
-  set it: say so when you begin, and leave it to a human until the tooling
-  covers it. Do not substitute the repo-level `Start date` field for it.
+  Progress"** -- at the start, not on completion, so the board says what is being
+  worked on while it is happening. Closing an issue moves it to Done on its own;
+  the starting transition is the one that needs doing.
 - **Branch names say what the branch is for**: `type/issue-NNN` plus an optional
   short description, as in `cleanup/issue-170` or
   `cleanup/issue-170-tooling-foundation`. The type is the kind of work

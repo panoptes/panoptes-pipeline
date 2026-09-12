@@ -214,6 +214,26 @@ git tag -a v0.3.0 -m "..." && git push origin v0.3.0
 `archive/*` tags are not releases. They preserve retired branch tips and carry no
 version meaning.
 
+### The changelog moves with the branch
+
+**`CHANGELOG.md` is updated in the branch that makes the change, not afterwards.**
+A branch is not finished until its entry is under `## Unreleased`, so nothing
+merges and leaves the changelog to be reconstructed from `git log` later. It had
+already drifted to claiming `0.0.1` while the tags said `v0.2.0`; that is what
+writing it at merge time prevents.
+
+- [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) headings: **Added**,
+  **Changed**, **Deprecated**, **Removed**, **Fixed**, **Security**. Only the
+  ones that apply.
+- Write what changed for someone using the package, and why when the why is not
+  obvious. Not a commit-message copy, and never a bare issue number.
+- No entry needed for changes nobody outside the branch can observe -- a `plans/`
+  edit, a comment, a pure refactor. Dependency and packaging changes *are*
+  observable, so they get one.
+- Releasing means renaming `## Unreleased` to `## vX.Y.Z -- YYYY-MM-DD`. That
+  section and the annotated tag message say the same thing, so write it once and
+  reuse it.
+
 ## Conventions
 
 - Cite a plan section by short name plus number: "algorithm design 2.1",

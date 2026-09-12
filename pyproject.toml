@@ -124,7 +124,7 @@ include = [
 packages = ["src/panoptes"]
 
 [tool.hatch.build.targets.sdist]
-include = ["src", "README.md", "LICENSE.txt", "docs", "resources"]
+include = ["src", "README.md", "LICENSE.txt", "docs"]
 
 # Ruff configuration (formatting + linting)
 [tool.ruff]

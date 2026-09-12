@@ -16,7 +16,7 @@ ENV PORT=8080
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         wget sudo git ca-certificates \
-        astrometry.net source-extractor dcraw exiftool \
+        astrometry.net dcraw exiftool \
         libcfitsio-dev libcfitsio-bin \
         libpng-dev libjpeg-dev \
         libfreetype6-dev \

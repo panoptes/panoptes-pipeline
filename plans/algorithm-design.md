@@ -145,3 +145,30 @@ searched, and the red-noise factor evaluated there.
 
 A change that lowers RMS while lowering completeness is a regression. Only the
 second number decides.
+
+## 5. Status of the measurements in this document
+
+Every measurement quoted above came from
+`notebooks/PAN007_f6eb3d_20250930T030402/observation.h5`, a product of the
+existing pipeline. That pipeline is known to carry an un-subtracted sky
+pedestal (conformance audit 5.0), cuts stamps at a fixed mean position with an
+arbitrary size, and may carry further systematics introduced in processing. **It
+is not a trustworthy substrate, and the rebuild starts from raw frames.**
+
+Which findings survive that, and which do not:
+
+| Finding | Basis | Status |
+|---|---|---|
+| Background computed then discarded | reading `ProcessFITS.ipynb` cell 18, confirmed by pixel values | **solid** -- a property of the code |
+| Similarity metric rewards brightness | analytic (profile variance ~ 1/N), confirmed by measurement | **solid** -- the derivation does not depend on the data |
+| Target used as its own reference | reading the notebook, confirmed by reproducing `to_xarray` ordering | **solid** |
+| RGB masks transposed for non-square stamps | reading the code | **solid** |
+| Profile manifold needs ~4 components | measured on these stamps | **provisional** -- inherits the pedestal, the stamp cut, and an unexplained frame-to-frame rank instability |
+| Coefficient fit gains 1.15x | measured on these stamps | **provisional** -- rests on a stopgap sky subtraction that over-subtracts stellar wings |
+| Greens on the diagonal (GRBG/GBRG) | measured on these stamps | **describes this file only** -- phase depends on how stamps were cut, so a new pipeline must re-derive it with `masks.infer_pattern` |
+
+The two load-bearing claims for the architecture in 3 -- that the manifold is
+low-dimensional, and that a profile model beats neighbour matching -- are both
+in the provisional row. Re-measure them on stamps cut from raw frames before
+committing to the design. If the manifold is not low-rank on clean data, section
+3 does not follow.

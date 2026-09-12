@@ -47,9 +47,13 @@ against Firestore. That repository is ours, so if selection needs a query the
 client cannot express, the fix is to add it there rather than to reimplement
 archive logic here.
 
-Benchmark selection is therefore a choice rather than a constraint. Raw frames
-matter more than reprocessed products: 3.1 changes the image-level reduction, so
-any fixture built from existing `observation.h5` files is already contaminated.
+Benchmark selection is therefore a choice rather than a constraint, and **the
+starting point is raw frames, not existing `observation.h5` products**. Those
+carry an un-subtracted sky pedestal (conformance audit 5.0), stamps cut at a
+fixed mean position, and further systematics introduced during processing. 3.1
+changes the image-level reduction in any case, so a fixture built from them
+would be contaminated from the start. See algorithm design 5 for which of the
+measurements taken from one of those files survive and which do not.
 
 Record measured drift alongside every selected sequence -- per 3.2 it is
 probably the strongest predictor of achievable precision, and selecting on it

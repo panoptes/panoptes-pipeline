@@ -48,6 +48,53 @@ That is what makes the approach safe, and it holds for any implementation that
 keeps the normalisation. It must still be verified by injection every time, not
 assumed.
 
+### 1.3 Why the idea has this shape
+
+This is not an algorithm that happened to suit the hardware. It and the network
+are the same principle applied at two scales, and low unit cost is what enables
+both:
+
+- **Within a unit**, a wide field yields thousands of stars, so a target's
+  systematic can be calibrated from stars that share it. Precision is bought
+  with field of view rather than with expensive optics or mounts.
+- **Across units**, many cheap units at many longitudes give continuous coverage
+  of a transit longer than any one night. Time coverage is bought with unit
+  count rather than with dedicated observatories.
+
+Statistical power from multiplicity, where multiplicity is affordable. That is
+the thesis, and several things follow from it that are easy to get wrong.
+
+**Heterogeneity is a consequence, not a nuisance.** A fleet of inexpensive
+bodies assembled by different people cannot be uniform, and any solution
+requiring uniformity contradicts the premise. This is why 1.4 of the improvement
+plan insists on measuring camera constants rather than configuring them: it is
+not merely good practice, it is forced by the design.
+
+**An empirical method is the right kind of method here.** A parametric forward
+model -- predicting each stamp from a characterised PSF, known aberrations and
+measured pixel response -- would use fewer parameters and be tempting on
+statistical grounds. It also requires per-camera characterisation that nobody
+will perform on a fleet of citizen-built units. Learning the systematic from the
+stars in the frame needs no such characterisation, and works identically on a
+body nobody has ever measured.
+
+**But "empirical" does not mean "nearest neighbours".** If large N is the
+resource the project is built on, taking only the 100 most similar references
+discards most of it. The manifold model in 3 is this thesis carried further, not
+a departure from it: it learns from every star in the frame rather than from a
+hand-cut shortlist.
+
+**"Optimal" is per dollar, across the network.** An improvement that works on
+every unit beats one that needs good units, and adding units is a legitimate
+alternative to improving the algorithm. The counter-argument, and it is a strong
+one, is that algorithm work applies retroactively to ten years of archive while
+new units only ever help going forward.
+
+**Overlap buys reliability, not just coverage.** Two units seeing the same
+transit carry independent systematics, so agreement is evidence and
+disagreement is a flag. For a survey whose dominant worry is false positives
+from systematics, that cross-check may matter as much as the extended baseline.
+
 ## 2. Where the paper's implementation and the idea diverge
 
 Three of its choices are not required by the idea, and measurement says all
@@ -279,8 +326,11 @@ extinction scales with the colour difference between target and comparison
 stars. In a self-normalised lightcurve this hides inside the normalisation. In
 a transferable one it has to be handled.
 
-The method helps here, by accident. Selecting references on their Bayer
-morphology implicitly selects on colour, since colour is what drives how a star
-samples the filter array. Morphologically matched comparison stars are therefore
-also colour-matched, which is exactly the condition that minimises second-order
-extinction. An under-appreciated benefit of the approach for this goal.
+The method handles this by design, not by accident -- it is part of why the
+project is shaped this way (1.3). Selecting references on their Bayer morphology
+implicitly selects on colour, since colour is what drives how a star samples the
+filter array. Morphologically matched comparison stars are therefore also
+colour-matched, which is exactly the condition that minimises second-order
+extinction between sites at different airmass. Having thousands of candidate
+references per field is what makes it possible to satisfy both constraints at
+once.

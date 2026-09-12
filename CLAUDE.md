@@ -14,6 +14,13 @@ The load-bearing insight: dividing a stamp by its own summed flux marginalises
 brightness out and leaves the spatial profile. Shape and brightness separate.
 Match on shape, difference the brightness.
 
+The idea and the network are the same principle at two scales, and low unit
+cost enables both: many stars per unit calibrate the systematic, many units
+cover a transit longer than one night. Statistical power from multiplicity,
+where multiplicity is cheap. Heterogeneity is a consequence of that, not a
+nuisance, and any approach needing a characterised or uniform fleet contradicts
+the premise. See algorithm design 1.3.
+
 **That idea is the only fixed point.** Gee et al., *On-sky Demonstration of
 Precision Photometry with Bayer Color Filter Arrays*, is earlier research and a
 building block -- not a specification. It likely contains errors. Where its

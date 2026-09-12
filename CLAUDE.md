@@ -228,6 +228,14 @@ version meaning.
   GitHub MCP server exposes no project-item writes, so an agent session cannot
   set it: say so when you begin, and leave it to a human until the tooling
   covers it. Do not substitute the repo-level `Start date` field for it.
+- **Branch names say what the branch is for**: `type/issue-NNN` plus an optional
+  short description, as in `cleanup/issue-170` or
+  `cleanup/issue-170-tooling-foundation`. The type is the kind of work
+  (`cleanup`, `fix`, `algo`, `docs`); the issue number is what makes the branch
+  findable later. A generated name carrying neither -- the
+  `claude/adjective-surname-hex` an agent session is handed by default -- is not
+  one: rename it before pushing. Name a batch for its parent issue, not for one
+  of its children.
 - Selection masks are `True == included` everywhere in `lightcurve`. The
   `numpy.ma` convention is the opposite; convert only at that boundary.
 - Stamp arrays unpack as `(height, width)`. Stamps are non-square in existing

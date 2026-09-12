@@ -124,7 +124,8 @@ lightcurves is a real improvement presenting as a regression. Expect it.
   "conformance audit 5.0". Never a bare number or a file path.
 - `plans/` files are living documents. When an item is done, delete it -- no
   strikethrough, no "done" annotations. Git history is the record.
-- Anything needing a human decision goes in improvement plan 6 as its own item.
+- Anything needing a human decision goes in improvement plan 6 as its own item,
+  immediately. Do not raise it in conversation and rely on it being remembered.
 - Selection masks are `True == included` everywhere in `lightcurve`. The
   `numpy.ma` convention is the opposite; convert only at that boundary.
 - Stamp arrays unpack as `(height, width)`. Stamps are non-square in existing

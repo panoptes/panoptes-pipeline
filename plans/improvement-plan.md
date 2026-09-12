@@ -727,46 +727,88 @@ first.
 
 ## 6. Action items
 
-These need a decision or something only you can provide.
+Open decisions and things only Wilfred can provide. Ordered by what blocks what,
+not by importance. Delete an item once it is settled -- the answer belongs in the
+body of the document, not here.
 
-**6.1 -- Pick the first sequence and reprocess it after the 3.1 fix.** This is
-the unblocking item for everything else. Selection criteria are in 1.3; dataset
-B (300+ frames over 3+ hours, modern unit) is the one that makes the metrics in
-1.2 mean anything. Can the image-level pipeline run against local FITS on the
-server, or does it still require the GCS and Firestore path?
+### Blocking
 
-**6.2 -- Confirm the baseline scope.** Proposal: once dataset B is reduced, run
-the harness over ~200 targets spanning 8 < mV < 12 and freeze that as the
-reference baseline. Needs sign-off on the magnitude range and target count
-before it becomes the number everything is measured against. Not worth freezing
-on the 42-frame fixture.
+**6.1 -- Pull down one raw sequence.** Nothing else can be measured until this
+lands. Criteria in 1.3; dataset B (300+ frames over 3+ hours, modern unit) is
+the one that makes the metrics in 1.2 mean anything, since beta and any binned
+number need roughly 100 frames minimum. Raw frames, not an existing
+`observation.h5`.
 
-**6.3 -- Flat fields (3.7).** Does any unit take them today? The sky-flat-by-
-median-stacking route needs no new acquisition procedure and should be tried
-first, so this may resolve without any change to POCS -- but it is worth knowing
-whether real flats exist anywhere in ten years of data.
+**6.2 -- Reuse or rewrite the image-level code.** `images.py` and
+`ProcessFITS.ipynb` already wrap astropy, photutils and astrometry.net for bias,
+background, plate solving, detection and catalog matching. Most of that is worth
+keeping even in a from-scratch build. The parts that clearly need rewriting are
+stamp extraction (per-frame superpixel re-centring, 3.2) and everything
+downstream. Needs a call before the rebuild starts.
 
-**6.4 -- Calibration frames for the camera profiles (1.4).** Most camera
-constants can be measured from science data -- saturation from the pixel
-histogram, gain and read noise by photon transfer -- so this no longer needs a
-fleet survey. What would help: do any bias, dark or flat sequences exist
-anywhere in the archive? They would let the measured values be checked rather
-than trusted, at least for the cameras that have them.
+### Decisions about direction
 
-**6.5 -- Where camera profiles live.** Proposal in 4.6: keyed on camera serial,
-stored with the unit and camera records in `panoptes-data`, consumed by the
-pipeline through the 4.3 adapter boundary so the algorithm still runs offline
-from a local profile file. Confirm that is where you want them, since it means
-a schema addition on that side.
+**6.3 -- Confirm the head-to-head as the deciding test.** The manifold model in
+algorithm design 3 against the published method, same data, same completeness
+metric. The single measurement that settles it is the profile manifold rank on
+cleanly reduced stamps: low-rank means the manifold model follows, otherwise
+algorithm design 3 should be dropped rather than defended.
 
-**6.6 -- Branch disposition.** `algorithm-v2` is cut from `pipeline-working`,
-which had uncommitted changes and untracked deployment files. Confirm that is
-the right base, and whether the rebuilt pipeline should eventually land on
-`develop` or on a fresh `main`.
+**6.4 -- Cut improvement plan 3.8 through 3.11?** They are unmeasured guesses
+written before the reframe, and they clutter a document that is already too
+long. 3.3 through 3.5 are separately marked contingent on 6.3.
 
-**6.7 -- VPN access, when it is time.** Not needed yet: 3.1, the 3.2
-diagnostics and the 3.4 sweep can all run against a downloaded tier 2 dataset.
-Worth arranging before the first full-archive run.
+**6.5 -- `panoptes-data`: extend or start fresh?** Recommendation and reasoning
+in 4.6, with a cheap test -- write one real selection query for dataset B against
+the existing package and decide on that rather than in advance.
+
+**6.6 -- Where camera profiles live.** Proposal in 4.6: keyed on camera serial,
+stored with the unit and camera records in `panoptes-data`, consumed through the
+4.3 adapter boundary so the algorithm still runs offline from a local file.
+It means a schema addition on that side.
+
+### Measurements worth making early
+
+**6.7 -- Do the photon budget properly.** A rough envelope puts the per-exposure
+floor near 0.9% at V=10 and the 30-minute binned floor near 0.13%, which would
+put the paper's ~1% binned result well above the floor and make 0.5% a
+systematics problem rather than a physical limit. If that holds, the target is
+reachable and the whole plan is aimed correctly. If it does not, the plan needs
+rethinking. Needs measured gain per camera (1.4), so it follows 6.1.
+
+**6.8 -- Check the archive for defocused sequences.** Focus drifts with
+temperature, so some almost certainly exist. Defocusing spreads the PSF over
+many superpixels and largely dissolves the Bayer systematic at source, at the
+cost of more sky in the aperture -- a real trade, not an obvious win. Existing
+accidental data makes it measurable for free, before anyone changes an observing
+procedure.
+
+**6.9 -- `MEASRGGB` for the PAN007 sequence.** Lets the channel labels on the
+measurements already taken be corrected from "one colour channel" to the actual
+filter. Low value on its own, trivial if the header is to hand.
+
+### Background, when convenient
+
+**6.10 -- Flat fields (3.7).** Does any unit take them today? The
+sky-flat-by-median-stacking route needs no new acquisition procedure and should
+be tried first, so this may resolve without touching POCS.
+
+**6.11 -- Calibration frames in the archive.** Do any bias, dark or flat
+sequences exist? They would let the measured camera constants in 1.4 be checked
+rather than trusted, at least for the cameras that have them.
+
+**6.12 -- Baseline scope.** Proposal: once a clean sequence is reduced, run the
+harness over ~200 targets spanning 8 < mV < 12 and freeze that as the reference
+baseline. Needs sign-off on magnitude range and target count before it becomes
+the number everything is measured against.
+
+**6.13 -- Branch disposition.** `algorithm-v2` is cut from `pipeline-working`,
+which had uncommitted changes and untracked deployment files. Confirm that base,
+and whether this eventually lands on `develop` or a fresh `main`.
+
+**6.14 -- VPN access, when it is time.** Not needed yet -- the rebuild and the
+first measurements all run against one downloaded sequence. Worth arranging
+before the first full-archive run.
 
 ## 7. Risks
 

@@ -1,0 +1,147 @@
+# Algorithm design
+
+What the algorithm *is*, stated independently of any implementation, and the
+architecture that follows from it. Cite as "algorithm design 2.1".
+
+The published paper is a building block, not a specification. Where its choices
+and the idea diverge, the idea wins.
+
+---
+
+## 1. The idea
+
+A wide field gives any target many candidate reference stars whose light lands
+on the colour filter array the same way the target's does. Those references can
+be combined into an idealised star that should behave exactly as the target
+would absent a transit. The difference is then zero unless the target's flux has
+genuinely changed.
+
+### 1.1 As a model
+
+For star *k*, frame *i*, pixel *j*:
+
+```
+P[k,i,j] = F[k,i] * S[k,i,j] + B[i,j] + noise
+```
+
+`F` is the true flux -- the thing we want. `S` is the normalised spatial
+profile: how that flux lands on pixels, summing to 1 over *j*. `B` is
+background.
+
+`S` depends on per-star properties `θ` (sub-pixel position on the Bayer grid,
+colour, field position and hence aberration) and per-frame state `φ` (pointing,
+focus, seeing). The systematic is that `S` moves with `φ` in a way that depends
+on `θ`, so a fixed aperture sum is not proportional to `F`.
+
+**The load-bearing insight**, and the paper's real contribution: dividing a
+stamp by its own summed flux marginalises `F` out and leaves an estimate of `S`
+alone. Shape and brightness separate. Match on shape, difference the
+brightness.
+
+Everything else is implementation, and open.
+
+### 1.2 What this implies about transits
+
+A transit is a change in `F` with no change in `S`. So a profile model can be
+fit across every frame, in-transit ones included, without absorbing the signal.
+That is what makes the approach safe, and it holds for any implementation that
+keeps the normalisation. It must still be verified by injection every time, not
+assumed.
+
+## 2. Where the paper's implementation and the idea diverge
+
+Three of its choices are not required by the idea, and measurement says all
+three cost performance.
+
+### 2.1 Near-neighbour matching is the wrong tool
+
+The paper searches for the most similar references and combines the top 100. It
+then observes that near-neighbours are rare -- only 3% of references fall within
+half the similarity radius -- calls this the curse of dimensionality, and
+compensates with negative coefficients, i.e. extrapolation.
+
+That is a symptom of the method, not of the data. Measured on
+`PAN007_f6eb3d_20250930T030402` across 900 usable stars: the profile manifold
+needs a **median of 4 components for 95% of the variance**, in a 180-pixel
+space. The paper's own pseudo-dimension estimate was ~5.
+
+If the manifold is that low-dimensional, you do not need neighbours. You need
+*coverage*, and 3,000 stars cover a 5-dimensional manifold easily while
+near-neighbours in 180 dimensions stay rare. Learn the manifold once from every
+star, place the target on it, predict its profile. That replaces 100 free
+parameters per target with roughly 5 latent coordinates plus a shared model.
+
+Caveat, and it is not small: the rank is frame-dependent. Some frames need 1-4
+components, others 18-36. That instability has to be explained -- genuinely
+different PSF state, bad frames, or an artefact of the stopgap sky subtraction
+-- before the design is built on it.
+
+### 2.2 The similarity metric partly measures brightness
+
+The variance of a profile estimate scales as 1/N, so a brighter reference scores
+better simply by being less noisy. The squared-difference score carries that
+offset and the ranking inherits it.
+
+Measured: median similarity score falls monotonically across reference
+brightness quintiles, from 4.48 for the faintest to 2.59 for the brightest, and
+**71% of selected references are brighter than their target** where a
+brightness-neutral metric would give 50%.
+
+So "most morphologically similar" is substantially "brightest available". A
+noise-weighted distance fixes it directly. In a manifold model the problem
+largely dissolves, because a model is fit rather than neighbours ranked.
+
+### 2.3 One step is doing two unrelated jobs
+
+Dividing target by comparison removes the pixelisation systematic *and*
+atmospheric transparency at once. These are different: pixelisation is a change
+in `S`, transparency is a genuine common change in `F`. Conflating them forces
+one coefficient vector to be simultaneously shape-matched and flux-
+representative, and nothing guarantees a shape-optimal vector is a low-variance
+flux estimator -- large opposing coefficients can cancel in shape while
+amplifying flux noise.
+
+Separate them. A profile model handles `S`. A plain ensemble handles
+transparency.
+
+## 3. Proposed architecture
+
+1. **Background subtraction at frame level.** Not stamp level -- measured, the
+   sky is flat across a stamp and there is nothing to fit there.
+2. **Superpixel-aligned stamps, re-centred per frame** on the nearest superpixel.
+   Whole-superpixel shifts preserve Bayer phase, so bulk drift is absorbed and
+   only sub-pixel phase remains.
+3. **Normalise** each stamp by its own sum to estimate `S`.
+4. **Learn a low-rank profile model** across all stars and frames, with the
+   target excluded or down-weighted.
+5. **Predict the target's profile** for each frame from its latent coordinates.
+6. **Optimal extraction** (Horne 1986) of the target's flux using that predicted
+   profile and the noise model -- a minimum-variance estimate, robust to drift
+   and aperture loss by construction, rather than a hard-edged aperture sum.
+7. **Divide by an ensemble** of comparison stars extracted the same way, to
+   remove transparency.
+
+What this buys, beyond precision: about 5 free parameters per target instead of
+100, so far less overfitting and far less scope for signal absorption; faint
+stars become tractable, where a per-star 100-parameter fit never was; drift
+becomes a frame-level latent the model absorbs rather than something matching
+must accidentally cancel; and per-point uncertainties fall out of optimal
+extraction for free.
+
+**This is a proposal to test head-to-head, not a conclusion.** Same data, same
+metrics, against the paper's method. The infrastructure to do that already
+exists.
+
+## 4. The objective is detection, not RMS
+
+The goal is transit detection, and that is not the same as minimising scatter.
+The figure of merit is **injection-recovery completeness at a fixed false-alarm
+rate**, over a grid of depth, duration and phase. RMS is a proxy for it, and a
+poor one where noise is correlated.
+
+The noise that matters is on transit timescales -- roughly 1 to 4 hours -- not
+at an arbitrary 30 minutes. Bin sizes should be matched to the durations being
+searched, and the red-noise factor evaluated there.
+
+A change that lowers RMS while lowering completeness is a regression. Only the
+second number decides.

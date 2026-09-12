@@ -4,8 +4,13 @@ Working documents for the PANOPTES algorithm rebuild.
 
 | Document | Short name | What it is |
 |---|---|---|
+| [algorithm-design.md](algorithm-design.md) | algorithm design | What the algorithm is, independent of implementation, and the architecture that follows |
 | [conformance-audit.md](conformance-audit.md) | conformance audit | How far the code has drifted from the published algorithm, and every defect found |
 | [improvement-plan.md](improvement-plan.md) | improvement plan | The plan for reaching 0.5% precision, with metrics, sequencing and open action items |
+
+The published paper is a building block, not a specification. Start with the
+algorithm design; the audit and plan describe the existing implementation and
+may not survive a rebuild.
 
 Reference: Gee et al., *On-sky Demonstration of Precision Photometry with Bayer
 Color Filter Arrays*. Paper section numbers are cited directly, e.g. "paper

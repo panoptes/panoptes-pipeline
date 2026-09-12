@@ -237,6 +237,52 @@ work.
 
 ### 3.6 Flat fields and local background
 
+**Tested and rejected at stamp scale.** The obvious follow-on from conformance
+audit 5.0 is that if the coefficient fit models background that well, it should
+*be* the background model: build a basis from star-free stamps, fit it to each
+target's sky annulus, evaluate over the core, subtract. Measured on
+`PAN007_f6eb3d_20250930T030402`, fitting on half the annulus superpixels and
+scoring on the other half:
+
+| sky model | held-out residual | vs constant |
+|---|---|---|
+| per-colour constant | 65 ADU | 1.00x |
+| per-colour plane | -- | worse |
+| 2-10 star-free PCA modes | 84-125 ADU | 0.52-0.78x |
+
+Every fitted model is worse than a per-colour constant, and downstream red-channel
+photometry degrades from 4.65% to 89%.
+
+The singular values of the star-free stamp population say why: `[1, 0.026,
+0.023, 0.019, 0.013, 0.012]`. One dominant mode -- the overall level -- then a
+flat noise tail. A 10x18 stamp is about a fifth of one `Background2D` box, and
+across it the sky really is flat to within the per-pixel noise. There is no
+structure for a richer model to capture, so extra modes fit noise in an
+18-pixel red fit region and then extrapolate into the core.
+
+Two things follow. A per-colour constant is close to optimal *at stamp scale*,
+so the 3.1 stopgap is not leaving much on the table. And the apparent quality of
+the coefficient fit on un-subtracted stamps was never rich spatial modelling --
+it was tracking one scalar per frame per colour, the sky level, which is almost
+perfectly correlated between neighbouring stars. That makes the 2.15x in 2.3
+less mysterious and more clearly an artefact.
+
+**Where the idea should go instead: frame scale.** Across the full 6000x4000
+frame there is real structure -- vignetting, gradients, scattered light, and
+per-pixel sensitivity. A basis built from star-free regions of the whole frame,
+or PCA over many frames' background maps, is a well-founded replacement for the
+`Background2D` mesh and is untested here only because the raw frames were not
+available in this session. That is the experiment worth running, not the
+stamp-scale one.
+
+The flat field is the part a background fit cannot reach, because it is
+multiplicative. Each target's stamp sits at a fixed detector position, so the
+sensitivity pattern beneath it is constant in time -- which means a median stack
+over many frames yields a sky flat without any new acquisition procedure. Worth
+trying before asking the fleet to take dome flats (6.4).
+
+
+
 Paper section 6.1 lists both. Flat-fielding removes the pixel-to-pixel
 sensitivity variation that currently has to be absorbed by the reference
 matching, and would let background subtraction work properly in the vignetted

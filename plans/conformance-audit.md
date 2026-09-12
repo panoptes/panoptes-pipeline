@@ -190,6 +190,12 @@ that file. Consequences:
   sources appear to have *lower* scatter than bright ones, because their stamp
   sum is a stable sky pedestal.
 
+Independent confirmation of the diagnosis: the temporal per-pixel scatter of
+sky pixels is 10.4 ADU (robust). For a 780 ADU pedestal made of 512 ADU bias
+plus ~268 ADU of sky at a gain of 1.5 e-/ADU, photon noise on the sky alone
+predicts 13 ADU. Bias contributes no photon noise, so the measured scatter is
+only consistent with the pedestal being bias plus sky -- that is, with raw data.
+
 `lightcurve.subtract_stamp_sky` is a stopgap for already-processed data; the
 fix is to write `reduced_data` to `reduced_filename`.
 

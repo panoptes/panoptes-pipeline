@@ -92,7 +92,9 @@ class RecoveryResult:
 
         Positive values mean the comparison star partly absorbed the signal.
         This is the number that decides whether a reference-selection change is
-        safe (improvement plan 3.8).
+        safe: references are chosen by similarity across every frame, in-transit
+        frames included, so nothing but flux marginalization stops the
+        comparison from learning the transit.
         """
         if self.injected_depth == 0:
             return float("nan")

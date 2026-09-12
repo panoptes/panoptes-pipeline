@@ -104,7 +104,7 @@ range rather than clustering at one pixel scale. Otherwise every parameter
 tuned here is tuned for one sampling regime.
 
 **G. A deliberately poor night.** High airmass, thin cloud, or bad tracking.
-Frame rejection and quality weighting (3.11) cannot be tuned on good data.
+Frame rejection and quality weighting cannot be tuned on good data.
 
 Plus, not an observation: **raw frames from any long sequence** are what the
 frame-scale background work in 3.6 needs, and a median stack of one gives a sky
@@ -552,50 +552,6 @@ uncertainty.
 
 **Expected gain: unknown, potentially large. Highest effort.**
 
-### 3.8 Signal-safe reference selection
-
-References are currently chosen by similarity across *all* frames, in-transit
-frames included. Flux marginalization (Eq. 1) protects against most
-self-subtraction, and the measured suppression below 5% supports that -- but
-that was one injection at one depth.
-
-Work: sweep injected depth and duration against suppression, to map where the
-protection breaks down. Add out-of-transit-only reference selection via
-`frame_weights` (already supported) and measure whether it costs precision.
-
-**Expected gain: not precision, but it bounds a bias that would otherwise
-contaminate every depth measurement the survey produces.**
-
-### 3.9 Per-point uncertainties
-
-There are none today. Every lightcurve is a bare array of relative fluxes with
-no error bars, so no transit fit downstream can be weighted or assessed. Needs
-propagation of photon, read and background noise through the coefficient fit
-into the final ratio.
-
-**Expected gain: no RMS change, but nothing downstream is trustworthy without
-it.**
-
-### 3.10 Reference pool scale and search cost
-
-Similarity search is O(p^2) (conformance audit 5.16). Paper section 3.2.2
-suggests clustering. Options: PCA on normalized stamps then approximate nearest
-neighbors, or KD-tree in a reduced feature space.
-
-This is a throughput problem, not a precision problem -- but it becomes a
-precision problem the moment it is cheap enough to raise the reference pool
-well above 100, which 3.4 may want.
-
-**Expected gain: throughput; enables larger pools.**
-
-### 3.11 Frame and pixel quality weighting
-
-`frame_weights` is plumbed through but unused. Candidates: down-weight frames
-by measured FWHM, background level or airmass; mask individual hot pixels and
-cosmic rays rather than discarding whole frames.
-
-**Expected gain: small, but cheap.**
-
 ## 4. Making it runnable
 
 Target architecture: **offline-first library plus CLI**. The algorithm must run
@@ -610,6 +566,17 @@ improved with confidence.
 arrays, no I/O. Extend it to the image-level steps currently trapped in
 `ProcessFITS.ipynb` -- background subtraction, source detection, catalog
 matching -- so each is importable and testable.
+
+**Keep `images.py` where it earns its place; rebuild from stamp extraction
+down.** Settled. Its wrappers around astropy, photutils and astrometry.net for
+bias, background, plate solving, detection and catalog matching are ordinary
+working code, and rewriting them would re-derive a solved problem while adding
+new bugs. What does not survive is stamp extraction -- per-frame superpixel
+re-centering (3.2) makes it a different operation, not a tweaked one -- and
+everything downstream of it.
+
+The boundary is therefore: image in, matched source catalog out, reused. Stamps
+and everything after, rebuilt.
 
 ### 4.2 CLI
 
@@ -715,11 +682,9 @@ because those rank the rest of 3.2 on evidence rather than argument.
 apertures. All implemented or nearly so, and all measurable against benchmark 1
 the moment 3.1 is done.
 
-**Next** -- 3.5 per-channel fitting, 3.8 suppression mapping, 3.9 uncertainties,
-4.1-4.3 library and CLI.
+**Next** -- 3.5 per-channel fitting, 4.1-4.3 library and CLI.
 
-**After** -- 3.7 flat fields, 3.10 search scaling, 3.11 quality weighting,
-benchmark 4.
+**After** -- 3.7 flat fields, benchmark 4.
 
 Deliberately deferred: anything that improves throughput before precision is
 established, and any move to fit transit parameters. Get one target right
@@ -739,18 +704,7 @@ the one that makes the metrics in 1.2 mean anything, since beta and any binned
 number need roughly 100 frames minimum. Raw frames, not an existing
 `observation.h5`.
 
-**6.2 -- Reuse or rewrite the image-level code.** `images.py` and
-`ProcessFITS.ipynb` already wrap astropy, photutils and astrometry.net for bias,
-background, plate solving, detection and catalog matching. Most of that is worth
-keeping even in a from-scratch build. The parts that clearly need rewriting are
-stamp extraction (per-frame superpixel re-centering, 3.2) and everything
-downstream. Needs a call before the rebuild starts.
-
 ### Decisions about direction
-
-**6.4 -- Cut improvement plan 3.8 through 3.11?** They are unmeasured guesses
-written before the reframe, and they clutter a document that is already too
-long. 3.3 through 3.5 are separately marked contingent on 6.3.
 
 **6.5 -- `panoptes-data`: extend or start fresh?** Recommendation and reasoning
 in 4.6, with a cheap test -- write one real selection query for dataset B against

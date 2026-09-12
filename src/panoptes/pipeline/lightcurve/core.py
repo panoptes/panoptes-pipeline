@@ -146,7 +146,7 @@ def similarity_scores(
         refs_norm: ``(r, m, n)`` normalized reference PSCs.
         frame_weights: Optional ``(m,)`` non-negative weights. Frames with a
             weight of zero are excluded, which is how out-of-transit-only
-            reference selection is done (improvement plan 3.8).
+            reference selection is done.
 
     Returns:
         ``(r,)`` array of scores. References with no usable frames score

@@ -185,7 +185,7 @@ def get_catalog_match(point_sources,
 
         Note all fields are expected to have values. In particular, the `gaia`
         and `twomass` fields are often mutually exclusive.  If `return_unmatched=True`
-        (see below) then all values related to matching will be `NA` for all `source-extractor`
+        (see below) then all values related to matching will be `NA` for all `photutils`
         related columns.
 
     By default only the sources that are successfully matched by the catalog are returned.
@@ -202,7 +202,7 @@ def get_catalog_match(point_sources,
         resulting dataframe can be saved locally with `point_sources.to_csv(path_name)`.
 
     If a `max_separation_arcsec` is given then results will be filtered if their
-    match with `source-extractor` was larger than the number given. Typical values would
+    match with `photutils` was larger than the number given. Typical values would
     be in the range of 20-30 arcsecs, which corresponds to 2-3 pixels.
 
     Returns:

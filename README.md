@@ -40,13 +40,18 @@ Start with the design documents:
 
 ## Install and test
 
-Python is run with [`uv`](https://docs.astral.sh/uv/); standalone scripts
-declare their dependencies inline per PEP 723.
+Everything goes through [`uv`](https://docs.astral.sh/uv/), against the
+committed `uv.lock`:
 
 ```shell
-uv run --no-project --with numpy --with scipy --with scikit-learn --with pytest \
-  python -m pytest tests/
+uv sync         # project + dev tooling, pinned
+uv run pytest
 ```
+
+The cloud stack (Firestore, BigQuery, GCS) and the notebook execution path are
+extras, so the default environment stays small: `uv sync --extra cloud` or
+`uv sync --extra notebooks` when you need them. Standalone scripts under
+`scripts/` declare their dependencies inline per PEP 723 and need no sync.
 
 `src/panoptes/pipeline/lightcurve/` holds the algorithm as pure array code —
 no I/O, no cloud, no notebook — and is where new work belongs.

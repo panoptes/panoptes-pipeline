@@ -22,58 +22,82 @@ classifiers = [
   "License :: OSI Approved :: MIT License",
   "Operating System :: POSIX",
   "Programming Language :: Python :: 3",
-  "Programming Language :: Python :: 3.8",
+  "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3 :: Only",
   "Topic :: Scientific/Engineering :: Astronomy",
   "Topic :: Scientific/Engineering :: Physics",
 ]
+# Everything the algorithm and the local data path need. The cloud stack and the
+# notebook execution path are extras, so `uv sync` gives a working test
+# environment without a GCP install.
 dependencies = [
-  "importlib-metadata; python_version < '3.8'",
-  "fastapi",
-  "gcsfs",
-  "google-cloud-bigquery",
-  "google-cloud-bigquery-storage[pandas]==2.6.2",
-  "google-cloud-firestore",
-  "google-cloud-pubsub",
-  "google-cloud-storage",
-  "h5py",
-  "ipython-autotime",
-  "loguru",
-  "nbconvert",
+  # Arrays and the algorithm itself.
   "numpy",
+  "scikit-learn",
+  "scipy",
+  # Tabular and on-disk products.
+  "h5py",
   "numexpr",
   "pandas",
-  "pandas_gbq",
-  "papermill",
-  "panoptes-data>=0.1.5",
+  "pyarrow",
+  "tables",
+  # Astronomy.
+  "astropy",
+  "panoptes-data>=0.1.5,<0.2",  # see improvement plan 6.18
   "panoptes-utils[images]>=0.2.33",
   "photutils",
-  "pyarrow",
+  # Plotting, configuration, logging, CLI.
+  "loguru",
+  "matplotlib",
   "pydantic",
-  "tables",
-  "tabulate",
-  "scipy",
-  "scikit-learn",
+  "pydantic-settings",
+  "python-dateutil",
   "seaborn",
-  "gunicorn",
-  "uvicorn[standard]",
+  "tqdm",
+  "typer",
 ]
 
 [project.optional-dependencies]
-dev = [
+# The legacy orchestration path: Firestore, BigQuery, GCS and the FastAPI
+# service that drives them.
+cloud = [
+  "fastapi",
+  "gcsfs",
+  "google-cloud-bigquery",
+  "google-cloud-bigquery-storage[pandas]>=2.6.2",
+  "google-cloud-firestore",
+  "google-cloud-pubsub",
+  "google-cloud-storage",
+  "gunicorn",
+  "pandas-gbq",
+  "uvicorn[standard]",
+]
+# The legacy papermill execution path and the interactive tooling the notebooks
+# in `notebooks/` expect. Slated for removal; the `panoptes-pipeline` console
+# script needs it until then.
+notebooks = [
   "bokeh",
+  "ipython-autotime",
   "ipywidgets",
   "jupyterlab",
+  "nbconvert",
   "panel",
-  "seaborn",
-  "tqdm",
+  "papermill",
+  "tabulate",
 ]
-testing = [
-  "mocket",
+
+# Tooling, not package metadata: installed by `uv sync`, never published.
+[dependency-groups]
+dev = [
   "pytest",
   "pytest-cov",
   "pytest-doctestplus",
   "pytest-remotedata>=0.3.1",
+  "ruff>=0.5.0",
+]
+docs = [
+  "myst-parser[linkify]",
+  "sphinx>=3.2.1",
 ]
 
 [project.urls]
@@ -126,10 +150,6 @@ addopts = [
 # Doctest flags used by pytest-doctestplus
 # Available flags: ELLIPSIS, NORMALIZE_WHITESPACE, IGNORE_EXCEPTION_DETAIL, ALLOW_UNICODE
 # See: https://pytest-doctestplus.readthedocs.io
-# Note: Strings are space-separated
-#doctest_optionflags = "ELLIPSIS NORMALIZE_WHITESPACE IGNORE_EXCEPTION_DETAIL ALLOW_UNICODE"
-# Keep as list for better TOML compatibility with pytest >=7
-
 doctest_optionflags = [
   "ELLIPSIS",
   "NORMALIZE_WHITESPACE",
@@ -144,56 +164,3 @@ filterwarnings = [
   "ignore:elementwise == comparison failed:DeprecationWarning",
   "ignore::pytest.PytestDeprecationWarning",
 ]
-# Enable pytest-doctestplus plugin features
-# https://github.com/astropy/pytest-doctestplus
-#doctest_plus = "enabled"  # String value required in pyproject
-
-
-# Hatch environments to replace tox tasks
-[tool.hatch.envs.test]
-features = ["testing"]
-
-[tool.hatch.envs.default]
-dependencies = [
-    "ruff>=0.5.0"
-]
-[tool.hatch.envs.default.scripts]
-lint = "ruff check ."
-lint-fix = "ruff check --fix ."
-fmt = "ruff format ."
-fmt-check = "ruff format --check ."
-
-[tool.hatch.envs.test.scripts]
-# Run tests: hatch run test:test [extra pytest args]
-# Example: hatch run test:test -k my_test -q
-test = "pytest {args}"
-
-[tool.hatch.envs.docs]
-dependencies = [
-  "sphinx>=3.2.1",
-  "myst-parser[linkify]",
-]
-[tool.hatch.envs.docs.env-vars]
-DOCSDIR = "{root}/docs"
-BUILDDIR = "{root}/docs/_build"
-[tool.hatch.envs.docs.scripts]
-build = "sphinx-build --color -b html -d \"{env:BUILDDIR}/doctrees\" \"{env:DOCSDIR}\" \"{env:BUILDDIR}/html\" {args}"
-linkcheck = "sphinx-build --color -b linkcheck -d \"{env:BUILDDIR}/doctrees\" \"{env:DOCSDIR}\" \"{env:BUILDDIR}/linkcheck\" {args}"
-_doctests = "sphinx-build --color -b doctest -d \"{env:BUILDDIR}/doctrees\" \"{env:DOCSDIR}\" \"{env:BUILDDIR}/doctest\" {args}"
-
-[tool.hatch.envs.build]
-dependencies = ["build[virtualenv]"]
-
-[tool.hatch.envs.build.scripts]
-build = "python -m build {args}"
-
-[tool.hatch.envs.maint]
-[tool.hatch.envs.maint.scripts]
-# Remove build artifacts, docs build, and stale egg-info
-clean = "python -c 'import shutil; [shutil.rmtree(p, True) for p in (\"build\", \"dist\", \"docs/_build\")]' && python -c 'import pathlib, shutil; [shutil.rmtree(p, True) for p in pathlib.Path(\"src\").glob(\"*.egg-info\")]'"
-
-[tool.hatch.envs.publish]
-dependencies = ["twine"]
-[tool.hatch.envs.publish.scripts]
-check = "python -m twine check dist/*"
-upload = "python -m twine upload {args:--repository {env:TWINE_REPOSITORY:testpypi}} dist/*"

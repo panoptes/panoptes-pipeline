@@ -93,7 +93,7 @@ the floor is per-camera -- if two units' residuals are uncorrelated, combining
 units is the path to 0.5%; if they track each other, it is not.
 
 **G. A deliberately poor night.** High airmass, thin cloud, or bad tracking.
-Frame rejection and quality weighting (3.10) cannot be tuned on good data.
+Frame rejection and quality weighting (3.11) cannot be tuned on good data.
 
 Plus, not an observation: **raw frames from any long sequence** are what the
 frame-scale background work in 3.6 needs, and a median stack of one gives a sky
@@ -212,7 +212,7 @@ reprocess at least one observation so there is an uncontaminated fixture.
 
 While in there, restore the paper's 11x12 median filter (conformance audit
 4.1), and keep the background map as a saved product so per-stamp local
-background becomes possible later (3.5).
+background becomes possible later (3.7).
 
 `lightcurve.subtract_stamp_sky` exists as a stopgap for observations already
 processed, and the benchmark scripts take `--sky-subtract`. It estimates sky
@@ -430,7 +430,7 @@ The flat field is the part a background fit cannot reach, because it is
 multiplicative. Each target's stamp sits at a fixed detector position, so the
 sensitivity pattern beneath it is constant in time -- which means a median stack
 over many frames yields a sky flat without any new acquisition procedure. Worth
-trying before asking the fleet to take dome flats (6.4).
+trying before asking the fleet to take dome flats (6.3).
 
 
 

@@ -13,6 +13,10 @@ Goal: 0.5% transit depths. Published result: ~1% in 30 min bins.
   with metrics, sequencing, and open decisions in improvement plan 6.
 
 Read them on demand rather than assuming; they are the current state of play.
+**improvement plan 5 is the sequencing** -- what to do first and why. Short
+version: improvement plan 3.1 is one line and blocks every measurement in the
+plan, so it comes before anything else; improvement plan 3.2 (drift) is the
+largest expected gain and starts with a diagnostic, not a change.
 
 ## Three things to know before touching anything
 

@@ -222,6 +222,12 @@ version meaning.
   strikethrough, no "done" annotations. Git history is the record.
 - Anything needing a human decision goes in improvement plan 6 as its own item,
   immediately. Do not raise it in conversation and rely on it being remembered.
+- **When you start work on an issue, set its GitHub Project status to "In
+  Progress"** -- at the start, not on completion, so the board says who is on
+  what while the work is happening. `Status` is a Projects v2 field and the
+  GitHub MCP server exposes no project-item writes, so an agent session cannot
+  set it: say so when you begin, and leave it to a human until the tooling
+  covers it. Do not substitute the repo-level `Start date` field for it.
 - Selection masks are `True == included` everywhere in `lightcurve`. The
   `numpy.ma` convention is the opposite; convert only at that boundary.
 - Stamp arrays unpack as `(height, width)`. Stamps are non-square in existing

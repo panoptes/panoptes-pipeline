@@ -109,13 +109,43 @@ in arcsec. See improvement plan 1.4.
 
 ## Running things
 
-Python is run with `uv`; standalone scripts are PEP 723.
+Everything goes through `uv`. `uv sync` installs the project plus the `dev`
+dependency group, so the package is importable and no `PYTHONPATH` is needed:
+
+```bash
+uv sync                    # project + dev tooling
+uv run pytest              # 78 tests
+uv run ruff check .        # lint
+uv run ruff format .       # format
+```
+
+The legacy paths are extras, deliberately not installed by default. Both are
+scheduled for removal, so the default environment is the one to keep working:
+
+```bash
+uv sync --extra cloud      # Firestore, BigQuery, GCS, the FastAPI service
+uv sync --extra notebooks  # papermill, nbconvert, jupyterlab
+```
+
+Without those, `panoptes.pipeline`, `panoptes.pipeline.lightcurve`, `settings`,
+`utils.observations` and `utils.plot` import; everything else in
+`src/panoptes/pipeline/` raises `ModuleNotFoundError`, including the
+`panoptes-pipeline` console script, which needs `--extra notebooks`. That split
+is the layout above, enforced by the dependency metadata rather than by comment.
+
+```bash
+uv run --group docs sphinx-build -b html docs docs/_build/html
+uv build                   # sdist + wheel into dist/
+uv publish                 # needs UV_PUBLISH_TOKEN
+rm -rf build dist docs/_build   # clean
+```
+
+Standalone scripts are PEP 723 and declare their own dependencies, so they run
+against a throwaway environment rather than the synced one:
 
 ```bash
 uv run scripts/benchmark_lightcurve.py OBS.h5 --channel r --sky-subtract --held-out
 uv run scripts/survey_targets.py OBS.h5 --sky-subtract
-PYTHONPATH=src uv run --no-project --with numpy --with scipy --with scikit-learn --with pytest \
-  python -m pytest tests/
 ```
 
 ## Measuring a change

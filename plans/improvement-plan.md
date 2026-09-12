@@ -710,6 +710,13 @@ number need roughly 100 frames minimum. Raw frames, not an existing
 in 4.6, with a cheap test -- write one real selection query for dataset B against
 the existing package and decide on that rather than in advance.
 
+**6.18 -- `panoptes-data` dropped `panoptes.data.images`.** The module, and
+`ObservationStatus` with it, are gone as of 0.2.0, and `image.py`,
+`utils/images.py`, `utils/gcp/firestore.py` and `observation.py` all still import
+them. `pyproject.toml` pins `panoptes-data<0.2` so the locked environment is
+importable, which is a holding action: either those four modules are ported to
+the 0.2.x API or they go with the GCP removal. Settling 6.5 settles this too.
+
 **6.6 -- Where camera profiles live.** Proposal in 4.6: keyed on camera serial,
 stored with the unit and camera records in `panoptes-data`, consumed through the
 4.3 adapter boundary so the algorithm still runs offline from a local file.

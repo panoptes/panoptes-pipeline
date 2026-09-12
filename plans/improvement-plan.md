@@ -41,18 +41,59 @@ correlated term has to be attacked directly.
 
 ### 1.3 Benchmark datasets
 
-1. **`PAN007_f6eb3d_20250930T030402`** -- already on disk at
-   `notebooks/PAN007_f6eb3d_20250930T030402/observation.h5`. Runs offline with
-   no cloud access. The fast regression fixture.
-2. **The paper's HD 339461 sequence** (PAN012, 2018-08-24, 122 frames) -- the
-   only dataset with a published number to reproduce. Needs the raw FITS
-   recovered from GCS.
-3. **Injection/recovery** -- synthetic transits injected at the pixel level
-   into real frames. The only way to measure signal suppression.
-4. **TESS-overlap targets** -- TOIs with published depths, for end-to-end
-   truth. Slowest to assemble; do last.
+Roughly ten years of raw PANOPTES data is available, so benchmark selection is
+a choice rather than a constraint. Raw frames matter more than reprocessed
+products here: 3.1 changes the image-level reduction, so any fixture built from
+existing `observation.h5` files is already contaminated.
 
-Benchmark 1 and 3 work today. Benchmark 2 is an action item (6.1).
+Currently on disk and usable offline:
+`notebooks/PAN007_f6eb3d_20250930T030402/observation.h5` -- 3,234 sources, but
+only 42 frames over ~50 minutes. Enough to regression-test code, far too short
+to measure binned RMS or beta. It is a fixture, not a benchmark.
+
+What to select, in priority order. Each entry earns its place by answering a
+question nothing else can.
+
+**A. The paper's own sequence.** PAN012, 2018-08-24, HD 339461, 122 x 35 s.
+The only dataset with a published number to reproduce (2-4% unbinned, ~1%
+binned). Without it there is no way to separate a better algorithm from a
+better night.
+
+**B. A long, high-duty-cycle sequence from a modern unit.** At least 300 frames
+over 3+ hours. The paper's duty cycle was ~12 exposures per 30 minutes; current
+units manage ~50. This is the largest gap in what we have -- beta and the 30 min
+column are meaningless below roughly 100 frames, and beta is the metric that
+decides whether 0.5% is reachable by binning at all (1.2).
+
+**C. A dark-sky / bright-moon pair on the same field.** The paper's data was
+taken under a 95% moon from an urban site, and conformance audit 5.0 shows the
+sky pedestal dominates the stamp sum. A matched pair separates how much of the
+systematic is sky and how much is detector. Cheap to select, high information.
+
+**D. A known transit with published depth.** A TOI or known hot Jupiter with
+full ingress and egress. Ground truth for depth recovery, and the only check on
+suppression that does not rely on injection.
+
+**E. Crowded and sparse fields.** The algorithm's premise is that a large
+number of sources per frame makes a good reference pool. Low and high galactic
+latitude sequences bound how that degrades.
+
+**F. Two cameras on the same field, same night.** Separates detector
+systematics from atmospheric ones, and directly addresses the risk in 7 that
+the floor is per-camera -- if two units' residuals are uncorrelated, combining
+units is the path to 0.5%; if they track each other, it is not.
+
+**G. A deliberately poor night.** High airmass, thin cloud, or bad tracking.
+Frame rejection and quality weighting (3.10) cannot be tuned on good data.
+
+Plus, not an observation: **raw frames from any long sequence** are what the
+frame-scale background work in 3.6 needs, and a median stack of one gives a sky
+flat with no new acquisition procedure.
+
+Start with A and B. They unblock the baseline; the rest can follow.
+
+**Synthetic injection/recovery** remains the fourth leg and works today, on
+whatever data is loaded.
 
 ## 2. What is already in place
 
@@ -413,15 +454,19 @@ This is the unblocking item. Which sequence, and can the image-level pipeline
 still be run -- does it need the GCS/Firestore path, or can it go through
 `cli/main.py` against local FITS?
 
-**6.1 -- Recover the paper's HD 339461 data.** Benchmark 2 is the only dataset
-with a published number to reproduce, and it is the only way to tell a real
-improvement from a better observation. Are the 122 raw frames from PAN012
-2018-08-24 still in GCS, and can this session reach them?
+**6.1 -- Select the benchmark sequences from the archive (1.3).** Ten years of
+raw data is available; what is needed is a way to search it. Is there queryable
+metadata -- Firestore or BigQuery observation records with field, unit, frame
+count, moon phase, airmass -- or is the archive effectively GCS paths? That
+answer decides whether selecting A-G is a query or a manual hunt. Dataset A
+also needs confirming: are the 122 raw PAN012 frames from 2018-08-24 still
+there?
 
-**6.2 -- Confirm the baseline scope.** Proposal: run the harness over ~200
-targets spanning 8 < mV < 12 in the PAN007 sequence and freeze the result as
-the reference baseline. Needs your sign-off on the magnitude range and target
-count before it becomes the number everything is measured against.
+**6.2 -- Confirm the baseline scope.** Proposal: after 3.1 and once dataset B
+is reduced, run the harness over ~200 targets spanning 8 < mV < 12 and freeze
+that as the reference baseline. Needs sign-off on the magnitude range and
+target count before it becomes the number everything is measured against. Not
+worth freezing on the 42-frame fixture.
 
 **6.3 -- Decide on the regulariser experiment scope (3.2).** Sweeping alpha x
 method x reference count over hundreds of targets is the single most

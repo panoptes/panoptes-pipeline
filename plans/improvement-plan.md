@@ -812,14 +812,6 @@ harness over ~200 targets spanning 8 < mV < 12 and freeze that as the reference
 baseline. Needs sign-off on magnitude range and target count before it becomes
 the number everything is measured against.
 
-**6.13 -- Branch disposition.** `algorithm-v2` is cut from `pipeline-working`,
-which had uncommitted changes and untracked deployment files. Confirm that base,
-and whether this eventually lands on `develop` or a fresh `main`.
-
-**6.14 -- VPN access, when it is time.** Not needed yet -- the rebuild and the
-first measurements all run against one downloaded sequence. Worth arranging
-before the first full-archive run.
-
 ## 7. Risks
 
 **Precision is much further away than the first measurement suggested.** The

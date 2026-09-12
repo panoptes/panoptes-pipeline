@@ -151,6 +151,39 @@ Also required of any precision claim:
 Correcting a defect can make numbers look worse -- removing a bias toward flat
 lightcurves is a real improvement presenting as a regression. Expect it.
 
+## Versioning and tags
+
+[Semantic versioning](https://semver.org). `hatch-vcs` derives the package
+version from the nearest `v*` tag, so **the tag is the only source of truth** --
+never hardcode a version anywhere.
+
+**We are pre-1.0, deliberately.** Under SemVer, `0.y.z` means the public API is
+not stable and may break in any release. That is an accurate description of a
+package whose cloud modules are being deleted, whose CLI is being rewritten, and
+whose core algorithm is pending a head-to-head test. Do not reach for 1.0.0 to
+signal that the project is serious; reach for it when the API stops moving.
+
+While pre-1.0:
+
+- **minor** (`0.2.0` -> `0.3.0`) -- new capability, or a breaking change. Both,
+  because at 0.x there is no separate channel for breaks.
+- **patch** (`0.2.0` -> `0.2.1`) -- fixes and internal work that changes no
+  interface.
+
+**What would earn 1.0.0**, and none of it has happened yet: the architecture
+question settled, so the algorithm is not about to be replaced wholesale; the
+cloud-or-not question settled, so modules stop disappearing; and a CLI plus
+library surface that someone outside this repository could depend on.
+
+Tag on `main` only, annotated, with a message saying what the release contains:
+
+```bash
+git tag -a v0.3.0 -m "..." && git push origin v0.3.0
+```
+
+`archive/*` tags are not releases. They preserve retired branch tips and carry no
+version meaning.
+
 ## Conventions
 
 - Cite a plan section by short name plus number: "algorithm design 2.1",

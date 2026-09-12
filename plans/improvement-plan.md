@@ -211,11 +211,11 @@ HDF5, no cloud client and no notebook. Four modules:
 
 `core` also carries `subtract_stamp_sky`, the stopgap for 3.1.
 
-41 tests, all passing. Conventions that previously caused silent bugs are now
-explicit and enforced: selection masks are `True == included` throughout,
-`select_references` refuses a pool that still contains the target
-(conformance audit 5.3), and mask construction takes `(height, width)` in the
-same order the data is ravelled (conformance audit 5.4).
+Conventions that previously caused silent bugs are now explicit and enforced:
+selection masks are `True == included` throughout, `select_references` refuses
+a pool that still contains the target (conformance audit 5.3), and mask
+construction takes `(height, width)` in the same order the data is ravelled
+(conformance audit 5.4).
 
 ### 2.2 The benchmark harness
 

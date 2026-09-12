@@ -114,7 +114,7 @@ Python is run with `uv`; standalone scripts are PEP 723.
 ```bash
 uv run scripts/benchmark_lightcurve.py OBS.h5 --channel r --sky-subtract --held-out
 uv run scripts/survey_targets.py OBS.h5 --sky-subtract
-uv run --no-project --with numpy --with scipy --with scikit-learn --with pytest \
+PYTHONPATH=src uv run --no-project --with numpy --with scipy --with scikit-learn --with pytest \
   python -m pytest tests/
 ```
 

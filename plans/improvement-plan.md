@@ -9,7 +9,7 @@ code has drifted from the published algorithm.
 
 ---
 
-## 1. Goal and how it gets measured
+## 1. Goal, constraints and how success is measured
 
 ### 1.1 Target
 
@@ -87,10 +87,17 @@ suppression that does not rely on injection.
 number of sources per frame makes a good reference pool. Low and high galactic
 latitude sequences bound how that degrades.
 
-**F. Two cameras on the same field, same night.** Separates detector
-systematics from atmospheric ones, and directly addresses the risk in 7 that
-the floor is per-camera -- if two units' residuals are uncorrelated, combining
-units is the path to 0.5%; if they track each other, it is not.
+**F. Two cameras on the same field, same night**, ideally two *different*
+camera models. Separates detector systematics from atmospheric ones, and
+directly addresses the risk in 7 that the floor is per-camera -- if two units'
+residuals are uncorrelated, combining units is the path to 0.5%; if they track
+each other, it is not. Different models also give the first read on how much of
+the result is body-specific.
+
+**H. A spread in PSF sampling.** Per 1.4, the strength of the Bayer systematic
+is governed by FWHM in pixels, so the benchmark set should span the fleet's
+range rather than clustering at one pixel scale. Otherwise every parameter
+tuned here is tuned for one sampling regime.
 
 **G. A deliberately poor night.** High airmass, thin cloud, or bad tracking.
 Frame rejection and quality weighting (3.11) cannot be tuned on good data.
@@ -103,6 +110,82 @@ Start with A and B. They unblock the baseline; the rest can follow.
 
 **Synthetic injection/recovery** remains the fourth leg and works today, on
 whatever data is loaded.
+
+### 1.4 The fleet is heterogeneous
+
+The archive is not one instrument. It is many units, many different DSLR
+bodies, with different black levels, different white levels, different gain,
+and different sensor and pixel sizes. The Bayer pattern is common; almost
+nothing else is. Everything built here has to be generic across that, and the
+current code is not: `settings.py` hardcodes one bias, one saturation and one
+gain for every camera in the fleet (conformance audit 4.5).
+
+**Why this bites harder here than in a typical pipeline.** The algorithm's
+entire subject is the interaction between the PSF and the 2x2 superpixel, and
+the dimensionless number that governs it is the PSF width *in pixels*. A
+well-sampled PSF spreads across many superpixels and the colour-sampling
+systematic partly averages itself out; an undersampled one, which is the
+paper's regime, is where it bites hardest. Pixel scale follows from pixel size
+and focal length, so **the size of the effect this algorithm exists to remove
+varies across the fleet**. Stamp size, aperture radius and the useful number of
+references are all likely to differ per unit, and so is the expected gain.
+
+**Two sharp hazards, and one that is milder than it looks.**
+
+*Saturation is the dangerous one.* A fleet-wide threshold either fails to mask
+saturated pixels on a camera with a lower white level -- silently corrupting the
+brightest and otherwise best targets -- or masks good pixels on a camera with a
+higher one, discarding those same targets. Neither failure is loud. White level
+also moves with ISO and bit depth.
+
+*Gain is the other.* It sets the photon noise floor in 1.2, and the floor ratio
+is how we decide whether 0.5% is reachable at all rather than being a
+per-camera limit (7). A wrong gain makes that judgement meaningless.
+
+*Black level matters less than it first appears* -- once 3.1 lands.
+`Background2D` estimates bias and sky jointly and removes both, so the exact
+bias does not enter Eq. 1 directly. It is still needed for the saturation
+threshold and the noise model, so it is not optional, just narrower in scope
+than it looks.
+
+**Measure, do not configure.** A hand-maintained table of camera constants will
+be wrong for the first body nobody registered, and wrong silently. Most of what
+is needed is recoverable from the data:
+
+| Quantity | Where it comes from |
+|---|---|
+| pixel scale | the WCS, per frame, free |
+| image dimensions | the array shape (already done) |
+| saturation / white level | the pixel histogram -- there is a hard cutoff; take the recurring top value across many frames, per camera and ISO |
+| gain, read noise | photon transfer: variance against mean across frame pairs. Ten years of multi-frame sequences makes this straightforward per camera and ISO |
+| PSF FWHM | already measured per frame by photutils |
+| Bayer phase | `MEASRGGB` is already parsed out of the header in `extract_metadata`; check it rather than assuming the pattern |
+| black level | header where present, otherwise measured once per camera and stored as data |
+
+**Resolution order, and no silent defaults.** Key a `CameraProfile` on the
+camera serial, which `extract_metadata` already reads from `CAMSN`. Resolve:
+measured from this observation, then the stored profile for that serial, then a
+model default, then **fail loudly**. Fields should have no fleet-wide default at
+all, so a missing value raises instead of quietly producing a wrong number.
+`zero_bias: float = 512` applying to every camera ever built is the exact
+anti-pattern to remove.
+
+**No parameter in raw pixels** unless it is genuinely about the detector grid,
+such as superpixel alignment. Convert stamp size and aperture radius to
+multiples of the measured FWHM (then round up to whole superpixels); the
+background box from 79x84 pixels to an angular size or a fraction of the frame;
+drift tolerances to arcseconds, since mount error is angular. Already correct:
+`max_separation_arcsec`, and a detection threshold in sigma.
+
+**Cross-unit combination happens at the lightcurve level, never the pixel
+level.** Two cameras do not share a pixel scale, a stamp size or a PSF, so a
+reference pool cannot span units. If combining units is the path to 0.5% (7),
+it combines normalised lightcurves after the fact.
+
+**The heterogeneity is also an asset.** The fleet is a natural experiment in
+pixel scale. Measuring how the achievable precision varies with PSF sampling
+tells us what to specify for future units, which is a result the project wants
+independently of this algorithm.
 
 ## 2. What is already in place
 
@@ -559,7 +642,41 @@ becomes unable to run anywhere else. Keeping tier 1 and tier 2 working locally
 keeps the offline-first goal in 4 honest, and the server stays what it should
 be -- where the expensive runs happen.
 
-### 4.6 CI
+### 4.6 The data layer and camera profiles
+
+[`panoptes-data`](https://github.com/panoptes/panoptes-data) already does
+discovery and fetch: `search_observations()` by object name with a minimum
+image count, `ObservationInfo` for metadata and image download, and unit
+metadata over a date range. It has no notion of per-camera calibration.
+
+**Recommendation: keep it, extend it, do not restart.** Rewriting would
+re-derive working archive access for no gain, and the pipeline would end up
+holding a second copy of the Firestore schema -- two places to break when it
+changes. The two real gaps are both additive:
+
+1. **The query surface is too narrow for 1.3.** Selecting benchmarks needs
+   filtering on frame count, moon phase, airmass, measured drift, unit and
+   camera model, field density, and same-night pairs across units. Search by
+   object name does not reach that. Since we own the package, that belongs
+   there.
+2. **There is no camera profile registry** (1.4). Profiles key on camera serial
+   and belong alongside the unit and camera records -- in the data layer, not
+   hardcoded in the pipeline.
+
+**The boundary that matters.** `panoptes-data` is a tool for *selecting and
+fetching* data, not a runtime dependency of the algorithm. The pipeline has to
+run against a local directory of FITS plus a local profile file with no network
+at all, which is the whole point of 4. So it sits behind the adapter boundary in
+4.3, alongside Firestore and GCS: available, never required.
+
+**When starting from scratch would be the right call**, and how to tell cheaply:
+write one real selection query for dataset B from 1.3 against the existing
+package. If it fits or needs a small addition, extend. If its model is
+fundamentally one-record-per-observation and the selection needs per-frame or
+per-camera aggregates that do not fit that shape, a purpose-built query layer is
+justified -- but decide it on that evidence rather than in advance.
+
+### 4.7 CI
 
 `.github/` is empty. Add: ruff, pytest, and a smoke run of
 `scripts/benchmark_lightcurve.py` against a trimmed fixture, so a regression in
@@ -610,18 +727,25 @@ median-stacking route needs no new acquisition procedure and should be tried
 first, so this may resolve without any change to POCS -- but it is worth knowing
 whether real flats exist anywhere in ten years of data.
 
-**6.4 -- Confirm the camera fleet constants.** `settings.py` hardcodes
-`zero_bias=512` and `saturation=15872` for every camera, while the paper's
-EOS 100D is 2048 and 11535 (conformance audit 4.5). Which cameras are in the
-fleet now, and where should per-unit constants live -- here, or in
-`panoptes-data` alongside the unit records?
+**6.4 -- Calibration frames for the camera profiles (1.4).** Most camera
+constants can be measured from science data -- saturation from the pixel
+histogram, gain and read noise by photon transfer -- so this no longer needs a
+fleet survey. What would help: do any bias, dark or flat sequences exist
+anywhere in the archive? They would let the measured values be checked rather
+than trusted, at least for the cameras that have them.
 
-**6.5 -- Branch disposition.** `algorithm-v2` is cut from `pipeline-working`,
+**6.5 -- Where camera profiles live.** Proposal in 4.6: keyed on camera serial,
+stored with the unit and camera records in `panoptes-data`, consumed by the
+pipeline through the 4.3 adapter boundary so the algorithm still runs offline
+from a local profile file. Confirm that is where you want them, since it means
+a schema addition on that side.
+
+**6.6 -- Branch disposition.** `algorithm-v2` is cut from `pipeline-working`,
 which had uncommitted changes and untracked deployment files. Confirm that is
 the right base, and whether the rebuilt pipeline should eventually land on
 `develop` or on a fresh `main`.
 
-**6.6 -- VPN access, when it is time.** Not needed yet: 3.1, the 3.2
+**6.7 -- VPN access, when it is time.** Not needed yet: 3.1, the 3.2
 diagnostics and the 3.4 sweep can all run against a downloaded tier 2 dataset.
 Worth arranging before the first full-archive run.
 

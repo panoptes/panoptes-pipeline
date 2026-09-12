@@ -18,7 +18,7 @@ version: improvement plan 3.1 is one line and blocks every measurement in the
 plan, so it comes before anything else; improvement plan 3.2 (drift) is the
 largest expected gain and starts with a diagnostic, not a change.
 
-## Three things to know before touching anything
+## Four things to know before touching anything
 
 **1. Stored stamps are not background-subtracted.** `ProcessFITS.ipynb` cell 16
 computes `reduced_data = data - bg_data`, then cell 18 writes
@@ -50,6 +50,15 @@ field rotation (which is *not* common to all stars and collapses the effective
 reference pool), an aperture cut once at the sequence mean, and drift forcing an
 18-pixel stamp that compounds problem 1. See improvement plan 3.2 before
 proposing anything about reference selection.
+
+**4. The fleet is heterogeneous.** Many units, many different DSLR bodies:
+different black levels, white levels, gain, sensor and pixel sizes. Same Bayer
+pattern, little else. Never hardcode a camera constant -- measure it (saturation
+from the pixel histogram, gain by photon transfer, pixel scale from the WCS) or
+resolve it from a camera profile keyed on the `CAMSN` serial, and fail loudly
+rather than defaulting. No algorithm parameter in raw pixels unless it is about
+the detector grid: express stamp sizes and apertures in multiples of measured
+FWHM, angular sizes in arcsec. See improvement plan 1.4.
 
 ## Layout
 

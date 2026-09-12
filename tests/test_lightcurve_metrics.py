@@ -54,9 +54,21 @@ def test_precision_curve_improves_with_bin_size():
 
 
 def test_photon_noise_floor_scales_as_root_n():
-    bright = metrics.photon_noise_floor(1e6, read_noise_e=0.0)
-    faint = metrics.photon_noise_floor(1e4, read_noise_e=0.0)
+    bright = metrics.photon_noise_floor(1e6, gain_e_per_adu=1.5, read_noise_e=0.0)
+    faint = metrics.photon_noise_floor(1e4, gain_e_per_adu=1.5, read_noise_e=0.0)
     assert faint / bright == pytest.approx(10.0, rel=0.01)
+
+
+def test_photon_noise_floor_refuses_to_guess_camera_constants():
+    """A fleet-wide default gain would give a wrong floor for every camera but one."""
+    with pytest.raises(TypeError):
+        metrics.photon_noise_floor(1e6)
+
+
+def test_photon_noise_floor_tracks_gain():
+    low = metrics.photon_noise_floor(1e5, gain_e_per_adu=0.5, read_noise_e=0.0)
+    high = metrics.photon_noise_floor(1e5, gain_e_per_adu=2.0, read_noise_e=0.0)
+    assert low / high == pytest.approx(2.0, rel=0.01)
 
 
 def test_report_ratios_against_the_noise_floor():

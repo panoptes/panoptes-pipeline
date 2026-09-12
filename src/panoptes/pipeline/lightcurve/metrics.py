@@ -113,16 +113,22 @@ def beta_factor(
 
 def photon_noise_floor(
     total_counts_adu: np.ndarray | float,
-    gain_e_per_adu: float = 1.5,
+    gain_e_per_adu: float,
+    read_noise_e: float,
     background_counts_adu: np.ndarray | float = 0.0,
-    read_noise_e: float = 10.47,
     num_pixels: int = 1,
 ) -> float:
     """Fractional noise floor from source photons, sky and read noise.
 
-    Defaults are the Canon EOS 100D values in paper Table 2. Every precision
-    claim should be quoted as a multiple of this floor, not in isolation --
-    the paper's stated goal is to *approach* it.
+    Every precision claim should be quoted as a multiple of this floor rather
+    than in isolation -- the paper's stated goal is to *approach* it.
+
+    Gain and read noise are **required**, with no default. The PANOPTES fleet
+    runs many different DSLR bodies with different gain, black level and white
+    level, so a fleet-wide default here would silently produce a wrong floor for
+    every camera but one, and the floor is what decides whether 0.5% is
+    reachable at all (improvement plan 1.4). Get them from the camera profile
+    for the observation, not from a constant.
     """
     source_e = np.asarray(total_counts_adu, dtype=float) * gain_e_per_adu
     sky_e = np.asarray(background_counts_adu, dtype=float) * gain_e_per_adu

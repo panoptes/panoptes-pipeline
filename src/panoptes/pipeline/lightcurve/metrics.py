@@ -40,7 +40,7 @@ def bin_flux(
         bin_minutes: Bin width. ``0`` returns the unbinned series.
 
     Returns:
-        ``(bin_centres_seconds, binned_flux, counts_per_bin)``; empty bins are
+        ``(bin_centers_seconds, binned_flux, counts_per_bin)``; empty bins are
         dropped.
     """
     seconds = to_seconds(times)
@@ -52,17 +52,17 @@ def bin_flux(
     width = bin_minutes * 60.0
     which = np.floor((seconds - seconds[0]) / width).astype(int)
 
-    centres, means, counts = [], [], []
+    centers, means, counts = [], [], []
     for value in np.unique(which):
         selected = (which == value) & np.isfinite(flux)
         count = int(selected.sum())
         if count == 0:
             continue
-        centres.append(float(seconds[selected].mean()))
+        centers.append(float(seconds[selected].mean()))
         means.append(float(flux[selected].mean()))
         counts.append(count)
 
-    return np.array(centres), np.array(means), np.array(counts, dtype=int)
+    return np.array(centers), np.array(means), np.array(counts, dtype=int)
 
 
 def precision_curve(

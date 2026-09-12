@@ -101,7 +101,7 @@ def infer_green_offsets(
     sky levels match each other and differ from red and blue. That identifies
     the pattern family without trusting any convention -- which matters, because
     getting it wrong silently mixes red and blue into one "green" channel and
-    every per-channel result is then mislabelled.
+    every per-channel result is then mislabeled.
 
     Args:
         sky_stamps: ``(k, n)`` or ``(k, m, n)`` of star-free stamps. The faintest
@@ -172,7 +172,7 @@ def circular_aperture(
     center: tuple[float, float],
     radius: float,
 ) -> np.ndarray:
-    """Boolean selection mask for pixels whose centres lie within ``radius``.
+    """Boolean selection mask for pixels whose centers lie within ``radius``.
 
     Args:
         shape: ``(height, width)`` of the stamp.
@@ -205,7 +205,7 @@ def grow_to_superpixels(mask: np.ndarray) -> np.ndarray:
 def weighted_aperture(profile: np.ndarray, noise_variance: np.ndarray | float) -> np.ndarray:
     """Optimal (inverse-variance) photometric weights for a known PSF profile.
 
-    Returns weights normalised so that ``sum(w * profile) == 1``, i.e. applying
+    Returns weights normalized so that ``sum(w * profile) == 1``, i.e. applying
     them to a frame recovers total flux rather than a weighted average. This is
     the standard optimal-extraction weighting and is the drop-in replacement for
     a hard-edged aperture in improvement plan 3.6.

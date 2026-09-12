@@ -1,16 +1,16 @@
 # panoptes-pipeline
 
 Differential photometry for PANOPTES: recovering exoplanet transits from DSLR
-wide-field images with a Bayer colour filter array.
+wide-field images with a Bayer color filter array.
 
 ## The idea
 
 A wide field gives any target many candidate reference stars whose light lands
-on the colour filter array the same way the target's does. Those references
-build an idealised star that behaves as the target would absent a transit, so
+on the color filter array the same way the target's does. Those references
+build an idealized star that behaves as the target would absent a transit, so
 the difference is zero unless the target's flux genuinely changed.
 
-The load-bearing insight: dividing a stamp by its own summed flux marginalises
+The load-bearing insight: dividing a stamp by its own summed flux marginalizes
 brightness out and leaves the spatial profile. Shape and brightness separate.
 Match on shape, difference the brightness.
 
@@ -18,7 +18,7 @@ The idea and the network are the same principle at two scales, and low unit
 cost enables both: many stars per unit calibrate the systematic, many units
 cover a transit longer than one night. Statistical power from multiplicity,
 where multiplicity is cheap. Heterogeneity is a consequence of that, not a
-nuisance, and any approach needing a characterised or uniform fleet contradicts
+nuisance, and any approach needing a characterized or uniform fleet contradicts
 the premise. See algorithm design 1.3.
 
 **That idea is the only fixed point.** Gee et al., *On-sky Demonstration of
@@ -48,10 +48,10 @@ processing. Do not tune against them.
 Three facts that cost real performance, and that any new implementation must
 handle rather than inherit:
 
-**1. Near-neighbour matching is probably the wrong tool.** The profile manifold
+**1. Near-neighbor matching is probably the wrong tool.** The profile manifold
 measures as roughly 4 components for 95% of the variance in a 180-pixel space.
 If that holds on clean data, you want coverage of a low-dimensional manifold,
-not the 100 nearest neighbours -- which is why the paper hit a curse of
+not the 100 nearest neighbors -- which is why the paper hit a curse of
 dimensionality and needed negative coefficients. Provisional; re-measure.
 
 **2. The published similarity metric partly measures brightness.** Profile
@@ -69,7 +69,7 @@ the sequence mean. See improvement plan 3.2.
 ## Transits can be longer than an observation
 
 The survey targets long-period planets and the end goal is stitching segments
-from units at different longitudes into one event. So **never normalise a
+from units at different longitudes into one event. So **never normalize a
 lightcurve to unit median** -- for a window that is wholly or partly in transit
 that subtracts the signal from itself. `differential_lightcurve` defaults to
 `normalize=False`; the comparison ensemble sets the scale. Depths are fractions
@@ -124,7 +124,7 @@ uv run --no-project --with numpy --with scipy --with scikit-learn --with pytest 
 design 4.
 
 The *algorithm's* job is to return the target's true relative flux -- nothing
-suppressed, nothing invented. It should know nothing about transits; optimising
+suppressed, nothing invented. It should know nothing about transits; optimizing
 it for a transit shape biases it toward that prior and against everything else
 the data holds. Score it with `injection.transfer_function`: sinusoids injected
 across a range of periods, recovered amplitude over injected. 1.0 at every
@@ -140,7 +140,7 @@ survey, not to the algorithm.
 
 Also required of any precision claim:
 
-- Inject at the **pixel level**, before normalisation, so the whole pipeline
+- Inject at the **pixel level**, before normalization, so the whole pipeline
   sees the signal. Injecting into a finished lightcurve measures nothing.
 - Score on **held-out frames**. Fitting many free parameters per target will
   absorb noise given the chance.

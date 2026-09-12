@@ -6,7 +6,7 @@ here: the comparison star is assembled from stars chosen for their similarity
 to the target over the *whole* sequence, in-transit frames included, so a deep
 enough transit can partially reproduce itself in its own comparison.
 
-Flux marginalisation (core.normalize_psc) protects against most of this by
+Flux marginalization (core.normalize_psc) protects against most of this by
 construction, but "mostly" is not a number. These helpers produce the number.
 """
 
@@ -58,7 +58,7 @@ def trapezoid_transit(
 def inject(psc: np.ndarray, model: np.ndarray) -> np.ndarray:
     """Scale every pixel of each frame by the transit model.
 
-    Injection happens at the pixel level, *before* normalisation and reference
+    Injection happens at the pixel level, *before* normalization and reference
     selection, so the full algorithm sees the signal exactly as it would see a
     real one. Injecting into the finished lightcurve instead would measure
     nothing.
@@ -130,7 +130,7 @@ def measure_depth(flux: np.ndarray, model: np.ndarray, threshold: float = 0.5) -
     in_level = float(np.nanmedian(flux[in_transit])) if in_transit.any() else np.nan
     out_level = float(np.nanmedian(flux[out_transit])) if out_transit.any() else np.nan
 
-    # Fractional, not absolute: lightcurves are no longer normalised to a unit
+    # Fractional, not absolute: lightcurves are no longer normalized to a unit
     # baseline (algorithm design 6), so the difference must be divided by the
     # out-of-transit level to be a depth at all.
     scale = out_level if np.isfinite(out_level) and out_level != 0 else np.nan
@@ -200,7 +200,7 @@ def transfer_function(
     relative flux -- nothing suppressed, nothing invented -- and a transfer
     function of 1.0 at every timescale of interest is what that means
     quantitatively. Detection is a property of the survey built on top, not of
-    the algorithm, and optimising the algorithm for a transit shape would bias
+    the algorithm, and optimizing the algorithm for a transit shape would bias
     it toward signals matching that prior and against everything else the data
     contains.
 

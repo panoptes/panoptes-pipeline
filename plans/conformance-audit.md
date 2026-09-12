@@ -30,21 +30,21 @@ steps are, and they are correct. Building a synthetic comparison star from a
 fitted linear combination of references -- paper sections 3.2.3 and 3.2.4 -- is
 absent. The code substitutes an unweighted arithmetic mean of the top 100
 reference stars, which is ordinary ensemble differential photometry; the
-linear combination in normalised space is what lets the comparison reproduce
+linear combination in normalized space is what lets the comparison reproduce
 the target's *specific* interaction with the Bayer pattern.
 
 A least-squares solver matching paper section 3.2.3 did exist in this
-repository and was deleted in the PyScaffold reorganisation (it survives in
+repository and was deleted in the PyScaffold reorganization (it survives in
 history at `src/panoptes/pipeline/utils/processing.py`, functions
 `get_ideal_full_coeffs` and `get_ideal_full_psc`). Even that version used
-unregularised `scipy.linalg.lstsq`; the regularisation implied by paper
+unregularized `scipy.linalg.lstsq`; the regularization implied by paper
 Figure 7 has never existed in code.
 
 The two findings interact, and the order matters. Measured on stamps *as
 stored*, restoring the coefficient fit appears to improve red-channel scatter
 by 2x. Remove the sky pedestal first and that collapses to 1.15x -- because on
 un-subtracted stamps the fit is largely matching smooth background structure
-between neighbouring stars, not stellar morphology. Numbers in improvement
+between neighboring stars, not stellar morphology. Numbers in improvement
 plan 2.3.
 
 ## 2. Where the algorithm lives
@@ -73,12 +73,12 @@ survive in code nobody can test.
 
 ### 3.1 Prepare PSCs -- conforms
 
-Paper Eq. 1 normalises each frame by its own summed flux.
+Paper Eq. 1 normalizes each frame by its own summed flux.
 `MakeLightcurves.ipynb` cell 15 does exactly this. Correct.
 
 ### 3.2 Find reference stars -- conforms
 
-Paper Eq. 2 sums the squared difference between normalised target and
+Paper Eq. 2 sums the squared difference between normalized target and
 reference over pixels, then over frames. Cell 23 does this. Correct.
 
 The notebook additionally computes per-channel scores and takes the
@@ -87,8 +87,8 @@ extension, but the result is then discarded (see 5.6).
 
 ### 3.3 Determine coefficients -- **not implemented**
 
-Paper Eq. 4 minimises the residual between the normalised target and a linear
-combination of the normalised references, solving for one coefficient per
+Paper Eq. 4 minimizes the residual between the normalized target and a linear
+combination of the normalized references, solving for one coefficient per
 reference. There is no solver anywhere in the current tree. `scipy` is imported
 by exactly one file, `notebooks/working/MakeLightcurves-Copy1.ipynb`, and is
 unused there.
@@ -96,13 +96,13 @@ unused there.
 The paper says "in practice a regularization term can also [be] applied", and
 Figure 7 shows 46 of 100 coefficients at exactly zero. Exact zeros are the
 signature of an L1 penalty; plain least squares does not produce them. So the
-published configuration is a *regularised* fit whose regulariser and strength
+published configuration is a *regularized* fit whose regularizer and strength
 are not stated in the paper. This is an open question, not just a porting job
 -- see improvement plan 3.4.
 
 ### 3.4 Build comparison star -- **not implemented**
 
-Paper Eq. 5 applies the normalised-space coefficients to the flux-carrying
+Paper Eq. 5 applies the normalized-space coefficients to the flux-carrying
 reference stamps. `MakeLightcurves.ipynb` cell 45 instead computes:
 
 ```python
@@ -117,8 +117,8 @@ Paper Eq. 6 sums target and comparison flux *within an aperture* and ratios
 them, per color channel, giving three lightcurves (paper Figure 12).
 
 Cell 45 sums the **whole stamp** and produces **one colorless lightcurve**. The
-RGB masks built in cell 10 and the per-channel normalised cubes built in cell
-41 are never used in the photometry. Median normalisation to unity is applied
+RGB masks built in cell 10 and the per-channel normalized cubes built in cell
+41 are never used in the photometry. Median normalization to unity is applied
 correctly.
 
 ## 4. Pre-processing conformance
@@ -139,7 +139,7 @@ once the subtraction is actually applied.
 ### 4.2 PSC creation -- conforms
 
 `bayer.get_stamp_slice` is used to force superpixel-aligned stamps, and mean
-catalog positions across all frames set the centre superpixel, as in paper
+catalog positions across all frames set the center superpixel, as in paper
 section 4.3. Spot-checked on `PAN007_f6eb3d_20250930T030402`: all stamp origins
 are even. Correct.
 
@@ -166,8 +166,8 @@ Paper Table 2, Canon EOS 100D: bias 2048 ADU, saturation 11535 ADU (bias
 removed), gain 1.50 e-/ADU. `settings.py` hardcodes `zero_bias=512`,
 `saturation=15872`, `effective_gain=1.5` for **all** cameras. PANOPTES is a
 heterogeneous fleet by design; these belong in per-unit configuration. Wrong
-bias propagates directly into Eq. 1, because normalisation of a
-bias-contaminated stamp is not the same as normalisation of a clean one.
+bias propagates directly into Eq. 1, because normalization of a
+bias-contaminated stamp is not the same as normalization of a clean one.
 
 ## 5. Defects
 
@@ -179,7 +179,7 @@ Ordered by impact on photometric precision.
 defaults to `False`. `ProcessObservation.ipynb` cell 57 then cuts stamps from
 that file. Consequences:
 
-- Paper Eq. 1 normalises a stamp that is mostly flat pedestal, so the
+- Paper Eq. 1 normalizes a stamp that is mostly flat pedestal, so the
   "morphology" being matched is dominated by background, not by the star.
   Reference selection and the coefficient fit are solving the wrong problem.
 - Differential photometry ratios `(star + sky) / (star + sky)`, so every
@@ -203,7 +203,7 @@ fix is to write `reduced_data` to `reduced_filename`.
 Paper sections 3.2.3 and 3.2.4 are absent. See 3.3 and 3.4 above. This is the
 single largest gap.
 
-**5.2 -- Regularisation has never been implemented.** The only solver that ever
+**5.2 -- Regularization has never been implemented.** The only solver that ever
 existed in this repository used plain `scipy.linalg.lstsq`. Paper Figure 7
 cannot be reproduced by that code.
 
@@ -302,7 +302,7 @@ These were repo-health blockers rather than algorithm defects, and were
 corrected while setting up the test harness:
 
 - `pytest` could not start at all: `--test-databases all` in the `addopts` of
-  `pyproject.toml` is not a recognised option.
+  `pyproject.toml` is not a recognized option.
 - `pip install -e .[dev]` failed: `jupyterlab_beta` does not exist on PyPI.
 - `ruff` was configured for `py38` while `requires-python` is `>=3.12`.
 

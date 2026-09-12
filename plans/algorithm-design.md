@@ -11,8 +11,8 @@ and the idea diverge, the idea wins.
 ## 1. The idea
 
 A wide field gives any target many candidate reference stars whose light lands
-on the colour filter array the same way the target's does. Those references can
-be combined into an idealised star that should behave exactly as the target
+on the color filter array the same way the target's does. Those references can
+be combined into an idealized star that should behave exactly as the target
 would absent a transit. The difference is then zero unless the target's flux has
 genuinely changed.
 
@@ -24,17 +24,17 @@ For star *k*, frame *i*, pixel *j*:
 P[k,i,j] = F[k,i] * S[k,i,j] + B[i,j] + noise
 ```
 
-`F` is the true flux -- the thing we want. `S` is the normalised spatial
+`F` is the true flux -- the thing we want. `S` is the normalized spatial
 profile: how that flux lands on pixels, summing to 1 over *j*. `B` is
 background.
 
 `S` depends on per-star properties `θ` (sub-pixel position on the Bayer grid,
-colour, field position and hence aberration) and per-frame state `φ` (pointing,
+color, field position and hence aberration) and per-frame state `φ` (pointing,
 focus, seeing). The systematic is that `S` moves with `φ` in a way that depends
 on `θ`, so a fixed aperture sum is not proportional to `F`.
 
 **The load-bearing insight**, and the paper's real contribution: dividing a
-stamp by its own summed flux marginalises `F` out and leaves an estimate of `S`
+stamp by its own summed flux marginalizes `F` out and leaves an estimate of `S`
 alone. Shape and brightness separate. Match on shape, difference the
 brightness.
 
@@ -45,7 +45,7 @@ Everything else is implementation, and open.
 A transit is a change in `F` with no change in `S`. So a profile model can be
 fit across every frame, in-transit ones included, without absorbing the signal.
 That is what makes the approach safe, and it holds for any implementation that
-keeps the normalisation. It must still be verified by injection every time, not
+keeps the normalization. It must still be verified by injection every time, not
 assumed.
 
 ### 1.3 Why the idea has this shape
@@ -71,14 +71,14 @@ plan insists on measuring camera constants rather than configuring them: it is
 not merely good practice, it is forced by the design.
 
 **An empirical method is the right kind of method here.** A parametric forward
-model -- predicting each stamp from a characterised PSF, known aberrations and
+model -- predicting each stamp from a characterized PSF, known aberrations and
 measured pixel response -- would use fewer parameters and be tempting on
-statistical grounds. It also requires per-camera characterisation that nobody
+statistical grounds. It also requires per-camera characterization that nobody
 will perform on a fleet of citizen-built units. Learning the systematic from the
-stars in the frame needs no such characterisation, and works identically on a
+stars in the frame needs no such characterization, and works identically on a
 body nobody has ever measured.
 
-**But "empirical" does not mean "nearest neighbours".** If large N is the
+**But "empirical" does not mean "nearest neighbors".** If large N is the
 resource the project is built on, taking only the 100 most similar references
 discards most of it. The manifold model in 3 is this thesis carried further, not
 a departure from it: it learns from every star in the frame rather than from a
@@ -100,10 +100,10 @@ from systematics, that cross-check may matter as much as the extended baseline.
 Three of its choices are not required by the idea, and measurement says all
 three cost performance.
 
-### 2.1 Near-neighbour matching is the wrong tool
+### 2.1 Near-neighbor matching is the wrong tool
 
 The paper searches for the most similar references and combines the top 100. It
-then observes that near-neighbours are rare -- only 3% of references fall within
+then observes that near-neighbors are rare -- only 3% of references fall within
 half the similarity radius -- calls this the curse of dimensionality, and
 compensates with negative coefficients, i.e. extrapolation.
 
@@ -112,15 +112,15 @@ That is a symptom of the method, not of the data. Measured on
 needs a **median of 4 components for 95% of the variance**, in a 180-pixel
 space. The paper's own pseudo-dimension estimate was ~5.
 
-If the manifold is that low-dimensional, you do not need neighbours. You need
+If the manifold is that low-dimensional, you do not need neighbors. You need
 *coverage*, and 3,000 stars cover a 5-dimensional manifold easily while
-near-neighbours in 180 dimensions stay rare. Learn the manifold once from every
+near-neighbors in 180 dimensions stay rare. Learn the manifold once from every
 star, place the target on it, predict its profile. That replaces 100 free
 parameters per target with roughly 5 latent coordinates plus a shared model.
 
 Caveat, and it is not small: the rank is frame-dependent. Some frames need 1-4
 components, others 18-36. That instability has to be explained -- genuinely
-different PSF state, bad frames, or an artefact of the stopgap sky subtraction
+different PSF state, bad frames, or an artifact of the stopgap sky subtraction
 -- before the design is built on it.
 
 ### 2.2 The similarity metric partly measures brightness
@@ -136,12 +136,12 @@ brightness-neutral metric would give 50%.
 
 So "most morphologically similar" is substantially "brightest available". A
 noise-weighted distance fixes it directly. In a manifold model the problem
-largely dissolves, because a model is fit rather than neighbours ranked.
+largely dissolves, because a model is fit rather than neighbors ranked.
 
 ### 2.3 One step is doing two unrelated jobs
 
-Dividing target by comparison removes the pixelisation systematic *and*
-atmospheric transparency at once. These are different: pixelisation is a change
+Dividing target by comparison removes the pixelization systematic *and*
+atmospheric transparency at once. These are different: pixelization is a change
 in `S`, transparency is a genuine common change in `F`. Conflating them forces
 one coefficient vector to be simultaneously shape-matched and flux-
 representative, and nothing guarantees a shape-optimal vector is a low-variance
@@ -155,10 +155,10 @@ transparency.
 
 1. **Background subtraction at frame level.** Not stamp level -- measured, the
    sky is flat across a stamp and there is nothing to fit there.
-2. **Superpixel-aligned stamps, re-centred per frame** on the nearest superpixel.
+2. **Superpixel-aligned stamps, re-centered per frame** on the nearest superpixel.
    Whole-superpixel shifts preserve Bayer phase, so bulk drift is absorbed and
    only sub-pixel phase remains.
-3. **Normalise** each stamp by its own sum to estimate `S`.
+3. **Normalize** each stamp by its own sum to estimate `S`.
 4. **Learn a low-rank profile model** across all stars and frames, with the
    target excluded or down-weighted.
 5. **Predict the target's profile** for each frame from its latent coordinates.
@@ -190,7 +190,7 @@ quietly tuned toward its own prior.
 suppressed, nothing invented.** That is it. It should know nothing about
 transits.
 
-Optimising the algorithm for transit detection would bias it toward signals
+Optimizing the algorithm for transit detection would bias it toward signals
 shaped like the assumed transit and against everything else in the data:
 long-duration events, stellar variability, flares, anything the survey has not
 thought of. It is also circular, since the same machinery later claims the
@@ -246,7 +246,7 @@ Which findings survive that, and which do not:
 | Greens on the diagonal (GRBG/GBRG) | measured on these stamps | **describes this file only** -- phase depends on how stamps were cut, so a new pipeline must re-derive it with `masks.infer_pattern` |
 
 The two load-bearing claims for the architecture in 3 -- that the manifold is
-low-dimensional, and that a profile model beats neighbour matching -- are both
+low-dimensional, and that a profile model beats neighbor matching -- are both
 in the provisional row. Re-measure them on stamps cut from raw frames before
 committing to the design. If the manifold is not low-rank on clean data, section
 3 does not follow.
@@ -261,12 +261,12 @@ overlap, Japan the egress -- into a single event.
 That is a high-level goal, but it constrains the algorithm now, because several
 conventions that are harmless for short transits are fatal for partial ones.
 
-### 6.1 No self-normalisation
+### 6.1 No self-normalization
 
-Paper Eq. 6 normalises the lightcurve so its median is unity. For a transit
+Paper Eq. 6 normalizes the lightcurve so its median is unity. For a transit
 comfortably inside a long baseline that is harmless. For a window that is
 wholly or partly in transit it subtracts the signal from itself: a fully
-in-transit segment normalises to a flat line and the depth is gone.
+in-transit segment normalizes to a flat line and the depth is gone.
 
 `differential_lightcurve` therefore defaults to `normalize=False`. The ratio of
 target to comparison ensemble is already a relative flux; the ensemble sets the
@@ -279,7 +279,7 @@ scales still agree on depth.
 A segment is only stitchable if it measures a quantity another unit also
 measures. That means target flux relative to a **defined, shared** comparison
 ensemble, not to the target's own history. Two units observing the same field
-can use the same catalogue stars, so their ratios differ only by a constant.
+can use the same catalog stars, so their ratios differ only by a constant.
 
 Each segment therefore has to carry enough metadata to be tied to another:
 which comparison stars, which camera and bandpass, airmass, and the time system.
@@ -287,7 +287,7 @@ which comparison stars, which camera and bandpass, airmass, and the time system.
 ### 6.3 Offsets are solved, not assumed
 
 Different bodies have different effective bandpasses, so the target-to-ensemble
-ratio carries a constant factor set by the colour difference between target and
+ratio carries a constant factor set by the color difference between target and
 ensemble. That factor is constant per unit for a given target and ensemble, so
 it can be calibrated -- but only against something.
 
@@ -322,15 +322,15 @@ is not.
 ### 6.6 Differential extinction, and a synergy
 
 Each site observes the target at a different airmass, and second-order
-extinction scales with the colour difference between target and comparison
-stars. In a self-normalised lightcurve this hides inside the normalisation. In
+extinction scales with the color difference between target and comparison
+stars. In a self-normalized lightcurve this hides inside the normalization. In
 a transferable one it has to be handled.
 
 The method handles this by design, not by accident -- it is part of why the
 project is shaped this way (1.3). Selecting references on their Bayer morphology
-implicitly selects on colour, since colour is what drives how a star samples the
+implicitly selects on color, since color is what drives how a star samples the
 filter array. Morphologically matched comparison stars are therefore also
-colour-matched, which is exactly the condition that minimises second-order
+color-matched, which is exactly the condition that minimizes second-order
 extinction between sites at different airmass. Having thousands of candidate
 references per field is what makes it possible to satisfy both constraints at
 once.

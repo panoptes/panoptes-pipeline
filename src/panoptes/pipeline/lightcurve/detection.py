@@ -41,12 +41,12 @@ def fit_depth(
     """Weighted least-squares depth and its uncertainty, with a free baseline.
 
     Models ``flux = baseline - depth * weights``. Fitting the baseline rather
-    than assuming 1.0 matters: a lightcurve normalised by its median is not
-    exactly at unity once a transit is present in the data being normalised.
+    than assuming 1.0 matters: a lightcurve normalized by its median is not
+    exactly at unity once a transit is present in the data being normalized.
 
     Returns:
         ``(depth, depth_error)``, both as a **fraction of the fitted baseline**.
-        Lightcurves are not normalised to unity (algorithm design 6), so an
+        Lightcurves are not normalized to unity (algorithm design 6), so an
         absolute difference would not be a depth. Depth is positive for a dip.
     """
     flux = np.asarray(flux, dtype=float)
@@ -126,8 +126,8 @@ def scan(
         half = duration * 3600.0 / 2.0
         if 2 * half > span:
             continue
-        for centre in np.linspace(seconds[0] + half, seconds[-1] - half, num_phases):
-            weights = transit_weights(seconds, centre, duration)
+        for center in np.linspace(seconds[0] + half, seconds[-1] - half, num_phases):
+            weights = transit_weights(seconds, center, duration)
             if weights.max() <= 0:
                 continue
             depth, error = fit_depth(flux, weights)
@@ -135,7 +135,7 @@ def scan(
                 continue
             snr = depth / error
             if snr > best.snr:
-                best = Detection(snr, depth, float(centre), duration)
+                best = Detection(snr, depth, float(center), duration)
     return best
 
 

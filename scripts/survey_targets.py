@@ -175,7 +175,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--sky-subtract",
         action="store_true",
-        help="Remove the per-frame, per-colour sky pedestal before running",
+        help="Remove the per-frame, per-color sky pedestal before running",
     )
     parser.add_argument(
         "--in-sample",

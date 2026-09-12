@@ -24,7 +24,7 @@ def test_depth_is_recovered_with_a_free_baseline():
 def test_fractional_depth_is_invariant_under_rescaling():
     """Required for stitching: two units on different scales must agree on depth.
 
-    Lightcurves are no longer normalised to unit baseline (algorithm design 6),
+    Lightcurves are no longer normalized to unit baseline (algorithm design 6),
     so the depth has to be measured as a fraction of the fitted baseline or
     segments from different units could never be compared.
     """
@@ -110,8 +110,8 @@ def test_completeness_rises_with_depth():
 
     def recover(depth, duration_hours):
         rng = np.random.default_rng()
-        centre = rng.uniform(times[100], times[-100])
-        return noise * injection.trapezoid_transit(times, centre, duration_hours, depth)
+        center = rng.uniform(times[100], times[-100])
+        return noise * injection.trapezoid_transit(times, center, duration_hours, depth)
 
     grid = detection.completeness(
         recover, times, depths=(0.002, 0.03), durations_hours=(2.0,),

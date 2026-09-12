@@ -119,7 +119,7 @@ def test_build_comparison_checks_coefficient_count():
 
 
 def test_comparison_built_from_raw_flux_gives_a_flat_lightcurve():
-    """Coefficients fit in normalised space, applied to flux-carrying stamps."""
+    """Coefficients fit in normalized space, applied to flux-carrying stamps."""
     rng = np.random.default_rng(11)
     refs = core.normalize_psc(rng.uniform(0.5, 1.5, size=(5, 10, 9)))
     truth = np.array([0.3, 0.2, 0.1, 0.25, 0.15])
@@ -161,18 +161,18 @@ def test_per_channel_lightcurves_are_produced_independently():
     rgb = masks.rgb_masks(obs.stamp_shape)
 
     curves = {
-        colour: core.make_lightcurve(
+        color: core.make_lightcurve(
             obs.pscs[0],
             obs.pscs[1:],
             num_refs=40,
-            channel_mask=rgb[colour].ravel(),
-            channel=colour,
+            channel_mask=rgb[color].ravel(),
+            channel=color,
         )
-        for colour in "rgb"
+        for color in "rgb"
     }
 
-    for colour, result in curves.items():
-        assert result.channel == colour
+    for color, result in curves.items():
+        assert result.channel == color
         assert np.isfinite(result.flux).all()
     assert not np.allclose(curves["r"].flux, curves["b"].flux)
 
@@ -223,7 +223,7 @@ def test_central_sky_mask_excludes_the_core():
     assert sky.sum() == 180 - 36
 
 
-def test_subtract_stamp_sky_removes_a_flat_pedestal_per_colour():
+def test_subtract_stamp_sky_removes_a_flat_pedestal_per_color():
     """A pedestal 30x the stellar signal must not survive into the photometry."""
     stamp_shape = (10, 18)
     rgb = {name: mask.ravel() for name, mask in masks.rgb_masks(stamp_shape).items()}
@@ -307,7 +307,7 @@ def test_transfer_exposes_long_timescale_suppression():
 def test_a_fully_in_transit_window_keeps_its_depth():
     """The failure mode behind algorithm design 6.
 
-    A long-period transit can exceed one night. Normalising such a window to
+    A long-period transit can exceed one night. Normalizing such a window to
     unit median subtracts the signal from itself and the depth vanishes.
     """
     target = np.full((20, 4), 100.0)
@@ -319,7 +319,7 @@ def test_a_fully_in_transit_window_keeps_its_depth():
 
     erased = core.differential_lightcurve(target, comparison, normalize=True)
     assert erased.mean() == pytest.approx(1.0, abs=1e-9)
-    assert abs(1.0 - erased.mean()) < 1e-9, "normalising erased a real 3% dip"
+    assert abs(1.0 - erased.mean()) < 1e-9, "normalizing erased a real 3% dip"
 
 
 def test_make_lightcurve_preserves_an_absolute_offset():

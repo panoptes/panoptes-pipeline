@@ -49,7 +49,7 @@ def test_superpixel_alignment_check():
     assert not masks.is_superpixel_aligned((100, 250), (9, 10))
 
 
-def test_grow_to_superpixels_preserves_the_colour_ratio():
+def test_grow_to_superpixels_preserves_the_color_ratio():
     aperture = masks.circular_aperture((10, 10), center=(4.5, 4.5), radius=2.4)
     grown = masks.grow_to_superpixels(aperture)
     rgb = masks.rgb_masks((10, 10))
@@ -63,19 +63,19 @@ def test_grow_to_superpixels_preserves_the_colour_ratio():
 CENTROIDS = [(4.0, 4.0), (4.0, 5.0), (4.5, 4.5), (5.0, 4.0), (5.0, 5.0)]
 
 
-def test_raw_aperture_colour_ratio_swings_with_sub_pixel_position():
+def test_raw_aperture_color_ratio_swings_with_sub_pixel_position():
     """The motivation for grow_to_superpixels.
 
     A hard-edged aperture clips whole superpixels differently depending on where
     the star sits, so the green:red pixel ratio inside it is not fixed at 2:1.
     Across half-pixel centroid shifts the ratio swings by more than a factor of
-    four, which is a colour-dependent flux error the algorithm never sees. See
+    four, which is a color-dependent flux error the algorithm never sees. See
     conformance audit 3.5 and improvement plan 3.6.
     """
     rgb = masks.rgb_masks((10, 10))
     ratios = []
-    for centre in CENTROIDS:
-        aperture = masks.circular_aperture((10, 10), center=centre, radius=2.0)
+    for center in CENTROIDS:
+        aperture = masks.circular_aperture((10, 10), center=center, radius=2.0)
         ratios.append(
             (rgb["g"] & aperture).sum() / max((rgb["r"] & aperture).sum(), 1)
         )
@@ -87,8 +87,8 @@ def test_raw_aperture_colour_ratio_swings_with_sub_pixel_position():
 def test_growing_to_superpixels_fixes_the_ratio_at_every_centroid():
     """The fix: whatever the sub-pixel position, the aperture stays 1:2:1."""
     rgb = masks.rgb_masks((10, 10))
-    for centre in CENTROIDS:
-        aperture = masks.circular_aperture((10, 10), center=centre, radius=2.0)
+    for center in CENTROIDS:
+        aperture = masks.circular_aperture((10, 10), center=center, radius=2.0)
         grown = masks.grow_to_superpixels(aperture)
         num_red = (rgb["r"] & grown).sum()
         assert (rgb["g"] & grown).sum() == 2 * num_red
@@ -110,12 +110,12 @@ def test_weighted_aperture_rejects_a_null_profile():
 
 
 def _synthetic_sky(stamp_shape, pattern, levels=(700.0, 770.0, 640.0), seed=0):
-    """Star-free stamps with a per-colour sky level, in a known pattern."""
+    """Star-free stamps with a per-color sky level, in a known pattern."""
     rng = np.random.default_rng(seed)
-    colours = masks.bayer_color_index(stamp_shape, pattern=pattern)
+    colors = masks.bayer_color_index(stamp_shape, pattern=pattern)
     sky = np.zeros(stamp_shape)
     for value, level in zip((masks.RED, masks.GREEN, masks.BLUE), levels):
-        sky[colours == value] = level
+        sky[colors == value] = level
     return sky + rng.normal(0, 2.0, (40, *stamp_shape))
 
 

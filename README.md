@@ -1,17 +1,17 @@
 # panoptes-pipeline
 
 Differential photometry for [Project PANOPTES](https://www.projectpanoptes.org):
-recovering exoplanet transits from DSLR wide-field images with a Bayer colour
+recovering exoplanet transits from DSLR wide-field images with a Bayer color
 filter array.
 
 ## The idea
 
 A wide field gives any target many candidate reference stars whose light lands
-on the colour filter array the same way the target's does. Those references
-build an idealised star that behaves as the target would absent a transit, so
+on the color filter array the same way the target's does. Those references
+build an idealized star that behaves as the target would absent a transit, so
 the difference is zero unless the target's flux genuinely changed.
 
-Dividing a stamp by its own summed flux marginalises brightness out and leaves
+Dividing a stamp by its own summed flux marginalizes brightness out and leaves
 the spatial profile, which is what separates shape from brightness: match on
 shape, difference the brightness.
 
@@ -50,20 +50,6 @@ uv run --no-project --with numpy --with scipy --with scikit-learn --with pytest 
 
 `src/panoptes/pipeline/lightcurve/` holds the algorithm as pure array code —
 no I/O, no cloud, no notebook — and is where new work belongs.
-
-## Deployment (legacy pipeline)
-
-The notebook-and-papermill pipeline under `notebooks/` still deploys to GCP:
-
-```shell
-gcloud builds submit --config cloudbuild.yaml
-```
-
-Then update the sha in `pipeline-service.yaml` and:
-
-```shell
-gcloud run services replace pipeline-service.yaml
-```
 
 ## License
 

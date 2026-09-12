@@ -134,7 +134,7 @@ def unfitted_lightcurve(
 ):
     """Comparison stars built without a coefficient fit.
 
-    ``legacy_mean`` averages the raw stamps (today's notebook behaviour);
+    ``legacy_mean`` averages the raw stamps (today's notebook behavior);
     ``ensemble_scaled`` first scales each reference to the target's median flux,
     which is conventional ensemble differential photometry.
     """
@@ -172,7 +172,7 @@ def run(args: argparse.Namespace) -> int:
     if args.sky_subtract:
         sky = core.central_sky_mask(stamp_shape)
         cube = core.subtract_stamp_sky(cube, sky, rgb_flat)
-        print("  sky pedestal removed per frame and colour (stopgap, see conformance audit 5.0)")
+        print("  sky pedestal removed per frame and color (stopgap, see conformance audit 5.0)")
     else:
         print(
             "  WARNING: stamps used as stored. ProcessFITS.ipynb writes RAW data to\n"
@@ -278,7 +278,7 @@ def _print_table(rows, injected: bool) -> None:
     print(
         "\nrms/30min: fractional scatter unbinned and in 30 min bins (paper reports "
         "2-4% and ~1%).\nbeta: red-noise factor, 1.0 means noise averages down as "
-        "white noise.\nrefs: coefficients surviving regularisation (paper Fig. 7: 46 of 100)."
+        "white noise.\nrefs: coefficients surviving regularization (paper Fig. 7: 46 of 100)."
     )
     if injected:
         print("depth/suppr: recovered transit depth and the fraction of it lost.")
@@ -300,7 +300,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--sky-subtract",
         action="store_true",
-        help="Remove the per-frame, per-colour sky pedestal the pipeline failed to subtract",
+        help="Remove the per-frame, per-color sky pedestal the pipeline failed to subtract",
     )
     parser.add_argument(
         "--held-out",

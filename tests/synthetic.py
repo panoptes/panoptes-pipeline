@@ -70,7 +70,7 @@ def make_observation(
     colors = rng.uniform(0.6, 1.4, num_stars)  # B/R response ratio proxy
 
     pscs = np.empty((num_stars, num_frames, height * width))
-    centre_y, centre_x = (height - 1) / 2.0, (width - 1) / 2.0
+    center_y, center_x = (height - 1) / 2.0, (width - 1) / 2.0
 
     for star in range(num_stars):
         response = np.ones(stamp_shape)
@@ -81,7 +81,7 @@ def make_observation(
         for frame in range(num_frames):
             psf = gaussian_psf(
                 stamp_shape,
-                (centre_y + sub_y[star] + drift_y[frame], centre_x + sub_x[star] + drift_x[frame]),
+                (center_y + sub_y[star] + drift_y[frame], center_x + sub_x[star] + drift_x[frame]),
                 sigma,
             )
             counts = fluxes[star] * psf * response + background

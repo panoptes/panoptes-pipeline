@@ -33,7 +33,7 @@ Every change is scored on the same four numbers, produced by
 Plus, whenever a transit is injected: **recovered depth** and **suppression**.
 A change that improves RMS while increasing suppression has not helped -- it
 has partly eaten the signal. This pairing is what stops the work from
-optimising into a flat line.
+optimizing into a flat line.
 
 Beta is the metric that decides whether the 0.5% goal is reachable by binning.
 If beta is materially above 1, more exposures will not get there and the
@@ -127,7 +127,7 @@ gain for every camera in the fleet (conformance audit 4.5).
 **Why this bites harder here than in a typical pipeline.** The algorithm's
 entire subject is the interaction between the PSF and the 2x2 superpixel, and
 the dimensionless number that governs it is the PSF width *in pixels*. A
-well-sampled PSF spreads across many superpixels and the colour-sampling
+well-sampled PSF spreads across many superpixels and the color-sampling
 systematic partly averages itself out; an undersampled one, which is the
 paper's regime, is where it bites hardest. Pixel scale follows from pixel size
 and focal length, so **the size of the effect this algorithm exists to remove
@@ -144,7 +144,7 @@ also moves with ISO and bit depth.
 
 *Gain is the other.* It sets the photon noise floor in 1.2, and the floor ratio
 is how we decide whether 0.5% is reachable at all rather than being a
-per-camera limit (7). A wrong gain makes that judgement meaningless.
+per-camera limit (7). A wrong gain makes that judgment meaningless.
 
 *Black level matters less than it first appears* -- once 3.1 lands.
 `Background2D` estimates bias and sky jointly and removes both, so the exact
@@ -184,7 +184,7 @@ drift tolerances to arcseconds, since mount error is angular. Already correct:
 **Cross-unit combination happens at the lightcurve level, never the pixel
 level.** Two cameras do not share a pixel scale, a stamp size or a PSF, so a
 reference pool cannot span units. If combining units is the path to 0.5% (7),
-it combines normalised lightcurves after the fact.
+it combines normalized lightcurves after the fact.
 
 **The heterogeneity is also an asset.** The fleet is a natural experiment in
 pixel scale. Measuring how the achievable precision varies with PSF sampling
@@ -200,7 +200,7 @@ Built on branch `algorithm-v2`.
 A pure-numpy implementation of paper sections 3.2.1-3.2.5, with no pandas, no
 HDF5, no cloud client and no notebook. Four modules:
 
-- `core` -- the algorithm. Normalisation, similarity scoring, reference
+- `core` -- the algorithm. Normalization, similarity scoring, reference
   selection, the **coefficient fit that was missing** (OLS, ridge, lasso,
   non-negative lasso, NNLS), comparison construction, differential photometry.
 - `masks` -- Bayer color masks with explicit phase and pattern, circular and
@@ -222,7 +222,7 @@ same order the data is ravelled (conformance audit 5.4).
 Two scripts, both PEP 723, both offline.
 
 `scripts/benchmark_lightcurve.py` answers "what happened to this star": one
-table comparing variants on one target, including today's notebook behaviour as
+table comparing variants on one target, including today's notebook behavior as
 `legacy_mean` and a fair ensemble baseline as `ensemble_scaled`.
 
 `scripts/survey_targets.py` answers "what happens in general": the distribution
@@ -242,7 +242,7 @@ warning when the sky pedestal is left in.
 ### 2.3 Baseline measurement
 
 All numbers below: `PAN007_f6eb3d_20250930T030402`, 80 brightest unsaturated
-targets, one colour channel, 100 references, scored on **held-out frames** (references
+targets, one color channel, 100 references, scored on **held-out frames** (references
 selected and coefficients fitted on alternate frames only, then scatter
 measured on the frames the fit never saw).
 
@@ -268,7 +268,7 @@ Three things to take from this.
 **Most of the apparent gain was the background.** On un-subtracted stamps the
 coefficient fit looks like a 2x improvement. It is not fitting stellar
 morphology there -- it is fitting smooth background structure shared between
-neighbouring stars, which it does very well. Remove the pedestal and the honest
+neighboring stars, which it does very well. Remove the pedestal and the honest
 gain is 1.15x, winning on roughly three targets in four. Real, worth having,
 and an order of magnitude less than the first measurement suggested.
 
@@ -280,10 +280,10 @@ relative comparison between variants is trustworthy because every variant sees
 the same data; the absolute numbers are pessimistic by an unknown factor. They
 stop being a guess once 3.1 is done.
 
-**Which colour channel, exactly, is not yet established.** These were taken
+**Which color channel, exactly, is not yet established.** These were taken
 with a hardcoded RGGB assumption. Measured afterwards from the sky levels of
 star-free stamps, the two greens in this data sit on the *diagonal*, so the
-pattern is GRBG or GBRG and the subset labelled "red" was in fact one of the
+pattern is GRBG or GBRG and the subset labeled "red" was in fact one of the
 greens. Every variant used the same pixel subset, so the comparison between
 them stands; the channel name does not. `masks.infer_pattern` now derives it
 from the data and refuses to guess red from blue without the `MEASRGGB` header.
@@ -300,7 +300,7 @@ real baseline is action item 6.2.
 ## 3. Precision work, in priority order
 
 > **Contingent on architecture.** 3.3 through 3.5 tune the published
-> implementation -- the coefficient fit, its regulariser, per-channel variants.
+> implementation -- the coefficient fit, its regularizer, per-channel variants.
 > If the manifold model in algorithm design 3 wins the head-to-head, those do
 > not survive in their current form. 3.1, 3.2, 3.6 and 3.7 apply to any
 > implementation. Do not work through this list top to bottom before that test.
@@ -339,15 +339,15 @@ robustness to multi-pixel tracking error. The damage comes from four other
 places:
 
 - **Superpixel boundary crossings.** A star whose phase crosses a boundary
-  changes which colour samples its core, discretely. Whether it crosses depends
+  changes which color samples its core, discretely. Whether it crosses depends
   on where it started, so the population splits and the "locally linear"
   assumption in paper section 3.1 fails across the split.
 - **Field rotation.** With imperfect polar alignment the motion is not common
   to all stars: it depends on field position. The effective reference pool
-  collapses to stars at similar radius and azimuth from the rotation centre,
+  collapses to stars at similar radius and azimuth from the rotation center,
   which may be a small fraction of the 3,000 available.
 - **A fixed aperture cut at the mean position.** With drift the aperture samples
-  a varying and colour-dependent fraction of the PSF -- the same 0.5 to 4.5
+  a varying and color-dependent fraction of the PSF -- the same 0.5 to 4.5
   green:red swing measured in conformance audit 5.8, now modulated at the
   tracking period.
 - **Stamp inflation.** Large drift pushes the stamp from 10 to 18 pixels per
@@ -359,18 +359,18 @@ recoverable. Everything else is.
 
 **Recommendations, in order.**
 
-1. **Re-centre stamps per frame on the nearest superpixel.** Cut each frame's
+1. **Re-center stamps per frame on the nearest superpixel.** Cut each frame's
    stamp at that frame's position rounded to a whole superpixel, rather than
    once at the sequence mean. Whole-superpixel shifts preserve Bayer phase
-   exactly, so this decouples bulk drift (absorbed by re-centring) from
+   exactly, so this decouples bulk drift (absorbed by re-centering) from
    sub-pixel phase (what the algorithm is actually designed to match). It keeps
    a 10x10 stamp usable under multi-pixel drift, which also cuts the background
    dilution. Cost: the stamp then covers different detector pixels over time, so
    flat-field variation becomes a time-varying term -- test against a sky flat
    (3.7) rather than assuming it is free.
 
-2. **Centre the aperture per frame**, grown to whole superpixels (3.6). A fixed
-   aperture under drift is wrong in a colour-dependent way on most frames.
+2. **Center the aperture per frame**, grown to whole superpixels (3.6). A fixed
+   aperture under drift is wrong in a color-dependent way on most frames.
 
 3. **Use the positions we already measure.** `catalog_wcs_x/y` is stored per
    star per frame, so each star's sub-pixel phase is known, not hidden. Paper
@@ -381,11 +381,11 @@ recoverable. Everything else is.
 
 4. **Treat this as the intrapixel problem it is.** Sub-pixel position modulating
    measured flux is the Spitzer intrapixel effect, and the standard solution is
-   pixel-level decorrelation (Deming et al. 2015). PLD normalises each frame's
+   pixel-level decorrelation (Deming et al. 2015). PLD normalizes each frame's
    pixels by their sum -- *precisely* paper Eq. 1 -- and then uses those
-   normalised pixels as regressors against the lightcurve. PANOPTES computes the
+   normalized pixels as regressors against the lightcurve. PANOPTES computes the
    same quantity and uses it only for star-to-star matching. Adding the target's
-   own normalised pixels as regressors is a small change to the existing design
+   own normalized pixels as regressors is a small change to the existing design
    and is the technique built for this failure mode. It carries a known risk of
    absorbing the transit, which is what `frame_weights` and the suppression
    metric already exist to bound.
@@ -401,7 +401,7 @@ recoverable. Everything else is.
    it with held-out scoring and injection before believing any gain.
 
 6. **Diagnose rotation versus translation** before any of the above. Fit the
-   per-star offsets to translation plus rotation about a free centre and report
+   per-star offsets to translation plus rotation about a free center and report
    the split. `ProcessObservation.ipynb` cell 44 filters frames on the *mean* xy
    offset across all stars, which assumes pure translation and would hide
    rotation entirely.
@@ -419,8 +419,8 @@ argument.
 **Expected gain: potentially the largest item in this plan**, on the direct
 evidence that drift is what cost most of the performance.
 
-**Consequence for dataset selection (1.3).** Prioritise sequences spanning a
-range of drift behaviour, and record measured drift alongside each. Dataset A
+**Consequence for dataset selection (1.3).** Prioritize sequences spanning a
+range of drift behavior, and record measured drift alongside each. Dataset A
 is then valuable as a hard case to beat rather than a number to match -- if its
 drift is severe, reproducing 2-4% on it is the wrong target and beating it is
 the right one.
@@ -430,14 +430,14 @@ the right one.
 Already implemented in `lightcurve.core`. What remains is putting it on the
 production path, which is section 4.
 
-**Expected gain: 1.15x on the single colour channel, winning on ~72% of targets**, once
+**Expected gain: 1.15x on the single color channel, winning on ~72% of targets**, once
 the background is subtracted. Modest but real, and it is the step that makes
 the rest of section 3 worth doing -- an unweighted mean has no parameters to
 improve.
 
-### 3.4 Choose and tune the regulariser
+### 3.4 Choose and tune the regularizer
 
-Open question, not a porting job. The paper does not state its regulariser; the
+Open question, not a porting job. The paper does not state its regularizer; the
 46-of-100 sparsity in Figure 7 implies L1, but the strength is unknown.
 
 Candidates, all implemented: ridge (dense, stable), lasso (sparse, matches the
@@ -447,7 +447,7 @@ observes and defends but which also invites overfitting), NNLS.
 
 Method: sweep `alpha` across a decade grid for a few hundred targets, scoring
 on 1.2 metrics *and* suppression. Expect an interior optimum -- too little
-regularisation overfits 100 free parameters to noise, too much collapses toward
+regularization overfits 100 free parameters to noise, too much collapses toward
 the unweighted mean. On the early data the lasso settings tried so far keep
 only ~10 references and score *worse* than OLS, so the strength is currently
 wrong, not the method.
@@ -499,11 +499,11 @@ scoring on the other half:
 
 | sky model | held-out residual | vs constant |
 |---|---|---|
-| per-colour constant | 65 ADU | 1.00x |
-| per-colour plane | -- | worse |
+| per-color constant | 65 ADU | 1.00x |
+| per-color plane | -- | worse |
 | 2-10 star-free PCA modes | 84-125 ADU | 0.52-0.78x |
 
-Every fitted model is worse than a per-colour constant, and downstream single-channel
+Every fitted model is worse than a per-color constant, and downstream single-channel
 photometry degrades from 4.65% to 89%.
 
 The singular values of the star-free stamp population say why: `[1, 0.026,
@@ -513,12 +513,12 @@ across it the sky really is flat to within the per-pixel noise. There is no
 structure for a richer model to capture, so extra modes fit noise in an
 18-pixel red fit region and then extrapolate into the core.
 
-Two things follow. A per-colour constant is close to optimal *at stamp scale*,
+Two things follow. A per-color constant is close to optimal *at stamp scale*,
 so the 3.1 stopgap is not leaving much on the table. And the apparent quality of
-the coefficient fit on un-subtracted stamps was never rich spatial modelling --
-it was tracking one scalar per frame per colour, the sky level, which is almost
-perfectly correlated between neighbouring stars. That makes the 2.15x in 2.3
-less mysterious and more clearly an artefact.
+the coefficient fit on un-subtracted stamps was never rich spatial modeling --
+it was tracking one scalar per frame per color, the sky level, which is almost
+perfectly correlated between neighboring stars. That makes the 2.15x in 2.3
+less mysterious and more clearly an artifact.
 
 **Where the idea should go instead: frame scale.** Across the full 6000x4000
 frame there is real structure -- vignetting, gradients, scattered light, and
@@ -544,7 +544,7 @@ corners -- where the paper's own example target sat.
 The paper deliberately avoided calibration, on the reasoning that it could
 alter systematics in unknown ways. That reasoning deserves testing rather than
 inheriting: with the harness in 2.2, "does flat-fielding help or hurt" is now a
-measurable question rather than a judgement call.
+measurable question rather than a judgment call.
 
 Needs: a flat-field acquisition procedure for the fleet, or sky flats built by
 stacking. This is the longest-lead item and the one with the largest
@@ -555,7 +555,7 @@ uncertainty.
 ### 3.8 Signal-safe reference selection
 
 References are currently chosen by similarity across *all* frames, in-transit
-frames included. Flux marginalisation (Eq. 1) protects against most
+frames included. Flux marginalization (Eq. 1) protects against most
 self-subtraction, and the measured suppression below 5% supports that -- but
 that was one injection at one depth.
 
@@ -579,8 +579,8 @@ it.**
 ### 3.10 Reference pool scale and search cost
 
 Similarity search is O(p^2) (conformance audit 5.16). Paper section 3.2.2
-suggests clustering. Options: PCA on normalised stamps then approximate nearest
-neighbours, or KD-tree in a reduced feature space.
+suggests clustering. Options: PCA on normalized stamps then approximate nearest
+neighbors, or KD-tree in a reduced feature space.
 
 This is a throughput problem, not a precision problem -- but it becomes a
 precision problem the moment it is cheap enough to raise the reference pool
@@ -743,7 +743,7 @@ number need roughly 100 frames minimum. Raw frames, not an existing
 `ProcessFITS.ipynb` already wrap astropy, photutils and astrometry.net for bias,
 background, plate solving, detection and catalog matching. Most of that is worth
 keeping even in a from-scratch build. The parts that clearly need rewriting are
-stamp extraction (per-frame superpixel re-centring, 3.2) and everything
+stamp extraction (per-frame superpixel re-centering, 3.2) and everything
 downstream. Needs a call before the rebuild starts.
 
 ### Decisions about direction
@@ -784,7 +784,7 @@ accidental data makes it measurable for free, before anyone changes an observing
 procedure.
 
 **6.9 -- `MEASRGGB` for the PAN007 sequence.** Lets the channel labels on the
-measurements already taken be corrected from "one colour channel" to the actual
+measurements already taken be corrected from "one color channel" to the actual
 filter. Low value on its own, trivial if the header is to hand.
 
 ### Network-level goal (algorithm design 6)
@@ -795,7 +795,7 @@ epochs.
 
 **6.16 -- Define the shared comparison-ensemble convention.** Two units can only
 stitch if they measure flux against the same reference set. How is that set
-agreed -- fixed catalogue selection per field, or negotiated per observation?
+agreed -- fixed catalog selection per field, or negotiated per observation?
 This shapes what the algorithm must emit alongside each lightcurve.
 
 **6.17 -- Scheduling must guarantee overlap, not just continuity.** Per algorithm

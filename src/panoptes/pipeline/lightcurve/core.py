@@ -35,7 +35,7 @@ def subtract_stamp_sky(
     sky_mask: np.ndarray,
     channel_masks: dict[str, np.ndarray] | None = None,
 ) -> np.ndarray:
-    """Remove a per-frame, per-colour sky pedestal estimated from the stamp itself.
+    """Remove a per-frame, per-color sky pedestal estimated from the stamp itself.
 
     **This is a stopgap, not the right fix.** Paper section 4.2 subtracts a
     global three-channel background from the full frame before stamps are cut,
@@ -53,7 +53,7 @@ def subtract_stamp_sky(
         psc: ``(m, n)`` or ``(r, m, n)`` stamps.
         sky_mask: ``(n,)`` selection mask of pixels taken to be sky -- typically
             everything outside the central few pixels.
-        channel_masks: Optional ``{name: (n,) mask}``. Each colour gets its own
+        channel_masks: Optional ``{name: (n,) mask}``. Each color gets its own
             sky level, which matters because the Bayer channels have different
             responses and the sky is not grey.
 
@@ -82,11 +82,11 @@ def subtract_stamp_sky(
 
 
 def central_sky_mask(stamp_shape: tuple[int, int], core_radius: float = 3.0) -> np.ndarray:
-    """Flat selection mask of pixels outside ``core_radius`` of the stamp centre."""
+    """Flat selection mask of pixels outside ``core_radius`` of the stamp center."""
     height, width = stamp_shape
     yy, xx = np.mgrid[:height, :width]
-    centre_y, centre_x = (height - 1) / 2.0, (width - 1) / 2.0
-    outside = (np.abs(yy - centre_y) >= core_radius) | (np.abs(xx - centre_x) >= core_radius)
+    center_y, center_x = (height - 1) / 2.0, (width - 1) / 2.0
+    outside = (np.abs(yy - center_y) >= core_radius) | (np.abs(xx - center_x) >= core_radius)
     return outside.ravel()
 
 
@@ -96,7 +96,7 @@ def central_sky_mask(stamp_shape: tuple[int, int], core_radius: float = 3.0) -> 
 
 
 def normalize_psc(psc: np.ndarray, pixel_mask: np.ndarray | None = None) -> np.ndarray:
-    """Flux-marginalise a PSC, per frame (paper Eq. 1).
+    """Flux-marginalize a PSC, per frame (paper Eq. 1).
 
     Each frame is divided by its own summed flux, leaving only the stellar
     *morphology* as projected onto the Bayer pattern.
@@ -105,8 +105,8 @@ def normalize_psc(psc: np.ndarray, pixel_mask: np.ndarray | None = None) -> np.n
         psc: ``(m, n)`` or ``(r, m, n)`` array of raw (background-subtracted)
             pixel values.
         pixel_mask: Optional boolean selection mask of length ``n``. When given,
-            the normalisation sum is taken over the selected pixels only and
-            unselected pixels are set to zero. Use this to normalise within a
+            the normalization sum is taken over the selected pixels only and
+            unselected pixels are set to zero. Use this to normalize within a
             single color channel.
 
     Returns:
@@ -142,8 +142,8 @@ def similarity_scores(
     Lower is more similar. A star compared against itself scores exactly zero.
 
     Args:
-        target_norm: ``(m, n)`` normalised target PSC.
-        refs_norm: ``(r, m, n)`` normalised reference PSCs.
+        target_norm: ``(m, n)`` normalized target PSC.
+        refs_norm: ``(r, m, n)`` normalized reference PSCs.
         frame_weights: Optional ``(m,)`` non-negative weights. Frames with a
             weight of zero are excluded, which is how out-of-transit-only
             reference selection is done (improvement plan 3.8).
@@ -210,13 +210,13 @@ def solve_coefficients(
     applied" and its Figure 7 shows 46 of 100 coefficients driven to exactly
     zero -- a signature of an L1 penalty, not of plain least squares. Plain
     ``ols`` is therefore *not* the published configuration; it is provided as
-    the unregularised baseline to measure against.
+    the unregularized baseline to measure against.
 
     Args:
-        target_norm: ``(m, n)`` normalised target PSC.
-        refs_norm: ``(r, m, n)`` normalised reference PSCs.
+        target_norm: ``(m, n)`` normalized target PSC.
+        refs_norm: ``(r, m, n)`` normalized reference PSCs.
         method: One of ``ols``, ``ridge``, ``lasso``, ``lasso_positive``, ``nnls``.
-        alpha: Regularisation strength (ignored for ``ols`` and ``nnls``).
+        alpha: Regularization strength (ignored for ``ols`` and ``nnls``).
         pixel_mask: Optional ``(n,)`` selection mask restricting the fit to
             certain pixels, e.g. a single color channel.
         frame_weights: Optional ``(m,)`` non-negative weights.
@@ -292,9 +292,9 @@ def _build_design_matrix(
 
 
 def build_comparison(refs_raw: np.ndarray, coefficients: np.ndarray) -> np.ndarray:
-    """Apply normalised-space coefficients to the raw references (paper Eq. 5).
+    """Apply normalized-space coefficients to the raw references (paper Eq. 5).
 
-    The coefficients come from the flux-marginalised fit; they are applied to
+    The coefficients come from the flux-marginalized fit; they are applied to
     the flux-carrying stamps. That asymmetry is the heart of the method: the
     comparison star is built without ever seeing the target's flux, so a real
     brightness change in the target cannot leak into its own comparison.
@@ -329,7 +329,7 @@ def differential_lightcurve(
     """Ratio of summed target flux to summed comparison flux (paper Eq. 6).
 
     The ratio is already a relative flux: the comparison ensemble sets the
-    scale. It does not need, and must not be given, a further normalisation to
+    scale. It does not need, and must not be given, a further normalization to
     unit median.
 
     ``normalize`` defaults to **False**, which differs from paper Eq. 6 and is
@@ -337,7 +337,7 @@ def differential_lightcurve(
     longer than a single night's observation, and the survey's goal is to stitch
     partial lightcurves from units at different longitudes into one event.
     Dividing by the median of a window that is wholly or partly in transit
-    subtracts the signal from itself: a fully in-transit segment normalises to a
+    subtracts the signal from itself: a fully in-transit segment normalizes to a
     flat line at 1.0 and the depth is gone. See algorithm design 6.
 
     Set ``normalize=True`` only for display, or when the window is known to be
@@ -383,7 +383,7 @@ class LightcurveResult:
     """Everything needed to reproduce, plot and audit one differential lightcurve."""
 
     flux: np.ndarray
-    """``(m,)`` relative flux, median-normalised to unity."""
+    """``(m,)`` relative flux, median-normalized to unity."""
 
     comparison: np.ndarray
     """``(m, n)`` synthetic comparison PSC."""
@@ -405,7 +405,7 @@ class LightcurveResult:
 
     @property
     def num_active_references(self) -> int:
-        """How many coefficients survived regularisation (paper Fig. 7: 46 of 100)."""
+        """How many coefficients survived regularization (paper Fig. 7: 46 of 100)."""
         return int(np.count_nonzero(self.coefficients))
 
 
@@ -429,7 +429,7 @@ def make_lightcurve(
             contain the target.
         num_refs: How many references to carry into the coefficient fit.
         method: Coefficient solver, see :func:`solve_coefficients`.
-        alpha: Regularisation strength.
+        alpha: Regularization strength.
         aperture_mask: ``(n,)`` selection mask for the final photometry.
         channel_mask: ``(n,)`` color-channel selection mask for the final
             photometry, combined with ``aperture_mask`` by logical AND.

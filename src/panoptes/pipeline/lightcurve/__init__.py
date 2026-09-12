@@ -12,7 +12,7 @@ Typical use::
     scorecard = metrics.report(times, result.flux)
 """
 
-from panoptes.pipeline.lightcurve import injection, masks, metrics
+from panoptes.pipeline.lightcurve import detection, injection, masks, metrics
 from panoptes.pipeline.lightcurve.core import (
     LightcurveResult,
     build_comparison,
@@ -30,6 +30,7 @@ __all__ = [
     "LightcurveResult",
     "build_comparison",
     "central_sky_mask",
+    "detection",
     "differential_lightcurve",
     "injection",
     "make_lightcurve",

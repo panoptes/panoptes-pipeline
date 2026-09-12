@@ -299,6 +299,12 @@ real baseline is action item 6.2.
 
 ## 3. Precision work, in priority order
 
+> **Contingent on architecture.** 3.3 through 3.5 tune the published
+> implementation -- the coefficient fit, its regulariser, per-channel variants.
+> If the manifold model in algorithm design 3 wins the head-to-head, those do
+> not survive in their current form. 3.1, 3.2, 3.6 and 3.7 apply to any
+> implementation. Do not work through this list top to bottom before that test.
+
 ### 3.1 Actually subtract the background
 
 Nothing else on this list can be measured honestly until this is fixed. One

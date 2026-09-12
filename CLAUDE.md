@@ -14,7 +14,7 @@ Goal: 0.5% transit depths. Published result: ~1% in 30 min bins.
 
 Read them on demand rather than assuming; they are the current state of play.
 
-## Two things to know before touching anything
+## Three things to know before touching anything
 
 **1. Stored stamps are not background-subtracted.** `ProcessFITS.ipynb` cell 16
 computes `reduced_data = data - bg_data`, then cell 18 writes
@@ -36,6 +36,16 @@ space, then applying them to the raw stamps -- are replaced in
 `notebooks/working/MakeLightcurves.ipynb` by an unweighted mean of the top 100
 references. `panoptes.pipeline.lightcurve` implements the real thing; the
 notebooks have not been updated to use it.
+
+**3. Stars drift, and that is reported as the dominant cause of lost
+performance** across the archive, including the paper's own 2018-08-24 PAN012
+sequence. The algorithm assumes a star holds its sub-pixel position; in practice
+it rarely does. Rigid translation shared by all stars is mostly benign -- target
+and references move together. The damage is from superpixel boundary crossings,
+field rotation (which is *not* common to all stars and collapses the effective
+reference pool), an aperture cut once at the sequence mean, and drift forcing an
+18-pixel stamp that compounds problem 1. See improvement plan 3.2 before
+proposing anything about reference selection.
 
 ## Layout
 

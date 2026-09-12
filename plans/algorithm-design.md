@@ -179,6 +179,32 @@ extraction for free.
 metrics, against the paper's method. The infrastructure to do that already
 exists.
 
+### 3.1 The test that decides this, fixed in advance
+
+Settled, so that the threshold cannot be chosen after the number is known.
+
+**The cheap prior test** is the profile manifold rank on stamps cut from raw
+frames, per 5. It gates the head-to-head: if the rank comes back high there is
+no reason to run the full comparison.
+
+**Low-rank means a median rank of 8 or fewer components for 95% of the
+variance, *and* the frame-to-frame instability explained.** The 1-4 versus
+18-36 split measured in 2.1 is not a detail to average over -- a median of 4
+concealing a bimodal population would not support this architecture, because
+the high-rank frames are precisely where a low-rank model would fail and they
+would fail silently. An explanation means identifying what distinguishes those
+frames: genuinely different PSF state, bad frames, or an artifact of the
+stopgap sky subtraction.
+
+**If the manifold is not low-rank by that standard, this section is dropped
+rather than defended.** Near-neighbor matching then stands as the right tool
+and 2.1 is wrong.
+
+**If it passes**, the head-to-head runs against the published method on the
+same data, scored on both objectives from 4 -- transfer for fidelity,
+completeness for detection. Scatter alone would favor whichever method smooths
+harder, which is the failure this whole document is organized against.
+
 ## 4. Two objectives, at two layers
 
 These are not the same thing, and conflating them is how an algorithm gets

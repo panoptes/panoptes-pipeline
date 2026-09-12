@@ -532,7 +532,7 @@ The flat field is the part a background fit cannot reach, because it is
 multiplicative. Each target's stamp sits at a fixed detector position, so the
 sensitivity pattern beneath it is constant in time -- which means a median stack
 over many frames yields a sky flat without any new acquisition procedure. Worth
-trying before asking the fleet to take dome flats (6.3).
+trying before asking the fleet to take dome flats (6.10).
 
 
 
@@ -748,12 +748,6 @@ downstream. Needs a call before the rebuild starts.
 
 ### Decisions about direction
 
-**6.3 -- Confirm the head-to-head as the deciding test.** The manifold model in
-algorithm design 3 against the published method, same data, same completeness
-metric. The single measurement that settles it is the profile manifold rank on
-cleanly reduced stamps: low-rank means the manifold model follows, otherwise
-algorithm design 3 should be dropped rather than defended.
-
 **6.4 -- Cut improvement plan 3.8 through 3.11?** They are unmeasured guesses
 written before the reframe, and they clutter a document that is already too
 long. 3.3 through 3.5 are separately marked contingent on 6.3.
@@ -838,7 +832,7 @@ measured on properly reduced data.
 its result "approaches the fundamental noise floor possible from a single
 camera". If the floor ratio in 1.2 comes back near 1, the remaining paths are
 combining units or longer exposures, not algorithm work. Measuring the floor
-ratio early (6.2) tells us which problem we are solving, and should happen
+ratio early (6.7) tells us which problem we are solving, and should happen
 before any large effort is spent on 3.5.
 
 **Overfitting is the standing hazard.** 100 free coefficients fit to one

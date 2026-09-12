@@ -21,13 +21,36 @@ def test_depth_is_recovered_with_a_free_baseline():
     assert depth == pytest.approx(0.02, abs=1e-6)
 
 
-def test_depth_survives_an_offset_baseline():
-    """A lightcurve normalised while a transit is present does not sit at 1.0."""
+def test_fractional_depth_is_invariant_under_rescaling():
+    """Required for stitching: two units on different scales must agree on depth.
+
+    Lightcurves are no longer normalised to unit baseline (algorithm design 6),
+    so the depth has to be measured as a fraction of the fitted baseline or
+    segments from different units could never be compared.
+    """
     times, flux = series(scatter=0.0)
-    flux = flux * injection.box_transit(times, times[200], 1.0, 0.02) + 0.037
+    flux = flux * injection.box_transit(times, times[200], 1.0, 0.02)
     weights = detection.transit_weights(times, times[200], 1.0, ingress_fraction=0.0)
-    depth, _ = detection.fit_depth(flux, weights)
-    assert depth == pytest.approx(0.02, abs=1e-6)
+
+    for scale in (0.5, 1.0, 3.7, 480.0):
+        depth, _ = detection.fit_depth(flux * scale, weights)
+        assert depth == pytest.approx(0.02, rel=1e-6)
+
+
+def test_an_additive_pedestal_dilutes_the_depth():
+    """And it should -- that is what an un-subtracted background does.
+
+    A multiplicative scale leaves the fraction alone; an additive offset does
+    not, which is exactly the dilution measured in conformance audit 5.0.
+    """
+    times, flux = series(scatter=0.0)
+    flux = flux * injection.box_transit(times, times[200], 1.0, 0.02)
+    weights = detection.transit_weights(times, times[200], 1.0, ingress_fraction=0.0)
+
+    pedestal = 0.037
+    depth, _ = detection.fit_depth(flux + pedestal, weights)
+    assert depth == pytest.approx(0.02 / (1.0 + pedestal), rel=1e-6)
+    assert depth < 0.02
 
 
 def test_snr_grows_with_depth_and_is_near_zero_without_a_signal():

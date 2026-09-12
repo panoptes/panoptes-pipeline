@@ -59,6 +59,21 @@ damage is superpixel boundary crossings, field rotation (not common to all
 stars, so it collapses the usable reference pool), and an aperture cut once at
 the sequence mean. See improvement plan 3.2.
 
+## Transits can be longer than an observation
+
+The survey targets long-period planets and the end goal is stitching segments
+from units at different longitudes into one event. So **never normalise a
+lightcurve to unit median** -- for a window that is wholly or partly in transit
+that subtracts the signal from itself. `differential_lightcurve` defaults to
+`normalize=False`; the comparison ensemble sets the scale. Depths are fractions
+of a fitted baseline, which survives rescaling.
+
+Consequences: output must be relative to a defined, shared comparison ensemble,
+not to the target's own history; per-unit offsets are solved against overlapping
+segments, and without overlap they are degenerate with the signal; fidelity at
+periods *beyond* the observation length is the requirement, not an edge case;
+times want BJD_TDB. See algorithm design 6.
+
 ## The fleet is heterogeneous
 
 Many units, many DSLR bodies: different black levels, white levels, gain, sensor

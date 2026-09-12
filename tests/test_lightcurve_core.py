@@ -299,3 +299,36 @@ def test_transfer_exposes_long_timescale_suppression():
     )
     assert transfer[0.3] > 0.9, "short timescales should pass through"
     assert transfer[8.0] < 0.5, "slow variation should be visibly eaten"
+
+
+# --- Partial transits and cross-site stitching ----------------------------
+
+
+def test_a_fully_in_transit_window_keeps_its_depth():
+    """The failure mode behind algorithm design 6.
+
+    A long-period transit can exceed one night. Normalising such a window to
+    unit median subtracts the signal from itself and the depth vanishes.
+    """
+    target = np.full((20, 4), 100.0)
+    target[:, :] *= 0.97  # the whole window sits inside the transit
+    comparison = np.full((20, 4), 100.0)
+
+    kept = core.differential_lightcurve(target, comparison)
+    assert kept.mean() == pytest.approx(0.97, abs=1e-9)
+
+    erased = core.differential_lightcurve(target, comparison, normalize=True)
+    assert erased.mean() == pytest.approx(1.0, abs=1e-9)
+    assert abs(1.0 - erased.mean()) < 1e-9, "normalising erased a real 3% dip"
+
+
+def test_make_lightcurve_preserves_an_absolute_offset():
+    """Two windows of the same star must stay on a common scale to be stitched."""
+    obs = make_observation(num_stars=60, num_frames=16, seed=31, noise=False)
+    dimmed = obs.pscs[0] * 0.98
+
+    bright = core.make_lightcurve(obs.pscs[0], obs.pscs[1:], num_refs=20, method="ols")
+    faint = core.make_lightcurve(dimmed, obs.pscs[1:], num_refs=20, method="ols")
+
+    ratio = np.median(faint.flux) / np.median(bright.flux)
+    assert ratio == pytest.approx(0.98, rel=0.02)

@@ -45,7 +45,9 @@ def fit_depth(
     exactly at unity once a transit is present in the data being normalised.
 
     Returns:
-        ``(depth, depth_error)``. Depth is positive for a dip.
+        ``(depth, depth_error)``, both as a **fraction of the fitted baseline**.
+        Lightcurves are not normalised to unity (algorithm design 6), so an
+        absolute difference would not be a depth. Depth is positive for a dip.
     """
     flux = np.asarray(flux, dtype=float)
     weights = np.asarray(weights, dtype=float)
@@ -70,9 +72,13 @@ def fit_depth(
     if det <= 0 or s_ww <= 0:
         return 0.0, float("inf")
 
+    baseline = (s_ww * s_f - s_w * s_fw) / det
     depth = (s_w * s_f - s_1 * s_fw) / det
     error = float(np.sqrt(s_1 / det))
-    return float(depth), error
+
+    if not np.isfinite(baseline) or baseline == 0:
+        return 0.0, float("inf")
+    return float(depth / baseline), float(error / abs(baseline))
 
 
 def transit_snr(

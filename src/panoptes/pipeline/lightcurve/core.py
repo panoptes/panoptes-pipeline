@@ -324,9 +324,24 @@ def differential_lightcurve(
     target_raw: np.ndarray,
     comparison: np.ndarray,
     pixel_mask: np.ndarray | None = None,
-    normalize: bool = True,
+    normalize: bool = False,
 ) -> np.ndarray:
     """Ratio of summed target flux to summed comparison flux (paper Eq. 6).
+
+    The ratio is already a relative flux: the comparison ensemble sets the
+    scale. It does not need, and must not be given, a further normalisation to
+    unit median.
+
+    ``normalize`` defaults to **False**, which differs from paper Eq. 6 and is
+    deliberate. PANOPTES targets long-period planets, whose transits can last
+    longer than a single night's observation, and the survey's goal is to stitch
+    partial lightcurves from units at different longitudes into one event.
+    Dividing by the median of a window that is wholly or partly in transit
+    subtracts the signal from itself: a fully in-transit segment normalises to a
+    flat line at 1.0 and the depth is gone. See algorithm design 6.
+
+    Set ``normalize=True`` only for display, or when the window is known to be
+    dominated by out-of-transit baseline and nothing downstream will stitch it.
 
     Args:
         target_raw: ``(m, n)`` raw target PSC.
@@ -334,10 +349,10 @@ def differential_lightcurve(
         pixel_mask: Optional ``(n,)`` aperture / color selection mask. When
             omitted the whole stamp is summed, which is what the legacy
             notebook did (conformance audit 3.5).
-        normalize: Divide by the median so the out-of-transit level sits at 1.
+        normalize: Divide by the median. Destroys absolute depth; see above.
 
     Returns:
-        ``(m,)`` relative flux.
+        ``(m,)`` flux relative to the comparison ensemble.
     """
     target_raw = np.asarray(target_raw, dtype=float)
     comparison = np.asarray(comparison, dtype=float)

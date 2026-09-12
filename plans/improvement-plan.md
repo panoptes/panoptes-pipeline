@@ -787,6 +787,22 @@ procedure.
 measurements already taken be corrected from "one colour channel" to the actual
 filter. Low value on its own, trivial if the header is to hand.
 
+### Network-level goal (algorithm design 6)
+
+**6.15 -- Adopt BJD_TDB now.** Cheap to do before an archive is reprocessed,
+painful to retrofit afterwards. Needed for combining segments across sites and
+epochs.
+
+**6.16 -- Define the shared comparison-ensemble convention.** Two units can only
+stitch if they measure flux against the same reference set. How is that set
+agreed -- fixed catalogue selection per field, or negotiated per observation?
+This shapes what the algorithm must emit alongside each lightcurve.
+
+**6.17 -- Scheduling must guarantee overlap, not just continuity.** Per algorithm
+design 6.3, without overlapping segments the per-unit offsets are degenerate
+with the transit depth. Worth confirming that whatever schedules the network
+treats overlap as a requirement.
+
 ### Background, when convenient
 
 **6.10 -- Flat fields (3.7).** Does any unit take them today? The

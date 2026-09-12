@@ -203,3 +203,84 @@ low-dimensional, and that a profile model beats neighbour matching -- are both
 in the provisional row. Re-measure them on stamps cut from raw frames before
 committing to the design. If the manifold is not low-rank on clean data, section
 3 does not follow.
+
+## 6. Partial transits and the network
+
+The survey targets long-period planets, so a transit can last longer than any
+one observation. The end goal is to combine segments from units at different
+longitudes -- Los Angeles catching the first few hours, Hawaii the middle with
+overlap, Japan the egress -- into a single event.
+
+That is a high-level goal, but it constrains the algorithm now, because several
+conventions that are harmless for short transits are fatal for partial ones.
+
+### 6.1 No self-normalisation
+
+Paper Eq. 6 normalises the lightcurve so its median is unity. For a transit
+comfortably inside a long baseline that is harmless. For a window that is
+wholly or partly in transit it subtracts the signal from itself: a fully
+in-transit segment normalises to a flat line and the depth is gone.
+
+`differential_lightcurve` therefore defaults to `normalize=False`. The ratio of
+target to comparison ensemble is already a relative flux; the ensemble sets the
+scale, and nothing further is needed. Depths are measured as a fraction of a
+fitted baseline, which is invariant under rescaling, so two units on different
+scales still agree on depth.
+
+### 6.2 The output must be transferable
+
+A segment is only stitchable if it measures a quantity another unit also
+measures. That means target flux relative to a **defined, shared** comparison
+ensemble, not to the target's own history. Two units observing the same field
+can use the same catalogue stars, so their ratios differ only by a constant.
+
+Each segment therefore has to carry enough metadata to be tied to another:
+which comparison stars, which camera and bandpass, airmass, and the time system.
+
+### 6.3 Offsets are solved, not assumed
+
+Different bodies have different effective bandpasses, so the target-to-ensemble
+ratio carries a constant factor set by the colour difference between target and
+ensemble. That factor is constant per unit for a given target and ensemble, so
+it can be calibrated -- but only against something.
+
+**Overlap is what makes the offsets identifiable.** With overlapping segments,
+the per-segment offsets are constrained by the data. Without overlap they are
+degenerate with the signal itself, and a depth can be traded against an offset
+with no way to tell which is which. This is the familiar structure of a global
+fit with per-segment nuisance parameters, and the practical consequence is that
+scheduling must guarantee overlap rather than merely aim for continuity.
+
+### 6.4 Fidelity beyond the observation length is the point
+
+The long-timescale rolloff flagged in 4.1 is not an edge case here -- it is the
+primary scientific requirement. Any model with many free parameters fitted
+across a sequence will absorb variation on the timescale of that sequence, which
+is precisely the timescale a partial transit lives on.
+
+So `injection.transfer_function` must be probed at periods reaching **beyond**
+the observation duration, and the rolloff there quantified rather than assumed
+away. An algorithm with excellent short-timescale fidelity and a rolloff at the
+night length would look good on every conventional metric and be useless for
+this survey.
+
+### 6.5 Times in BJD_TDB
+
+Combining across sites and epochs needs barycentric dynamical time, not UTC.
+The inter-site light-travel difference is negligible (~40 ms across Earth), but
+the barycentric correction over months is not, and ephemerides depend on it.
+Adopting it now is cheap; retrofitting a time system through a processed archive
+is not.
+
+### 6.6 Differential extinction, and a synergy
+
+Each site observes the target at a different airmass, and second-order
+extinction scales with the colour difference between target and comparison
+stars. In a self-normalised lightcurve this hides inside the normalisation. In
+a transferable one it has to be handled.
+
+The method helps here, by accident. Selecting references on their Bayer
+morphology implicitly selects on colour, since colour is what drives how a star
+samples the filter array. Morphologically matched comparison stars are therefore
+also colour-matched, which is exactly the condition that minimises second-order
+extinction. An under-appreciated benefit of the approach for this goal.

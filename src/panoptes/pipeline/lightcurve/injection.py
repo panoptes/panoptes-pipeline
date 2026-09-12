@@ -130,10 +130,17 @@ def measure_depth(flux: np.ndarray, model: np.ndarray, threshold: float = 0.5) -
     in_level = float(np.nanmedian(flux[in_transit])) if in_transit.any() else np.nan
     out_level = float(np.nanmedian(flux[out_transit])) if out_transit.any() else np.nan
 
+    # Fractional, not absolute: lightcurves are no longer normalised to a unit
+    # baseline (algorithm design 6), so the difference must be divided by the
+    # out-of-transit level to be a depth at all.
+    scale = out_level if np.isfinite(out_level) and out_level != 0 else np.nan
+
     return RecoveryResult(
         injected_depth=injected_depth,
-        recovered_depth=float(out_level - in_level),
-        out_of_transit_rms=float(np.nanstd(flux[out_transit])) if out_transit.any() else np.nan,
+        recovered_depth=float((out_level - in_level) / scale),
+        out_of_transit_rms=(
+            float(np.nanstd(flux[out_transit]) / scale) if out_transit.any() else np.nan
+        ),
         num_in_transit=int(in_transit.sum()),
     )
 

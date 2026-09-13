@@ -24,6 +24,8 @@ class CatalogSettings(BaseModel):
     localbkg_width_pixels: int = 2
     detection_threshold: float = 10.0
     num_detect_pixels: int = 4
+    #: Local PANOPTES Input Catalog parquet. Required: there is no network
+    #: lookup, and `sources.get_stars` fails loudly when this is unset.
     catalog_filename: Optional[Path] = None
 
 

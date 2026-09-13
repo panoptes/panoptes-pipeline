@@ -1,6 +1,5 @@
 import numpy as np
 import pandas
-import pandas as pd
 from astropy import convolution
 from astropy.coordinates import EarthLocation, HADec, SkyCoord
 from astropy.io import fits
@@ -16,7 +15,6 @@ from photutils.utils import calc_total_error
 
 from panoptes.pipeline.settings import ImageSettings
 from panoptes.pipeline.utils import sources
-from panoptes.pipeline.utils.gcp.bigquery import get_bq_clients
 
 
 def save_fits(filename, data_list, header, force_new=False):
@@ -147,21 +145,14 @@ def match_sources(detected_sources: pandas.DataFrame, solved_wcs0: WCS, settings
                   ) -> pandas.DataFrame:
     print(f'Matching {len(detected_sources)} sources to wcs.')
     catalog_filename = settings.params.catalog.catalog_filename
-    if catalog_filename and catalog_filename.exists():
-        print(f'Using catalog from {settings.params.catalog.catalog_filename}')
-        catalog_sources = pd.read_parquet(settings.params.catalog.catalog_filename)
-    else:
-        print('Getting catalog sources from bigquery for WCS')
-        # BQ client.
-        bq_client, bqstorage_client = get_bq_clients()
-        vmag_limits = settings.params.catalog.vmag_limits
-        catalog_sources = sources.get_stars_from_wcs(
-            solved_wcs0,
-            bq_client=bq_client,
-            bqstorage_client=bqstorage_client,
-            vmag_min=vmag_limits[0],
-            vmag_max=vmag_limits[1],
-        )
+    vmag_limits = settings.params.catalog.vmag_limits
+    print(f'Using catalog from {catalog_filename}')
+    catalog_sources = sources.get_stars_from_wcs(
+        solved_wcs0,
+        catalog_filename=catalog_filename,
+        vmag_min=vmag_limits[0],
+        vmag_max=vmag_limits[1],
+    )
     print(f'Matching sources to catalog for {len(detected_sources)} sources')
     matched_sources = sources.get_catalog_match(
         detected_sources,

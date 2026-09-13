@@ -104,14 +104,17 @@ in arcsec. See improvement plan 1.4.
   belongs here.
 - `src/panoptes/pipeline/` (the rest) -- `utils/images.py` (calibration, source
   detection, plate solving, catalog matching; reused rather than rebuilt, see
-  improvement plan 4.1), `utils/sources.py`, `utils/gcp/` (BigQuery catalog
-  lookups, slated for removal), plus `settings.py`, `utils/observations.py` and
-  `utils/plot.py`.
+  improvement plan 4.1), `utils/sources.py` (catalog matching against a local
+  parquet), plus `settings.py`, `utils/observations.py` and `utils/plot.py`.
 - `plans/`, `scripts/`, `tests/`.
 
-There are no notebooks. The papermill execution path, the FastAPI service and
-the console script that drove them were deleted; `notebooks/` is gitignored in
-full. A CLI comes back with improvement plan 4.2.
+**There is no cloud code path and no notebooks.** Firestore, BigQuery, GCS, the
+papermill execution path, the FastAPI service, the console script and the Docker
+image were all deleted; `notebooks/` is gitignored in full. The catalog is a
+local parquet named by `params.catalog.catalog_filename`, and `get_stars` fails
+loudly when it is unset rather than reaching for the network. A CLI comes back
+with improvement plan 4.2. See improvement plan 4.3 for why removal beat
+adapters.
 
 ## Running things
 
@@ -120,23 +123,14 @@ dependency group, so the package is importable and no `PYTHONPATH` is needed:
 
 ```bash
 uv sync                    # project + dev tooling
-uv run pytest              # 78 tests
+uv run pytest              # 86 tests
 uv run ruff check .        # lint
 uv run ruff format .       # format
 ```
 
-The legacy cloud clients are an extra, deliberately not installed by default
-and scheduled for removal, so the default environment is the one to keep
-working:
-
-```bash
-uv sync --extra cloud      # Firestore, BigQuery, GCS
-```
-
-Without it, `panoptes.pipeline`, `panoptes.pipeline.lightcurve`, `settings`,
-`utils.observations` and `utils.plot` import; `utils.gcp`, `utils.sources` and
-`utils.images` raise `ModuleNotFoundError`. That split is the layout above,
-enforced by the dependency metadata rather than by comment.
+There are no extras. Every module under `src/panoptes/pipeline/` imports from a
+plain `uv sync` -- there is no environment in which part of the package works and
+part raises `ModuleNotFoundError`.
 
 ```bash
 uv build                   # sdist + wheel into dist/

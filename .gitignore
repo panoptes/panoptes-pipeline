@@ -54,6 +54,4 @@ MANIFEST
 input
 output
 notebooks/
-!notebooks/ProcessFITS.ipynb
-!notebooks/ProcessObservation.ipynb
 .ipynb_checkpoints

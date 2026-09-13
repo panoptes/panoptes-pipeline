@@ -4,6 +4,15 @@ Notable changes, newest first, in the [Keep a
 Changelog](https://keepachangelog.com/en/1.1.0/) format. The versioning policy
 -- and why this project is deliberately pre-1.0 -- is in `CLAUDE.md`.
 
+## Unreleased
+
+### Added
+
+- `workspace/pyproject.toml`, an opt-in local workspace for lockstep work with
+  sibling `POCS`, `panoptes-utils`, and `panoptes-data` checkouts. The normal
+  package metadata and fresh-clone `uv sync` still resolve releases; the
+  workspace uses editable sources only when explicitly invoked.
+
 ## v0.4.0 -- 2026-09-12
 
 The package stops requiring Google Cloud, Docker, conda and Jupyter. Every

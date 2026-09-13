@@ -63,6 +63,26 @@ Source matching needs a local copy of the PANOPTES Input Catalog, pointed at by
 `params.catalog.catalog_filename`. Parquet, ECSV or CSV, chosen by suffix; it
 must carry `picid`, `catalog_ra`, `catalog_dec` and `catalog_vmag`.
 
+## Cross-repository development
+
+Normal development uses released packages: run `uv sync` from this repository
+root. For coordinated cross-repository development, check out `POCS`,
+`panoptes-utils`, and `panoptes-data` beside this repository on mutually
+compatible branches, then run the opt-in workspace:
+
+```shell
+uv --directory workspace sync --all-packages
+```
+
+`workspace/pyproject.toml` makes the sibling repositories one uv workspace and
+overrides `panoptes-data` and `panoptes-utils` with editable workspace sources;
+`POCS` participates in the shared lock even though this package does not import
+it. The workspace lockfile and environment are ignored by Git. The current
+`panoptes-data<0.2` compatibility work is tracked in issue #176, so use
+coordinated branches until it lands before resolving all current mains together.
+Run `uv sync` from this repository root to return to released-package
+resolution.
+
 ## Contributing
 
 Contributions are welcome — this is a citizen-science project and the pipeline

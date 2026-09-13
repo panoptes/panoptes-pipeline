@@ -1,0 +1,22 @@
+# Opt-in workspace for lockstep PANOPTES development. This directory is inside
+# panoptes-pipeline, so its sibling members are two levels above it.
+
+[project]
+name = "panoptes-rebuild-workspace"
+version = "0"
+requires-python = ">=3.12"
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+panoptes-data = { workspace = true }
+panoptes-utils = { workspace = true }
+
+[tool.uv.workspace]
+members = [
+  "..",
+  "../../POCS",
+  "../../panoptes-utils",
+  "../../panoptes-data",
+]

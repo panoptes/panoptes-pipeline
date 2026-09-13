@@ -58,32 +58,15 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# The legacy orchestration path: Firestore, BigQuery, GCS and the FastAPI
-# service that drives them.
+# The legacy cloud clients still imported by `utils/gcp`, `utils/sources` and
+# `utils/images`. Slated for removal; see the GCP issues.
 cloud = [
-  "fastapi",
   "gcsfs",
   "google-cloud-bigquery",
   "google-cloud-bigquery-storage[pandas]>=2.6.2",
   "google-cloud-firestore",
-  "google-cloud-pubsub",
   "google-cloud-storage",
-  "gunicorn",
   "pandas-gbq",
-  "uvicorn[standard]",
-]
-# The legacy papermill execution path and the interactive tooling the notebooks
-# in `notebooks/` expect. Slated for removal; the `panoptes-pipeline` console
-# script needs it until then.
-notebooks = [
-  "bokeh",
-  "ipython-autotime",
-  "ipywidgets",
-  "jupyterlab",
-  "nbconvert",
-  "panel",
-  "papermill",
-  "tabulate",
 ]
 
 # Tooling, not package metadata: installed by `uv sync`, never published.
@@ -106,9 +89,6 @@ Documentation = "https://panoptes-pipeline.readthedocs.io"
 "POCS Documentation" = "https://pocs.readthedocs.io"
 "Project PANOPTES" = "https://www.projectpanoptes.org"
 Forum = "https://forum.projectpanoptes.org"
-
-[project.scripts]
-panoptes-pipeline = "panoptes.pipeline.utils.cli.main:app"
 
 [tool.hatch.version]
 source = "vcs"

@@ -33,6 +33,13 @@ Changelog](https://keepachangelog.com/en/1.1.0/) format. The versioning policy
   this project retired.
 - `.coveragerc`, migrated to `[tool.coverage.*]` in `pyproject.toml` alongside
   the ruff and pytest configuration. Settings are unchanged.
+- **Google Cloud, in full**: `utils/gcp/` (BigQuery, Firestore and GCS
+  helpers), the `cloud` optional-dependency extra and its eight packages, and
+  `.gcloudignore`. Removal was chosen over putting cloud behind adapters, so
+  there is no cloud code path at all rather than one that is off by default.
+  Consequence worth knowing: **every module under `src/panoptes/pipeline/` now
+  imports from a plain `uv sync`.** There is no longer an environment in which
+  part of the package works and part raises `ModuleNotFoundError`.
 - **Docker, in full**: the `Dockerfile`, `.dockerignore` and `env.yaml`. The
   image existed to run the FastAPI service, which is deleted and is not being
   replaced, so its entrypoint pointed at a module that no longer exists -- it
@@ -45,8 +52,28 @@ Changelog](https://keepachangelog.com/en/1.1.0/) format. The versioning policy
   across. The image installed conda, then mamba, then pip on top; all three are
   gone.
 
+### Added
+
+- `tests/test_sources_catalog.py`, pinning the catalog filtering semantics the
+  BigQuery query used to own: a half-open `[vmag_min, vmag_max)` range, an
+  inclusive positional box, and a Right Ascension window that may wrap through
+  zero. 86 tests.
+
 ### Changed
 
+- **`sources.get_stars` reads a local parquet catalog instead of querying
+  BigQuery.** Callers pass `catalog_filename` (or set
+  `params.catalog.catalog_filename`); there is no network lookup and no
+  fallback, so an unset path raises with a message naming the setting rather
+  than silently reaching for credentials. The file must carry the mapped PIC
+  column names -- `picid`, `catalog_ra`, `catalog_dec`, `catalog_vmag` -- and a
+  file missing any of them raises and names them.
+- **`images.match_sources` now filters the local catalog** by the WCS footprint
+  and the configured Vmag limits. It previously read the whole parquet
+  unfiltered when a local catalog was set, and only applied those bounds on the
+  BigQuery path, so the two routes disagreed. They now do the same thing.
+- The `bq_client`, `bqstorage_client`, `column_mapping` and `return_dataframe`
+  arguments are gone from `get_stars`; `catalog_filename` replaces them.
 - `README.md` now carries contributing instructions and says the rebuild happens
   on `main`. It claimed an `algorithm-v2` branch that no longer exists.
 - Two docstrings in `utils/sources.py` described matched columns as coming from

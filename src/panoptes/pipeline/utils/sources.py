@@ -1,9 +1,14 @@
+from pathlib import Path
+
 import numpy as np
 import pandas
 from astropy import units as u
 from astropy.coordinates import SkyCoord
 from astropy.wcs import WCS
-from panoptes.pipeline.utils.gcp.bigquery import get_bq_clients
+
+#: Columns the catalog must carry for matching to work. The file is expected to
+#: use the mapped PIC names rather than the raw upstream ones.
+REQUIRED_CATALOG_COLUMNS = ("picid", "catalog_ra", "catalog_dec", "catalog_vmag")
 
 
 def get_stars_from_coords(ra: float, dec: float, radius: float = 8.0, **kwargs) -> pandas.DataFrame:
@@ -29,8 +34,8 @@ def get_stars_from_wcs(wcs0: WCS, round_to: int = 0, pad: float = 1.0, pad_size=
 
     Args:
         wcs0 (astropy.wcs.WCS): A valid (i.e. `wcs.is_celestial`) World Coordinate System object.
-        round_to (int): Round the limits to this decimal place, default 0. Helps with automatic
-            bigquery caching by making the query the same each time.
+        round_to (int): Round the limits to this decimal place, default 0. Keeps the
+            requested bounds stable between frames of the same sequence.
         pad (float): The amount of padding in degrees to add to each of the RA and Dec
             limits, default 0.5 [degrees].
         **kwargs: Optional keywords to pass to :py:func:`get_stars`.
@@ -59,82 +64,77 @@ def get_stars(
         shape=None,
         vmag_min=7,
         vmag_max=14,
-        bq_client=None,
-        bqstorage_client=None,
-        column_mapping=None,
-        return_dataframe=True,
+        catalog_filename=None,
         **kwargs):
-    """Look star information from the TESS catalog.
+    """Look up star information from a local copy of the PANOPTES Input Catalog.
 
-    https://outerspace.stsci.edu/display/TESS/TIC+v8+and+CTL+v8.xx+Data+Release+Notes
+    The PIC is derived from the [TESS Input Catalog](
+    https://tess.mit.edu/science/tess-input-catalogue/) v8. It is read from a
+    local parquet file: getting that file onto disk is a separate fetch step,
+    not something this function does. There is no network lookup -- see
+    improvement plan 4.3.
+
+    The file is expected to carry the mapped column names
+    (:py:data:`REQUIRED_CATALOG_COLUMNS`) rather than the raw upstream ones.
+
+    Note:
+
+        In the upstream catalog the GAIA `bp` and `rp` magnitude and error
+        columns are switched. Whatever produces the parquet is responsible for
+        correcting that; this function does not second-guess the file it is
+        given.
 
     Args:
-        shape (dict): A dictionary containing the keys `ra_min`, `ra_max`, `dec_min`, `dec_max`.
-        vmag_min (int, optional): Minimum Vmag to include, default 4 inclusive.
-        vmag_max (int, optional): Maximum Vmag to include, default 17 non-inclusive.
-        bq_client (`google.cloud.bigquery.Client`): The BigQuery Client connection.
-        **kwargs: Description
+        shape (dict|None): A dictionary containing the keys `ra_min`, `ra_max`,
+            `dec_min`, `dec_max`, in degrees. If None, no positional filtering.
+        vmag_min (float, optional): Minimum Vmag to include, inclusive.
+        vmag_max (float, optional): Maximum Vmag to include, exclusive.
+        catalog_filename (str|Path): Path to the catalog parquet file. Required.
+        **kwargs: Ignored, for call-site compatibility.
 
     Returns:
-        `pandas.DataFrame`: Dataframe containing the results.
+        `pandas.DataFrame`: The catalog entries inside the requested bounds.
+
+    Raises:
+        ValueError: If no catalog path is given, or the file is missing columns.
+        FileNotFoundError: If the catalog path does not exist.
 
     """
-    column_mapping = column_mapping or {
-        "id": "picid",
-        "gaia": "gaia",
-        "ra": "catalog_ra",
-        "dec": "catalog_dec",
-        "vmag": "catalog_vmag",
-        "vmag_partition": "catalog_vmag_bin",
-        "e_vmag": "catalog_vmag_err",
-        "tmag": "catalog_tmag",
-        "e_tmag": "catalog_tmag_err",
-        "gaiamag": "catalog_gaiamag",
-        "e_gaiamag": "catalog_gaiamag_err",
-        # NOTE: The columns in BQ are currently mis-named for the GAIA b and r.
-        # The magnitude and error columns are switched, so we trick it here.
-        # TODO: Fix the BQ mapping.
-        "gaiabp": "catalog_gaiabp_err",
-        "e_gaiabp": "catalog_gaiabp",
-        "gaiarp": "catalog_gaiarp_err",
-        "e_gaiarp": "catalog_gaiarp",
-        "numcont": "catalog_numcont",
-        "contratio": "catalog_contratio"
-    }
+    if catalog_filename is None:
+        raise ValueError(
+            "A local catalog is required. Pass catalog_filename, or set "
+            "`params.catalog.catalog_filename` in the pipeline settings. "
+            "There is no network catalog lookup."
+        )
 
-    column_mapping_str = ', '.join([f'{k} as {v}' for k, v in column_mapping.items()])
+    catalog_filename = Path(catalog_filename)
+    if not catalog_filename.exists():
+        raise FileNotFoundError(f"Catalog file does not exist: {catalog_filename}")
 
-    # The Right Ascension can wrap around from 360° to 0°, so we have to specifically check.
-    if shape['ra_max'] < shape['ra_min']:
-        ra_constraint = 'OR'
-    else:
-        ra_constraint = 'AND'
+    catalog_stars = pandas.read_parquet(catalog_filename)
 
-    # Note that for how the BigQuery partition works, we need the partition one step
-    # below the requested Vmag_max.
-    sql = f"""
-    SELECT {column_mapping_str} 
-    FROM catalog.pic
-    WHERE
-        (dec >= {shape['dec_min']} AND dec <= {shape['dec_max']}) AND
-        (ra >= {shape['ra_min']} {ra_constraint} ra <= {shape['ra_max']}) AND
-        (vmag_partition BETWEEN {vmag_min} AND {vmag_max - 1})
-    """
+    missing = [c for c in REQUIRED_CATALOG_COLUMNS if c not in catalog_stars.columns]
+    if missing:
+        raise ValueError(
+            f"Catalog {catalog_filename} is missing required column(s): {missing}. "
+            f"Expected the mapped PIC names: {list(REQUIRED_CATALOG_COLUMNS)}."
+        )
 
-    print(f'{sql=}')
+    # Vmag range is [vmag_min, vmag_max), as documented.
+    selected = catalog_stars.catalog_vmag.between(vmag_min, vmag_max, inclusive="left")
 
-    if bq_client is None or bqstorage_client is None:
-        bq_client, bqstorage_client = get_bq_clients()
+    if shape is not None:
+        selected &= catalog_stars.catalog_dec.between(shape["dec_min"], shape["dec_max"])
 
-    results = None
-    try:
-        results = bq_client.query(sql)
-        if return_dataframe:
-            results = results.result().to_dataframe()
-            print(
-                f'Found {len(results)} in Vmag=[{vmag_min}, {vmag_max}) and bounds=[{shape}]')
-    except Exception as e:
-        print(e)
+        # Right Ascension wraps from 360 to 0, so the box can straddle the origin.
+        ra = catalog_stars.catalog_ra
+        if shape["ra_max"] < shape["ra_min"]:
+            selected &= (ra >= shape["ra_min"]) | (ra <= shape["ra_max"])
+        else:
+            selected &= (ra >= shape["ra_min"]) & (ra <= shape["ra_max"])
+
+    results = catalog_stars[selected].reset_index(drop=True)
+    print(f"Found {len(results)} in Vmag=[{vmag_min}, {vmag_max}) and bounds=[{shape}]")
 
     return results
 
@@ -152,10 +152,10 @@ def get_catalog_match(point_sources,
     from the [TESS Input Catalog](https://tess.mit.edu/science/tess-input-catalogue/)
     [v8](https://heasarc.gsfc.nasa.gov/docs/tess/tess-input-catalog-version-8-tic-8-is-now-available-at-mast.html).
 
-    The catalog is stored in a BigQuery dataset. This function will match the
+    The catalog is read from a local parquet file. This function will match the
     `measured_ra` and `measured_dec` columns (as output from `lookup_point_sources`)
-    to the `ra` and `dec` columns of the catalog.  The actual lookup is done via
-    the `get_stars_from_footprint` function.
+    to the `catalog_ra` and `catalog_dec` columns of the catalog. The actual lookup
+    is done via :py:func:`get_stars_from_wcs`.
 
     The columns are added to `point_sources`, which is then returned to the user.
 

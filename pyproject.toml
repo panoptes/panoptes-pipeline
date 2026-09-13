@@ -57,18 +57,6 @@ dependencies = [
   "typer",
 ]
 
-[project.optional-dependencies]
-# The legacy cloud clients still imported by `utils/gcp`, `utils/sources` and
-# `utils/images`. Slated for removal; see the GCP issues.
-cloud = [
-  "gcsfs",
-  "google-cloud-bigquery",
-  "google-cloud-bigquery-storage[pandas]>=2.6.2",
-  "google-cloud-firestore",
-  "google-cloud-storage",
-  "pandas-gbq",
-]
-
 # Tooling, not package metadata: installed by `uv sync`, never published.
 [dependency-groups]
 dev = [

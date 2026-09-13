@@ -599,12 +599,26 @@ audit 5.14), and it was deleted along with the notebooks, so the console script
 is currently absent rather than broken. It comes back when there is a library
 for it to drive.
 
-### 4.3 Storage adapters
+### 4.3 No cloud path
 
-Firestore, BigQuery and GCS move behind interfaces with local implementations:
-catalog from a local parquet file (already half-supported via
-`CatalogSettings.catalog_filename`), metadata to local JSON, results to local
-parquet. Cloud becomes a deployment choice rather than a hard requirement.
+**Settled: outright removal, not adapters.** Firestore, BigQuery and GCS are
+gone from this package -- `utils/gcp/` deleted, the `cloud` extra deleted, no
+Google client anywhere in the dependency tree. Every module imports from a plain
+`uv sync`.
+
+The catalog is a local parquet file named by `CatalogSettings.catalog_filename`,
+and `sources.get_stars` raises rather than falling back to a network lookup when
+it is unset. Metadata and results are local files.
+
+The cost was accepted knowingly: this discards working archive integration that
+would have to be rewritten if bulk cloud processing is ever wanted again. What it
+buys is that the offline path is the *only* path, so it cannot rot quietly while
+the cloud path is the one being exercised -- and that running the algorithm needs
+no credentials, which is what 4 requires of a citizen-science project.
+
+`panoptes-data` remains how sequences are discovered and fetched (4.6). That is a
+step that puts files on disk before the pipeline runs, not a runtime dependency
+of it.
 
 ### 4.4 Notebooks, if they come back
 
@@ -677,8 +691,9 @@ changes. The two real gaps are both additive:
 **The boundary that matters.** `panoptes-data` is a tool for *selecting and
 fetching* data, not a runtime dependency of the algorithm. The pipeline has to
 run against a local directory of FITS plus a local profile file with no network
-at all, which is the whole point of 4. So it sits behind the adapter boundary in
-4.3, alongside Firestore and GCS: available, never required.
+at all, which is the whole point of 4. So it stays a fetch step run *before* the
+pipeline rather than a call made from inside it (4.3): available, never
+required.
 
 **When starting from scratch would be the right call**, and how to tell cheaply:
 write one real selection query for dataset B from 1.3 against the existing

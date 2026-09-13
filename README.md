@@ -21,10 +21,14 @@ at different longitudes to cover a transit longer than one night.
 
 ## Status
 
-Under active rebuild on the `algorithm-v2` branch. The published description,
-[Gee et al., *On-sky Demonstration of Precision Photometry with Bayer Color
-Filter Arrays*](https://www.projectpanoptes.org), is earlier research and a
-building block rather than a specification.
+Under active rebuild on `main`, which is the only long-lived branch. The
+published description, [Gee et al., *On-sky Demonstration of Precision
+Photometry with Bayer Color Filter Arrays*](https://www.projectpanoptes.org),
+is earlier research and a building block rather than a specification.
+
+What is planned, in progress and done lives in [GitHub
+issues](https://github.com/panoptes/panoptes-pipeline/issues), grouped into
+milestones. The plan documents below carry the reasoning behind that work.
 
 Start with the design documents:
 
@@ -55,6 +59,41 @@ extras, so the default environment stays small: `uv sync --extra cloud` or
 
 `src/panoptes/pipeline/lightcurve/` holds the algorithm as pure array code —
 no I/O, no cloud, no notebook — and is where new work belongs.
+
+## Contributing
+
+Contributions are welcome — this is a citizen-science project and the pipeline
+is being rebuilt in the open.
+
+- **Start from an issue.** If there is not one for what you want to do, open
+  one first. Anything needing a decision rather than an implementation gets the
+  `decision` label.
+- **Branch from `main`,** which is the only long-lived branch, and merge back
+  into it. Name the branch for what it is for: `type/issue-NNN`, as in
+  `cleanup/issue-171` or `fix/issue-93-background`.
+- **Run the checks before opening a pull request:**
+
+  ```shell
+  uv run pytest
+  uv run ruff check .
+  uv run ruff format .
+  ```
+
+- **Update `CHANGELOG.md` in the same branch,** under `## Unreleased`, for any
+  change someone using the package could observe. Not afterwards — a changelog
+  reconstructed from `git log` is how the old one drifted to claiming `0.0.1`
+  while the tags said `v0.2.0`.
+- **Precision claims need evidence.** A change that lowers scatter while
+  lowering signal transfer has suppressed signal rather than removed noise, so
+  report both. `CLAUDE.md` has the full rules under "Measuring a change".
+
+Questions are welcome on the [PANOPTES
+forum](https://forum.projectpanoptes.org).
+
+## Credits
+
+The PANOPTES Team, <developers@projectpanoptes.org>, and the [contributors to
+this repository](https://github.com/panoptes/panoptes-pipeline/graphs/contributors).
 
 ## License
 

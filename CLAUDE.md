@@ -256,8 +256,14 @@ writing it at merge time prevents.
   - **The "Photometry rebuild" project board is the single view across all
     four.** It has a Repository field; issues from any of them go on it. The
     board, not a coordinating issue, is what makes the work findable.
-  - Reference across repositories fully qualified -- `panoptes/POCS#1410`,
-    never a bare `#1410`, which resolves to the wrong repository.
+  - **Reference across repositories fully qualified, everywhere** --
+    `panoptes/POCS#1410`, never a bare `#1410`. This holds in issue bodies and
+    comments, commit messages, PR descriptions, `plans/`, **and in
+    conversation**: a bare number is read against whichever repository is in
+    front of the reader, so it either resolves to an unrelated issue or to
+    nothing, and the reader concludes the issue does not exist. Chat is where
+    this slips most, because the surrounding repository feels obvious to the
+    writer and is not to the reader.
   - An issue here that is blocked by or blocks another repository gets the
     `cross-repo` label and names the other issue in its Dependencies section.
   - The reasoning still lives in `plans/`, in this repository, whichever

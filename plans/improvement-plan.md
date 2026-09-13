@@ -48,10 +48,20 @@ correlated term has to be attacked directly.
 ### 1.3 Benchmark datasets
 
 Roughly ten years of raw PANOPTES data is available on the project's processing
-server, queryable through [`panoptes-data`](https://github.com/panoptes/panoptes-data)
-against Firestore. That repository is ours, so if selection needs a query the
-client cannot express, the fix is to add it there rather than to reimplement
-archive logic here.
+server -- 12,439 sequences and 563,566 frames, discoverable through
+[`panoptes-data`](https://github.com/panoptes/panoptes-data). That repository is
+ours and it is downstream of this one, so if selection needs a query the client
+cannot express, the fix is to add it there rather than to reimplement archive
+logic here.
+
+**Selection runs in two passes, and the reason is not convenience.** Cut on
+header facts first -- frame count, duration, unit, camera uid, ISO, exposure,
+moon, airmass, field -- then download and measure drift and seeing locally
+before cutting again. The archive's FWHM, source counts and solved positions are
+outputs of the implementation being replaced, so ranking candidates by them to
+build the substrate for judging new code is circular. Duration is also not
+expressible against the current index at all, and `num_images` counts frames
+uploaded rather than usable. See data contract 9.
 
 Benchmark selection is therefore a choice rather than a constraint, and **the
 starting point is raw frames, not existing `observation.h5` products**. Those
@@ -166,19 +176,26 @@ is needed is recoverable from the data:
 |---|---|
 | pixel scale | the WCS, per frame, free |
 | image dimensions | the array shape (already done) |
-| saturation / white level | the pixel histogram -- there is a hard cutoff; take the recurring top value across many frames, per camera and ISO |
+| saturation / white level | `WHTLVLN`/`WHTLVLS` in the header, where POCS still wrote them; otherwise the pixel histogram -- there is a hard cutoff; take the recurring top value across many frames, per camera and ISO |
 | gain, read noise | photon transfer: variance against mean across frame pairs. Ten years of multi-frame sequences makes this straightforward per camera and ISO |
 | PSF FWHM | already measured per frame by photutils |
-| Bayer phase | `MEASRGGB` is already parsed out of the header in `extract_metadata`; check it rather than assuming the pattern |
+| Bayer phase | `MEASRGGB` is parsed out of the header in `extract_metadata`, but current POCS no longer writes it (data contract 2.2), so `masks.infer_pattern` is the durable answer |
 | black level | header where present, otherwise measured once per camera and stored as data |
 
 **Resolution order, and no silent defaults.** Key a `CameraProfile` on the
-camera serial, which `extract_metadata` already reads from `CAMSN`. Resolve:
-measured from this observation, then the stored profile for that serial, then a
-model default, then **fail loudly**. Fields should have no fleet-wide default at
+camera **uid** -- the six-character identifier in `INSTRUME` and in every
+`sequence_id`, derived from the camera's own serial. Not `CAMSN`, which current
+POCS no longer writes and which is missing from a sixth of recent records, and
+never the `Cam00` slot name, which is assigned regardless of which body is
+installed. See data contract 2.3.
+
+Resolve: header, then measured from this observation, then the stored profile
+for that uid, then **fail loudly**. Fields should have no fleet-wide default at
 all, so a missing value raises instead of quietly producing a wrong number.
 `zero_bias: float = 512` applying to every camera ever built is the exact
-anti-pattern to remove.
+anti-pattern to remove -- as is `effective_gain: float = 1.5`, which is a POCS
+class constant this repository copied and which is best fixed there (data
+contract 6.3).
 
 **No parameter in raw pixels** unless it is genuinely about the detector grid,
 such as superpixel alignment. Convert stamp size and aperture radius to
@@ -689,38 +706,25 @@ be -- where the expensive runs happen.
 
 ### 4.6 The data layer and camera profiles
 
-[`panoptes-data`](https://github.com/panoptes/panoptes-data) already does
-discovery and fetch: `search_observations()` by object name with a minimum
-image count, `ObservationInfo` for metadata and image download, and unit
-metadata over a date range. It has no notion of per-camera calibration.
+Superseded by the [data contract](data-contract.md), which this section's cheap
+test resolved.
 
-**Recommendation: keep it, extend it, do not restart.** Rewriting would
-re-derive working archive access for no gain, and the pipeline would end up
-holding a second copy of the Firestore schema -- two places to break when it
-changes. The two real gaps are both additive:
+The test was: write one real selection query for dataset B against
+`panoptes-data` and see whether it fits. It does not, and the reason is more
+useful than the verdict. The client's model is fine; the *published index* is a
+per-observation flattening that drops the aggregates selection needs, and the
+per-frame records behind it are reachable only one sequence at a time. Duration
+is not expressible at all, and `num_images` counts frames uploaded rather than
+usable. See data contract 9.
 
-1. **The query surface is too narrow for 1.3.** Selecting benchmarks needs
-   filtering on frame count, moon phase, airmass, measured drift, unit and
-   camera model, field density, and same-night pairs across units. Search by
-   object name does not reach that. Since we own the package, that belongs
-   there.
-2. **There is no camera profile registry** (1.4). Profiles key on camera serial
-   and belong alongside the unit and camera records -- in the data layer, not
-   hardcoded in the pipeline.
+The direction of flow is what this section had backwards. `panoptes-data`
+queries what *this* pipeline produced, so it is downstream and follows rather
+than constrains. Extend it; the question is settled.
 
-**The boundary that matters.** `panoptes-data` is a tool for *selecting and
-fetching* data, not a runtime dependency of the algorithm. The pipeline has to
-run against a local directory of FITS plus a local profile file with no network
-at all, which is the whole point of 4. So it stays a fetch step run *before* the
-pipeline rather than a call made from inside it (4.3): available, never
-required.
-
-**When starting from scratch would be the right call**, and how to tell cheaply:
-write one real selection query for dataset B from 1.3 against the existing
-package. If it fits or needs a small addition, extend. If its model is
-fundamentally one-record-per-observation and the selection needs per-frame or
-per-camera aggregates that do not fit that shape, a purpose-built query layer is
-justified -- but decide it on that evidence rather than in advance.
+Camera profiles move with it. The registry only ever has to carry what no
+header supplies -- gain, read noise and black level -- and it belongs here
+rather than in the read client. Gain in particular is a POCS constant this
+repository copied, so the fix is upstream. See data contract 6.
 
 ### 4.7 CI
 

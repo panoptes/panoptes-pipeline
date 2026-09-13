@@ -52,13 +52,18 @@ uv sync         # project + dev tooling, pinned
 uv run pytest
 ```
 
-The cloud stack (Firestore, BigQuery, GCS) and the notebook execution path are
-extras, so the default environment stays small: `uv sync --extra cloud` or
-`uv sync --extra notebooks` when you need them. Standalone scripts under
-`scripts/` declare their dependencies inline per PEP 723 and need no sync.
+There are no extras. The cloud stack (Firestore, BigQuery, GCS), the notebook
+execution path and the Docker image were removed rather than made optional, so
+every module imports from a plain `uv sync` and the algorithm runs against a
+local directory with no credentials. Standalone scripts under `scripts/` declare
+their dependencies inline per PEP 723 and need no sync.
 
 `src/panoptes/pipeline/lightcurve/` holds the algorithm as pure array code —
 no I/O, no cloud, no notebook — and is where new work belongs.
+
+Source matching needs a local copy of the PANOPTES Input Catalog, pointed at by
+`params.catalog.catalog_filename`. Parquet, ECSV or CSV, chosen by suffix; it
+must carry `picid`, `catalog_ra`, `catalog_dec` and `catalog_vmag`.
 
 ## Contributing
 

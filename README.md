@@ -52,11 +52,9 @@ uv sync         # project + dev tooling, pinned
 uv run pytest
 ```
 
-There are no extras. The cloud stack (Firestore, BigQuery, GCS), the notebook
-execution path and the Docker image were removed rather than made optional, so
-every module imports from a plain `uv sync` and the algorithm runs against a
-local directory with no credentials. Standalone scripts under `scripts/` declare
-their dependencies inline per PEP 723 and need no sync.
+That is the whole install. The pipeline runs against a local directory of FITS
+files — no cloud project, no credentials. Standalone scripts under `scripts/`
+declare their dependencies inline per PEP 723 and need no sync.
 
 `src/panoptes/pipeline/lightcurve/` holds the algorithm as pure array code —
 no I/O, no cloud, no notebook — and is where new work belongs.
@@ -85,9 +83,8 @@ is being rebuilt in the open.
   ```
 
 - **Update `CHANGELOG.md` in the same branch,** under `## Unreleased`, for any
-  change someone using the package could observe. Not afterwards — a changelog
-  reconstructed from `git log` is how the old one drifted to claiming `0.0.1`
-  while the tags said `v0.2.0`.
+  change someone using the package could observe. A branch is not finished
+  until its entry is written.
 - **Precision claims need evidence.** A change that lowers scatter while
   lowering signal transfer has suppressed signal rather than removed noise, so
   report both. `CLAUDE.md` has the full rules under "Measuring a change".

@@ -292,7 +292,8 @@ def get_catalog_match(
         return_unmatched (bool, optional): If all results from catalog should be
             returned, not just those with a positive match.
         origin (int): The origin for the WCS. See `all_world2pix`. Default 1.
-        **kwargs: Extra options are passed to `get_stars_from_wcs`, which passes them to `get_stars`.
+        **kwargs: Extra options are passed to `get_stars_from_wcs`, which
+            passes them to `get_stars`.
 
     """
     assert point_sources is not None

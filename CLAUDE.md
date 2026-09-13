@@ -273,4 +273,24 @@ writing it at merge time prevents.
   `numpy.ma` convention is the opposite; convert only at that boundary.
 - Stamp arrays unpack as `(height, width)`. Stamps are non-square in existing
   data; getting this backwards is conformance audit 5.4.
-- `ruff check` and `ruff format`, line length 100.
+- **`ruff check .` and `ruff format .` both pass before anything is committed.**
+  The repository is clean on both as of #181, so any error you see is one you
+  introduced -- there is no pre-existing noise to read past.
+
+  ```bash
+  uv run ruff check --fix .   # then read what it could not fix
+  uv run ruff format .
+  ```
+
+  - Line length 100, double quotes, spaces, LF. Rule set is `E`, `F`, `I`, `UP`:
+    pycodestyle errors, pyflakes, import sorting, and pyupgrade.
+  - `UP` means modern typing is enforced, not optional: `tuple` not `Tuple`,
+    `X | None` not `Optional[X]`. Do not import from `typing` what the builtin
+    already provides.
+  - **Do not hand-wrap code shorter than the limit.** The formatter joins it
+    back and the diff is noise. Let it decide; it wraps what needs wrapping.
+  - The formatter cannot split a string, so `E501` inside a docstring or an
+    f-string is yours to fix: break it across implicit-concatenated pieces, or
+    indent a continuation line in the docstring.
+  - A format-only change goes in **its own commit**, never mixed with a real
+    one. Reviewing a behavior change through a reflow is how things get missed.

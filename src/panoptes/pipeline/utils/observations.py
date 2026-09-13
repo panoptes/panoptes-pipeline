@@ -17,7 +17,8 @@ def make_stamps(
 
     total_stamp_size = int(stamp_width * stamp_height)
     logger.debug(
-        f"Making stamps of {total_stamp_size=} for {len(stamp_positions)} sources from data {data.shape}"
+        f"Making stamps of {total_stamp_size=} for {len(stamp_positions)} "
+        f"sources from data {data.shape}"
     )
 
     stamps = []

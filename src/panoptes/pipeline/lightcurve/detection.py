@@ -164,9 +164,7 @@ def false_alarm_threshold(
 
     peaks = []
     for shift in rng.integers(1, count, size=num_trials):
-        peaks.append(
-            scan(times, np.roll(flux, int(shift)), durations_hours, num_phases).snr
-        )
+        peaks.append(scan(times, np.roll(flux, int(shift)), durations_hours, num_phases).snr)
     return float(np.quantile(peaks, 1.0 - false_alarm_rate))
 
 

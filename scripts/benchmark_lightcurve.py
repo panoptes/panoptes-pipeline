@@ -129,9 +129,7 @@ def pick_target(cube: np.ndarray, picids: np.ndarray, requested: int | None) -> 
     return int(ranked[len(ranked) // 20])  # ~95th percentile: bright but not the brightest
 
 
-def unfitted_lightcurve(
-    target, pool, num_refs, builder, channel_mask=None, frame_weights=None
-):
+def unfitted_lightcurve(target, pool, num_refs, builder, channel_mask=None, frame_weights=None):
     """Comparison stars built without a coefficient fit.
 
     ``legacy_mean`` averages the raw stamps (today's notebook behavior);
@@ -243,9 +241,7 @@ def run(args: argparse.Namespace) -> int:
                 frame_weights=weights,
             )
         card = score(result.flux, result.num_active_references)
-        recovery = (
-            injection.measure_depth(result.flux, model) if model is not None else None
-        )
+        recovery = injection.measure_depth(result.flux, model) if model is not None else None
         rows.append((name, card, recovery))
 
     _print_table(rows, model is not None)
@@ -293,9 +289,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--picid", type=int, default=None, help="Target PICID (default: a bright star)"
     )
-    parser.add_argument(
-        "--num-refs", type=int, default=100, help="References carried into the fit"
-    )
+    parser.add_argument("--num-refs", type=int, default=100, help="References carried into the fit")
     parser.add_argument("--channel", choices=["all", "r", "g", "b"], default="all")
     parser.add_argument(
         "--sky-subtract",

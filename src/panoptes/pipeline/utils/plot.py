@@ -1,14 +1,14 @@
 import numpy as np
-from matplotlib import pyplot as plt
+import seaborn as sb
 from astropy.visualization import simple_norm
+from matplotlib import pyplot as plt
 from matplotlib.figure import Figure
 from panoptes.utils.images import bayer, plot
 from panoptes.utils.images import plot as plot_utils
-import seaborn as sb
 
 
 def plot_background(rgb_bg_data, title=None):
-    """ Plot the RGB backgrounds from `Background2d` objects.
+    """Plot the RGB backgrounds from `Background2d` objects.
 
     Args:
         rgb_bg_data (list[photutils.Background2D]): The RGB background data as
@@ -22,19 +22,19 @@ def plot_background(rgb_bg_data, title=None):
     ncols = 3
 
     fig, axes = plt.subplots(nrows=nrows, ncols=ncols, sharex=True, sharey=True)
-    fig.set_facecolor('white')
+    fig.set_facecolor("white")
 
     for color in bayer.RGB:
         d0 = rgb_bg_data[color]
         ax0 = axes[0][color]
         ax1 = axes[1][color]
 
-        ax0.set_title(f'{color.name.title()} (med {d0.background_median:.02f} ADU)')
-        im = ax0.imshow(d0.background, cmap=f'{color.name.title()}s_r', origin='lower')
+        ax0.set_title(f"{color.name.title()} (med {d0.background_median:.02f} ADU)")
+        im = ax0.imshow(d0.background, cmap=f"{color.name.title()}s_r", origin="lower")
         plot_utils.add_colorbar(im)
 
-        ax1.set_title(f'{color.name.title()} rms (med {d0.background_rms_median:.02f} ADU)')
-        im = ax1.imshow(d0.background_rms, cmap=f'{color.name.title()}s_r', origin='lower')
+        ax1.set_title(f"{color.name.title()} rms (med {d0.background_rms_median:.02f} ADU)")
+        im = ax1.imshow(d0.background_rms, cmap=f"{color.name.title()}s_r", origin="lower")
         plot_utils.add_colorbar(im)
 
         ax0.set_axis_off()
@@ -47,18 +47,19 @@ def plot_background(rgb_bg_data, title=None):
     return fig
 
 
-def plot_stamp(picid,
-               data,
-               metadata,
-               frame_idx=None,
-               norm_data=None,
-               show_mean=False,
-               show_all=False,
-               cmap=None,
-               stretch='linear',
-               title=None,
-               mask_alpha=0.25
-               ):
+def plot_stamp(
+    picid,
+    data,
+    metadata,
+    frame_idx=None,
+    norm_data=None,
+    show_mean=False,
+    show_all=False,
+    cmap=None,
+    stretch="linear",
+    title=None,
+    mask_alpha=0.25,
+):
     cmap = cmap or plot_utils.get_palette()
 
     fig, ax = plt.subplots()
@@ -76,7 +77,7 @@ def plot_stamp(picid,
         stamp = data
 
     # Get the frame bounds on full image.
-    y0, y1, x0, x1 = metadata.filter(regex='stamp').iloc[frame_idx or 0]
+    y0, y1, x0, x1 = metadata.filter(regex="stamp").iloc[frame_idx or 0]
 
     # Get peak location on stamp.
     x_peak = metadata.catalog_wcs_x_int.iloc[frame_idx or 0] - x0
@@ -86,53 +87,72 @@ def plot_stamp(picid,
     norm_data = norm_data if norm_data is not None else stamp
     norm = simple_norm(norm_data, stretch, min_cut=norm_data.min(), max_cut=norm_data.max() + 50)
 
-    if hasattr(stamp, 'mask'):
-        im0 = ax.imshow(stamp, norm=norm, cmap=cmap, origin='lower')
-        ax.imshow(np.ma.array(stamp.data, mask=~stamp.mask), norm=norm, cmap=cmap, origin='lower',
-                  alpha=mask_alpha)
+    if hasattr(stamp, "mask"):
+        im0 = ax.imshow(stamp, norm=norm, cmap=cmap, origin="lower")
+        ax.imshow(
+            np.ma.array(stamp.data, mask=~stamp.mask),
+            norm=norm,
+            cmap=cmap,
+            origin="lower",
+            alpha=mask_alpha,
+        )
     else:
-        im0 = ax.imshow(stamp, norm=norm, cmap=cmap, origin='lower')
+        im0 = ax.imshow(stamp, norm=norm, cmap=cmap, origin="lower")
 
     plot_utils.add_colorbar(im0)
 
     # Mean location
     if show_mean:
-        ax.scatter(metadata.catalog_wcs_x_mean.astype('int') - x0,
-                   metadata.catalog_wcs_y_mean.astype('int') - y0,
-                   marker='+',
-                   color='lightgreen',
-                   edgecolors='red',
-                   s=250,
-                   label='Catalog - mean position')
+        ax.scatter(
+            metadata.catalog_wcs_x_mean.astype("int") - x0,
+            metadata.catalog_wcs_y_mean.astype("int") - y0,
+            marker="+",
+            color="lightgreen",
+            edgecolors="red",
+            s=250,
+            label="Catalog - mean position",
+        )
 
     if show_all:
-        ax.scatter(metadata.catalog_wcs_x_int - x0,
-                   metadata.catalog_wcs_y_int - y0,
-                   marker='+',
-                   color='orange',
-                   edgecolors='orange',
-                   s=100,
-                   label='Catalog - other frames')
+        ax.scatter(
+            metadata.catalog_wcs_x_int - x0,
+            metadata.catalog_wcs_y_int - y0,
+            marker="+",
+            color="orange",
+            edgecolors="orange",
+            s=100,
+            label="Catalog - other frames",
+        )
 
     # Star catalog location for current frame
     if frame_idx is not None:
-        ax.scatter(x_peak, y_peak, marker='*', color='yellow', edgecolors='black', s=200,
-                   label='Catalog - current frame')
+        ax.scatter(
+            x_peak,
+            y_peak,
+            marker="*",
+            color="yellow",
+            edgecolors="black",
+            s=200,
+            label="Catalog - current frame",
+        )
 
-    plot_utils.add_pixel_grid(ax,
-                              grid_height=stamp_size,
-                              grid_width=stamp_size,
-                              show_superpixel=True,
-                              major_alpha=0.3, minor_alpha=0.0, )
+    plot_utils.add_pixel_grid(
+        ax,
+        grid_height=stamp_size,
+        grid_width=stamp_size,
+        show_superpixel=True,
+        major_alpha=0.3,
+        minor_alpha=0.0,
+    )
     ax.set_xticklabels([t for t in range(int(x0), int(x1) + 2, 2)], rotation=45)
     ax.set_yticklabels([t for t in range(int(y0), int(y1) + 2, 2)])
 
     ax.legend(loc=3)
 
     if frame_idx is None:
-        frame_idx = ''
+        frame_idx = ""
 
-    ax.set_title(f'Frame: {frame_idx} / {len(metadata)}')
+    ax.set_title(f"Frame: {frame_idx} / {len(metadata)}")
     fig.suptitle(title)
     fig.set_size_inches(14, 6)
     return fig
@@ -144,16 +164,16 @@ def wcs_plot(wcs):
 
     # Make sure WCS shows up.
     ra, dec = ax.coords
-    dec.set_ticklabel_position('bt')
-    ra.set_ticklabel_position('lr')
+    dec.set_ticklabel_position("bt")
+    ra.set_ticklabel_position("lr")
 
-    ra.set_major_formatter('d.d')
-    dec.set_major_formatter('d.d')
-    ra.grid(color='orange', ls='dotted')
-    dec.grid(color='orange', ls='dotted')
+    ra.set_major_formatter("d.d")
+    dec.set_major_formatter("d.d")
+    ra.grid(color="orange", ls="dotted")
+    dec.grid(color="orange", ls="dotted")
 
-    ax.set_ylabel('RA (J2000)')
-    ax.set_xlabel('Declination (J2000)')
+    ax.set_ylabel("RA (J2000)")
+    ax.set_xlabel("Declination (J2000)")
 
     return ax
 
@@ -167,9 +187,9 @@ def plot_raw_bg_overlay(data, rgb_background, title=None, wcs=None, size=(18, 12
         ax = fig.add_subplot()
     fig.set_size_inches(*size)
 
-    ax.imshow(data, origin='lower', norm=simple_norm(data, 'log', min_cut=0), cmap='Greys')
+    ax.imshow(data, origin="lower", norm=simple_norm(data, "log", min_cut=0), cmap="Greys")
     ax.grid(False)
-    rgb_background.plot_meshes(ax=ax, outlines=True, alpha=0.3, marker='', color='red')
+    rgb_background.plot_meshes(ax=ax, outlines=True, alpha=0.3, marker="", color="red")
 
     if title is not None:
         ax.set_title(title)
@@ -179,17 +199,18 @@ def plot_raw_bg_overlay(data, rgb_background, title=None, wcs=None, size=(18, 12
 
 def plot_stellar_location(data, title=None, wcs=None):
     ax = wcs_plot(wcs)
-    sb.scatterplot(data=data,
-                   x='catalog_wcs_x_int',
-                   y='catalog_wcs_y_int',
-                   hue='catalog_vmag',
-                   size='catalog_vmag',
-                   sizes=(200, 5),
-                   marker='*',
-                   edgecolor='black',
-                   linewidth=0.2,
-                   ax=ax
-                   )
+    sb.scatterplot(
+        data=data,
+        x="catalog_wcs_x_int",
+        y="catalog_wcs_y_int",
+        hue="catalog_vmag",
+        size="catalog_vmag",
+        sizes=(200, 5),
+        marker="*",
+        edgecolor="black",
+        linewidth=0.2,
+        ax=ax,
+    )
 
     if title:
         ax.figure.suptitle(title, y=0.95)
@@ -209,8 +230,8 @@ def plot_bg_overlay(data, rgb_background, title=None, wcs=None, size=(18, 12)):
 
     fig.set_size_inches(*size)
 
-    im = ax.imshow(data, origin='lower', cmap='Greys_r', norm=simple_norm(data, 'linear'))
-    rgb_background.plot_meshes(ax=ax, outlines=True, alpha=0.1, marker='', color='red')
+    im = ax.imshow(data, origin="lower", cmap="Greys_r", norm=simple_norm(data, "linear"))
+    rgb_background.plot_meshes(ax=ax, outlines=True, alpha=0.1, marker="", color="red")
     plot.add_colorbar(im)
 
     if title is not None:
@@ -233,13 +254,14 @@ def filter_plot(data, col, sequence_id):
     fig = Figure()
     ax = fig.add_subplot()
 
-    data[col].plot(ax=ax, marker='.', label='Valid')
-    data.query(f'mask_{col}==True')[col].plot(ax=ax, marker='o', color='r', ls='',
-                                              label=f'Filtered {col}')
+    data[col].plot(ax=ax, marker=".", label="Valid")
+    data.query(f"mask_{col}==True")[col].plot(
+        ax=ax, marker="o", color="r", ls="", label=f"Filtered {col}"
+    )
 
     ax.legend()
-    ax.set_xlabel('Time [UTC]')
-    ax.set_title(f'Filtered {col} on {sequence_id}')
+    ax.set_xlabel("Time [UTC]")
+    ax.set_title(f"Filtered {col} on {sequence_id}")
 
     fig.set_size_inches(8, 4)
     return fig
@@ -250,10 +272,12 @@ def image_simple(d0, title=None):
     fig.set_size_inches(18, 12)
     ax = fig.subplots()
 
-    ax.imshow(d0,
-              origin='lower',
-              norm=simple_norm(d0, stretch='sqrt', min_percent=10.50, max_percent=98.),
-              cmap='Greys_r')
+    ax.imshow(
+        d0,
+        origin="lower",
+        norm=simple_norm(d0, stretch="sqrt", min_percent=10.50, max_percent=98.0),
+        cmap="Greys_r",
+    )
 
     ax.grid(False)
     ax.set_xticklabels([])

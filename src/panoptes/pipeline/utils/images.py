@@ -25,7 +25,7 @@ def save_fits(filename, data_list, header, force_new=False):
         hdul.append(hdu)
 
     hdul.writeto(filename, overwrite=force_new)
-    print(f'Saved {len(data_list)} dataset(s) to {filename}')
+    print(f"Saved {len(data_list)} dataset(s) to {filename}")
 
 
 def get_metadata(settings: ImageSettings, path_info: ImagePathInfo) -> dict:
@@ -35,36 +35,34 @@ def get_metadata(settings: ImageSettings, path_info: ImagePathInfo) -> dict:
     metadata = extract_metadata(header, path_info)
     wcs_meta = WCS(header).to_header(relax=True)
 
-    obstime = metadata['image']['image_time']
+    obstime = metadata["image"]["image_time"]
 
     # Clean up the coordinates and get the HA and AltAz.
     radec_coord = SkyCoord(
-        ra=wcs_meta['CRVAL1'],
-        dec=wcs_meta['CRVAL2'],
-        unit='deg',
-        frame='icrs',
+        ra=wcs_meta["CRVAL1"],
+        dec=wcs_meta["CRVAL2"],
+        unit="deg",
+        frame="icrs",
         obstime=obstime,
         location=EarthLocation(
-            lon=header['LONG-OBS'],
-            lat=header['LAT-OBS'],
-            height=header['ELEV-OBS']
-        )
+            lon=header["LONG-OBS"], lat=header["LAT-OBS"], height=header["ELEV-OBS"]
+        ),
     )
     hadec_coord = radec_coord.transform_to(HADec)
 
     # Update metadata with coordinate info.
-    metadata['image']['coordinates'] = {
-        'ra': radec_coord.ra.value,
-        'dec': radec_coord.dec.value,
-        'ha': hadec_coord.ha.value,
-        'ha_deg': hadec_coord.ha.to('deg').value,
-        'alt': hadec_coord.altaz.alt.value,
-        'az': hadec_coord.altaz.az.value,
-        'airmass': hadec_coord.altaz.secz.value,
+    metadata["image"]["coordinates"] = {
+        "ra": radec_coord.ra.value,
+        "dec": radec_coord.dec.value,
+        "ha": hadec_coord.ha.value,
+        "ha_deg": hadec_coord.ha.to("deg").value,
+        "alt": hadec_coord.altaz.alt.value,
+        "az": hadec_coord.altaz.az.value,
+        "airmass": hadec_coord.altaz.secz.value,
     }
 
-    metadata['image']['image_type'] = 'SCIENCE'
-    metadata['sequence']['image_type'] = 'SCIENCE'
+    metadata["image"]["image_type"] = "SCIENCE"
+    metadata["sequence"]["image_type"] = "SCIENCE"
 
     return metadata
 
@@ -72,140 +70,149 @@ def get_metadata(settings: ImageSettings, path_info: ImagePathInfo) -> dict:
 def extract_metadata(header, path_info) -> dict:
     """Get the metadata from a FITS image."""
     try:
-        measured_rggb = [float(x) for x in header.get('MEASRGGB', '0 0 0 0').split(' ')]
+        measured_rggb = [float(x) for x in header.get("MEASRGGB", "0 0 0 0").split(" ")]
         file_date = path_info.image_time.to_datetime(timezone=UTC)
-        camera_date = parse_date(header.get('DATE-OBS', path_info.image_time)).replace(tzinfo=UTC)
+        camera_date = parse_date(header.get("DATE-OBS", path_info.image_time)).replace(tzinfo=UTC)
 
         unit_info = dict(
             unit_id=path_info.unit_id,
-            latitude=header.get('LAT-OBS'),
-            longitude=header.get('LONG-OBS'),
-            elevation=float(header.get('ELEV-OBS')),
-            name=header.get('OBSERVER')
+            latitude=header.get("LAT-OBS"),
+            longitude=header.get("LONG-OBS"),
+            elevation=float(header.get("ELEV-OBS")),
+            name=header.get("OBSERVER"),
         )
 
         sequence_info = dict(
             sequence_id=path_info.sequence_id,
             sequence_time=path_info.sequence_time.to_datetime(timezone=UTC),
             coordinates=dict(
-                airmass=header.get('AIRMASS'),
-                mount_dec=header.get('DEC-MNT'),
-                mount_ra=header.get('RA-MNT'),
-                mount_ha=header.get('HA-MNT'),
+                airmass=header.get("AIRMASS"),
+                mount_dec=header.get("DEC-MNT"),
+                mount_ra=header.get("RA-MNT"),
+                mount_ha=header.get("HA-MNT"),
             ),
             camera=dict(
                 camera_id=path_info.camera_id,
-                lens_serial_number=header.get('INTSN'),
-                serial_number=str(header.get('CAMSN')),
+                lens_serial_number=header.get("INTSN"),
+                serial_number=str(header.get("CAMSN")),
             ),
-            imagew=int(header.get('IMAGEW', 0)),
-            imageh=int(header.get('IMAGEH', 0)),
-            field_name=header.get('FIELD', ''),
-            software_version=header.get('CREATOR', ''),
+            imagew=int(header.get("IMAGEW", 0)),
+            imageh=int(header.get("IMAGEH", 0)),
+            field_name=header.get("FIELD", ""),
+            software_version=header.get("CREATOR", ""),
         )
 
         image_info = dict(
-            uid=path_info.get_full_id(sep='_'),
+            uid=path_info.get_full_id(sep="_"),
             camera=dict(
-                blue_balance=float(header.get('BLUEBAL')),
-                circconf=float(header.get('CIRCCONF', '0.').split(' ')[0]),
-                colortemp=float(header.get('COLORTMP')),
+                blue_balance=float(header.get("BLUEBAL")),
+                circconf=float(header.get("CIRCCONF", "0.").split(" ")[0]),
+                colortemp=float(header.get("COLORTMP")),
                 dateobs=camera_date,
-                exptime=float(header.get('EXPTIME')),
-                iso=header.get('ISO'),
+                exptime=float(header.get("EXPTIME")),
+                iso=header.get("ISO"),
                 measured_b=measured_rggb[3],
-                measured_ev1=float(header.get('MEASEV')),
-                measured_ev2=float(header.get('MEASEV2')),
+                measured_ev1=float(header.get("MEASEV")),
+                measured_ev2=float(header.get("MEASEV2")),
                 measured_g1=measured_rggb[1],
                 measured_g2=measured_rggb[2],
                 measured_r=measured_rggb[0],
-                red_balance=float(header.get('REDBAL')),
-                temperature=float(header.get('CAMTEMP', 0).split(' ')[0]),
-                white_lvln=header.get('WHTLVLN'),
-                white_lvls=header.get('WHTLVLS'),
+                red_balance=float(header.get("REDBAL")),
+                temperature=float(header.get("CAMTEMP", 0).split(" ")[0]),
+                white_lvln=header.get("WHTLVLN"),
+                white_lvls=header.get("WHTLVLS"),
             ),
             environment=dict(
-                moonfrac=float(header.get('MOONFRAC')),
-                moonsep=float(header.get('MOONSEP')),
+                moonfrac=float(header.get("MOONFRAC")),
+                moonsep=float(header.get("MOONSEP")),
             ),
             file_creation_date=file_date,
             image_time=path_info.image_time.to_datetime(timezone=UTC),
         )
 
     except Exception as e:
-        print(f'Error in extracting metadata: {e!r}')
+        print(f"Error in extracting metadata: {e!r}")
         raise e
 
-    print('Metadata extracted from header')
+    print("Metadata extracted from header")
     return dict(unit=unit_info, sequence=sequence_info, image=image_info)
 
 
-def match_sources(detected_sources: pandas.DataFrame, solved_wcs0: WCS, settings: ImageSettings,
-                  image_edge: int = 10
-                  ) -> pandas.DataFrame:
-    print(f'Matching {len(detected_sources)} sources to wcs.')
+def match_sources(
+    detected_sources: pandas.DataFrame,
+    solved_wcs0: WCS,
+    settings: ImageSettings,
+    image_edge: int = 10,
+) -> pandas.DataFrame:
+    print(f"Matching {len(detected_sources)} sources to wcs.")
     catalog_filename = settings.params.catalog.catalog_filename
     vmag_limits = settings.params.catalog.vmag_limits
-    print(f'Using catalog from {catalog_filename}')
+    print(f"Using catalog from {catalog_filename}")
     catalog_sources = sources.get_stars_from_wcs(
         solved_wcs0,
         catalog_filename=catalog_filename,
         vmag_min=vmag_limits[0],
         vmag_max=vmag_limits[1],
     )
-    print(f'Matching sources to catalog for {len(detected_sources)} sources')
+    print(f"Matching sources to catalog for {len(detected_sources)} sources")
     matched_sources = sources.get_catalog_match(
         detected_sources,
         wcs=solved_wcs0,
         catalog_stars=catalog_sources,
-        ra_column='photutils_sky_centroid_ra',
-        dec_column='photutils_sky_centroid_dec',
-        max_separation_arcsec=settings.params.catalog.max_separation_arcsec
+        ra_column="photutils_sky_centroid_ra",
+        dec_column="photutils_sky_centroid_dec",
+        max_separation_arcsec=settings.params.catalog.max_separation_arcsec,
     )
     # Drop matches near border
     print(
-        f'Filtering sources near within {image_edge} pixels of '
-        f'{settings.params.camera.image_width}x{settings.params.camera.image_height}'
+        f"Filtering sources near within {image_edge} pixels of "
+        f"{settings.params.camera.image_width}x{settings.params.camera.image_height}"
     )
     matched_sources = matched_sources.query(
-        f'catalog_wcs_x_int > {image_edge} and '
-        f'catalog_wcs_x_int < {settings.params.camera.image_width - image_edge} and '
-        f'catalog_wcs_y_int > {image_edge} and '
-        f'catalog_wcs_y_int < {settings.params.camera.image_height - image_edge}'
+        f"catalog_wcs_x_int > {image_edge} and "
+        f"catalog_wcs_x_int < {settings.params.camera.image_width - image_edge} and "
+        f"catalog_wcs_y_int > {image_edge} and "
+        f"catalog_wcs_y_int < {settings.params.camera.image_height - image_edge}"
     ).copy()
-    print(f'Found {len(matched_sources)} matching sources')
+    print(f"Found {len(matched_sources)} matching sources")
 
     # There should not be too many duplicates at this point and they are returned in order
     # of catalog separation, so we take the first.
-    duplicates = matched_sources.duplicated('picid', keep='first')
-    print(f'Found {len(matched_sources[duplicates])} duplicate sources')
+    duplicates = matched_sources.duplicated("picid", keep="first")
+    print(f"Found {len(matched_sources[duplicates])} duplicate sources")
 
     # Mark which ones were duplicated.
-    matched_sources.loc[:, 'catalog_match_duplicate'] = False
+    matched_sources.loc[:, "catalog_match_duplicate"] = False
     dupes = matched_sources.picid.isin(matched_sources[duplicates].picid)
-    matched_sources.loc[dupes, 'catalog_match_duplicate'] = True
+    matched_sources.loc[dupes, "catalog_match_duplicate"] = True
 
     # Filter out duplicates.
     matched_sources = matched_sources.loc[~duplicates].copy()
-    print(f'Found {len(matched_sources)} matching sources after removing duplicates')
+    print(f"Found {len(matched_sources)} matching sources after removing duplicates")
 
     # Add some binned fields that we can use for table partitioning.
-    matched_sources['catalog_dec_bin'] = matched_sources.catalog_dec.astype('int')
-    matched_sources['catalog_ra_bin'] = matched_sources.catalog_ra.astype('int')
+    matched_sources["catalog_dec_bin"] = matched_sources.catalog_dec.astype("int")
+    matched_sources["catalog_ra_bin"] = matched_sources.catalog_ra.astype("int")
 
     # Precompute some columns.
-    matched_sources['catalog_gaia_bg_excess'] = matched_sources.catalog_gaiabp - matched_sources.catalog_gaiamag
-    matched_sources['catalog_gaia_br_excess'] = matched_sources.catalog_gaiabp - matched_sources.catalog_gaiarp
-    matched_sources['catalog_gaia_rg_excess'] = matched_sources.catalog_gaiarp - matched_sources.catalog_gaiamag
+    matched_sources["catalog_gaia_bg_excess"] = (
+        matched_sources.catalog_gaiabp - matched_sources.catalog_gaiamag
+    )
+    matched_sources["catalog_gaia_br_excess"] = (
+        matched_sources.catalog_gaiabp - matched_sources.catalog_gaiarp
+    )
+    matched_sources["catalog_gaia_rg_excess"] = (
+        matched_sources.catalog_gaiarp - matched_sources.catalog_gaiamag
+    )
 
     return matched_sources
 
 
-def detect_sources(solved_wcs0, reduced_data, combined_bg_data, combined_bg_residual_data,
-                   settings: ImageSettings
-                   ):
-    print('Detecting sources in image')
-    threshold = (settings.params.catalog.detection_threshold * combined_bg_residual_data)
+def detect_sources(
+    solved_wcs0, reduced_data, combined_bg_data, combined_bg_residual_data, settings: ImageSettings
+):
+    print("Detecting sources in image")
+    threshold = settings.params.catalog.detection_threshold * combined_bg_residual_data
     kernel = convolution.Gaussian2DKernel(3 * gaussian_fwhm_to_sigma)
     kernel.normalize()
 
@@ -217,36 +224,35 @@ def detect_sources(solved_wcs0, reduced_data, combined_bg_data, combined_bg_resi
         reduced_data,
         threshold,
         npixels=settings.params.catalog.num_detect_pixels,
-        mask=reduced_data.mask
+        mask=reduced_data.mask,
     )
-    print('De-blending image segments')
+    print("De-blending image segments")
     deblended_segments = segmentation.deblend_sources(
         reduced_data,
         image_segments,
         npixels=settings.params.catalog.num_detect_pixels,
         nlevels=32,
-        contrast=0.01
+        contrast=0.01,
     )
-    print(
-        f'Calculating total error for data using gain={settings.params.camera.effective_gain}'
-    )
+    print(f"Calculating total error for data using gain={settings.params.camera.effective_gain}")
     error = calc_total_error(
-        reduced_data, combined_bg_residual_data,
-        settings.params.camera.effective_gain
+        reduced_data, combined_bg_residual_data, settings.params.camera.effective_gain
     )
     table_cols = [
-        'background_mean',
-        'background_centroid',
-        'background_sum',
-        'cxx', 'cxy', 'cyy',
-        'eccentricity',
-        'equivalent_radius',
-        'fwhm',
-        'gini',
-        'kron_radius',
-        'perimeter'
+        "background_mean",
+        "background_centroid",
+        "background_sum",
+        "cxx",
+        "cxy",
+        "cyy",
+        "eccentricity",
+        "equivalent_radius",
+        "fwhm",
+        "gini",
+        "kron_radius",
+        "perimeter",
     ]
-    print('Building source catalog for deblended_segments')
+    print("Building source catalog for deblended_segments")
     detected_catalog = segmentation.SourceCatalog(
         reduced_data,
         deblended_segments,
@@ -254,16 +260,16 @@ def detect_sources(solved_wcs0, reduced_data, combined_bg_data, combined_bg_resi
         error=error,
         mask=reduced_data.mask,
         wcs=solved_wcs0,
-        localbkg_width=settings.params.catalog.localbkg_width_pixels
+        localbkg_width=settings.params.catalog.localbkg_width_pixels,
     )
     source_cols = sorted(detected_catalog.default_columns + table_cols)
     detected_sources = detected_catalog.to_table(columns=source_cols).to_pandas().dropna()
     # Clean up some column names.
-    detected_sources = detected_sources.rename(columns=lambda x: f'photutils_{x}')
+    detected_sources = detected_sources.rename(columns=lambda x: f"photutils_{x}")
     detected_sources = detected_sources.rename(
         columns={
-            'photutils_sky_centroid.ra': 'photutils_sky_centroid_ra',
-            'photutils_sky_centroid.dec': 'photutils_sky_centroid_dec',
+            "photutils_sky_centroid.ra": "photutils_sky_centroid_ra",
+            "photutils_sky_centroid.dec": "photutils_sky_centroid_dec",
         }
     )
     return detected_sources
@@ -271,39 +277,48 @@ def detect_sources(solved_wcs0, reduced_data, combined_bg_data, combined_bg_resi
 
 def plate_solve(settings: ImageSettings, filename=None, timeout=30, **kwargs):
     filename = filename or settings.files.reduced_filename
-    print(f'Plate solving {filename}')
+    print(f"Plate solving {filename}")
 
     # Add custom options for solving.
     options = [
-        '--fits-image',
-        '--scale-low', '10',
-        '--scale-high', '20',
-        '--scale-units', 'degw',
-        '--radius', '15',
-        '--guess-scale',
-        '--no-background-subtraction',
-        '--cpulimit', str(timeout),
-        '--no-verify',
-        '--crpix-center',
-        '--temp-axy',
-        '--index-xyls', 'none',
-        '--solved', 'none',
-        '--match', 'none',
-        '--rdls', 'none',
-        '--corr', filename.with_suffix('.corr').as_posix(),
-        '--downsample', '4',
-        '--tweak-order', '4',
-        '--no-plots',
+        "--fits-image",
+        "--scale-low",
+        "10",
+        "--scale-high",
+        "20",
+        "--scale-units",
+        "degw",
+        "--radius",
+        "15",
+        "--guess-scale",
+        "--no-background-subtraction",
+        "--cpulimit",
+        str(timeout),
+        "--no-verify",
+        "--crpix-center",
+        "--temp-axy",
+        "--index-xyls",
+        "none",
+        "--solved",
+        "none",
+        "--match",
+        "none",
+        "--rdls",
+        "none",
+        "--corr",
+        filename.with_suffix(".corr").as_posix(),
+        "--downsample",
+        "4",
+        "--tweak-order",
+        "4",
+        "--no-plots",
     ]
 
     solved_headers = fits_utils.get_solve_field(
-        str(filename),
-        skip_solved=False,
-        solve_opts=options,
-        timeout=300, **kwargs
+        str(filename), skip_solved=False, solve_opts=options, timeout=300, **kwargs
     )
-    solved_path = solved_headers.pop('solved_fits_file')
-    print(f'Solving completed successfully for {solved_path}')
+    solved_path = solved_headers.pop("solved_fits_file")
+    print(f"Solving completed successfully for {solved_path}")
     solved_wcs0 = WCS(solved_headers)
     return solved_wcs0
 

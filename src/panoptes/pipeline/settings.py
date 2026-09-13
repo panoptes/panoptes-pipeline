@@ -1,12 +1,11 @@
 from pathlib import Path
-from typing import Tuple, Optional
 
 from pydantic import BaseModel
 from pydantic_settings import BaseSettings
 
 
 class CameraSettings(BaseModel):
-    zero_bias: float = 512.
+    zero_bias: float = 512.0
     saturation: float = 15872.0  # ADU after bias subtraction.
     effective_gain: float = 1.5
     image_width: int = 6000
@@ -14,19 +13,19 @@ class CameraSettings(BaseModel):
 
 
 class BackgroundSettings(BaseModel):
-    box_size: Tuple[int, int] = (79, 84)
-    filter_size: Tuple[int, int] = (3, 3)
+    box_size: tuple[int, int] = (79, 84)
+    filter_size: tuple[int, int] = (3, 3)
 
 
 class CatalogSettings(BaseModel):
-    vmag_limits: Tuple[float, float] = (6, 13)
+    vmag_limits: tuple[float, float] = (6, 13)
     max_separation_arcsec: int = 25  # ~8-10 arcsec/pixel
     localbkg_width_pixels: int = 2
     detection_threshold: float = 10.0
     num_detect_pixels: int = 4
     #: Local PANOPTES Input Catalog: parquet, ECSV or CSV, by suffix. Required,
     #: as there is no network lookup -- `sources.get_stars` fails loudly if unset.
-    catalog_filename: Optional[Path] = None
+    catalog_filename: Path | None = None
 
 
 class PipelineParams(BaseSettings):
@@ -43,10 +42,10 @@ class ObservationSettings(BaseModel):
 
 
 class FileSettings(BaseModel):
-    reduced_filename: Path = 'image.fits'
-    extras_filename: Path = 'extras.fits'
-    metadata_filename: Path = 'metadata.json'
-    sources_filename: Path = 'sources.parquet'
+    reduced_filename: Path = "image.fits"
+    extras_filename: Path = "extras.fits"
+    metadata_filename: Path = "metadata.json"
+    sources_filename: Path = "sources.parquet"
 
 
 class ImageSettings(BaseSettings):

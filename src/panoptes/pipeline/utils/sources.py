@@ -10,6 +10,66 @@ from astropy.wcs import WCS
 #: use the mapped PIC names rather than the raw upstream ones.
 REQUIRED_CATALOG_COLUMNS = ("picid", "catalog_ra", "catalog_dec", "catalog_vmag")
 
+#: Catalog file formats, chosen by suffix. Parquet is the better default for an
+#: all-sky catalog -- markedly smaller, and it round-trips dtypes exactly -- but
+#: CSV is accepted so a hand-made, per-field or trimmed catalog needs no
+#: conversion step first. Compressed CSV (`.csv.gz`, `.csv.bz2`) works too:
+#: pandas picks the codec from the suffix.
+PARQUET_SUFFIXES = (".parquet", ".pq")
+TEXT_SUFFIXES = (".csv", ".tsv")
+
+
+def read_catalog(catalog_filename) -> pandas.DataFrame:
+    """Read a catalog file, choosing the reader from its suffix.
+
+    Args:
+        catalog_filename (str|Path): Path to a `.parquet`/`.pq` or `.csv`/`.tsv`
+            file, optionally compressed (`.csv.gz`).
+
+    Returns:
+        `pandas.DataFrame`: The catalog, with `picid` as an integer.
+
+    Raises:
+        FileNotFoundError: If the path does not exist.
+        ValueError: If the suffix is not a recognized format, a required column
+            is missing, or `picid` cannot be read as an integer identifier.
+
+    """
+    path = Path(catalog_filename)
+    if not path.exists():
+        raise FileNotFoundError(f"Catalog file does not exist: {path}")
+
+    suffixes = [s.lower() for s in path.suffixes]
+
+    if any(s in suffixes for s in PARQUET_SUFFIXES):
+        catalog_stars = pandas.read_parquet(path)
+    elif any(s in suffixes for s in TEXT_SUFFIXES):
+        catalog_stars = pandas.read_csv(path, sep="\t" if ".tsv" in suffixes else ",")
+    else:
+        raise ValueError(
+            f"Unrecognized catalog format for {path}. Expected one of "
+            f"{list(PARQUET_SUFFIXES + TEXT_SUFFIXES)}, optionally compressed."
+        )
+
+    missing = [c for c in REQUIRED_CATALOG_COLUMNS if c not in catalog_stars.columns]
+    if missing:
+        raise ValueError(
+            f"Catalog {path} is missing required column(s): {missing}. "
+            f"Expected the mapped PIC names: {list(REQUIRED_CATALOG_COLUMNS)}."
+        )
+
+    # `picid` is an identifier, and CSV has no dtypes: a single blank turns the
+    # whole column into floats, which then compare and join as `1234.0` against
+    # integer ids everywhere else. Fail here instead of matching nothing later.
+    try:
+        catalog_stars["picid"] = catalog_stars["picid"].astype("int64")
+    except (ValueError, TypeError) as e:
+        raise ValueError(
+            f"Catalog {path} has a `picid` column that is not integer identifiers: {e}"
+        ) from e
+
+    return catalog_stars
+
 
 def get_stars_from_coords(ra: float, dec: float, radius: float = 8.0, **kwargs) -> pandas.DataFrame:
     limits = dict(
@@ -19,14 +79,15 @@ def get_stars_from_coords(ra: float, dec: float, radius: float = 8.0, **kwargs) 
         dec_min=dec - radius,
     )
 
-    print(f'Using {limits=} for get_stars')
+    print(f"Using {limits=} for get_stars")
     catalog_stars = get_stars(shape=limits, **kwargs)
 
     return catalog_stars
 
 
-def get_stars_from_wcs(wcs0: WCS, round_to: int = 0, pad: float = 1.0, pad_size=(20, 10),
-                       **kwargs) -> pandas.DataFrame:
+def get_stars_from_wcs(
+    wcs0: WCS, round_to: int = 0, pad: float = 1.0, pad_size=(20, 10), **kwargs
+) -> pandas.DataFrame:
     """Lookup star information from WCS footprint.
 
     Generates the correct layout for an SQL `POLYGON` that can be passed to
@@ -42,37 +103,27 @@ def get_stars_from_wcs(wcs0: WCS, round_to: int = 0, pad: float = 1.0, pad_size=
 
     """
     wcs_footprint = wcs0.calc_footprint()
-    print(f'Looking up catalog stars for WCS: {wcs_footprint}')
+    print(f"Looking up catalog stars for WCS: {wcs_footprint}")
 
     ra_max, dec_max = (wcs0.wcs.crval + np.array(pad_size)).round(round_to)
     ra_min, dec_min = (wcs0.wcs.crval - np.array(pad_size)).round(round_to)
 
-    limits = dict(
-        ra_max=ra_max % 360,
-        ra_min=ra_min % 360,
-        dec_max=dec_max,
-        dec_min=dec_min
-    )
+    limits = dict(ra_max=ra_max % 360, ra_min=ra_min % 360, dec_max=dec_max, dec_min=dec_min)
 
-    print(f'Searching square shape with {round_to=} and {pad=}: {limits!r}')
+    print(f"Searching square shape with {round_to=} and {pad=}: {limits!r}")
     catalog_stars = get_stars(shape=limits, **kwargs)
 
     return catalog_stars
 
 
-def get_stars(
-        shape=None,
-        vmag_min=7,
-        vmag_max=14,
-        catalog_filename=None,
-        **kwargs):
+def get_stars(shape=None, vmag_min=7, vmag_max=14, catalog_filename=None, **kwargs):
     """Look up star information from a local copy of the PANOPTES Input Catalog.
 
     The PIC is derived from the [TESS Input Catalog](
     https://tess.mit.edu/science/tess-input-catalogue/) v8. It is read from a
-    local parquet file: getting that file onto disk is a separate fetch step,
-    not something this function does. There is no network lookup -- see
-    improvement plan 4.3.
+    local file -- parquet or CSV, see :py:func:`read_catalog` -- and getting
+    that file onto disk is a separate fetch step, not something this function
+    does. There is no network lookup; see improvement plan 4.3.
 
     The file is expected to carry the mapped column names
     (:py:data:`REQUIRED_CATALOG_COLUMNS`) rather than the raw upstream ones.
@@ -89,7 +140,8 @@ def get_stars(
             `dec_min`, `dec_max`, in degrees. If None, no positional filtering.
         vmag_min (float, optional): Minimum Vmag to include, inclusive.
         vmag_max (float, optional): Maximum Vmag to include, exclusive.
-        catalog_filename (str|Path): Path to the catalog parquet file. Required.
+        catalog_filename (str|Path): Path to the catalog file, parquet or CSV.
+            Required; there is no default.
         **kwargs: Ignored, for call-site compatibility.
 
     Returns:
@@ -107,18 +159,7 @@ def get_stars(
             "There is no network catalog lookup."
         )
 
-    catalog_filename = Path(catalog_filename)
-    if not catalog_filename.exists():
-        raise FileNotFoundError(f"Catalog file does not exist: {catalog_filename}")
-
-    catalog_stars = pandas.read_parquet(catalog_filename)
-
-    missing = [c for c in REQUIRED_CATALOG_COLUMNS if c not in catalog_stars.columns]
-    if missing:
-        raise ValueError(
-            f"Catalog {catalog_filename} is missing required column(s): {missing}. "
-            f"Expected the mapped PIC names: {list(REQUIRED_CATALOG_COLUMNS)}."
-        )
+    catalog_stars = read_catalog(catalog_filename)
 
     # Vmag range is [vmag_min, vmag_max), as documented.
     selected = catalog_stars.catalog_vmag.between(vmag_min, vmag_max, inclusive="left")
@@ -139,20 +180,22 @@ def get_stars(
     return results
 
 
-def get_catalog_match(point_sources,
-                      wcs=None,
-                      catalog_stars=None,
-                      max_separation_arcsec=None,
-                      ra_column='measured_ra',
-                      dec_column='measured_dec',
-                      **kwargs):
+def get_catalog_match(
+    point_sources,
+    wcs=None,
+    catalog_stars=None,
+    max_separation_arcsec=None,
+    ra_column="measured_ra",
+    dec_column="measured_dec",
+    **kwargs,
+):
     """Match the point source positions to the catalog.
 
     The catalog is matched to the PANOPTES Input Catalog (PIC), which is derived
     from the [TESS Input Catalog](https://tess.mit.edu/science/tess-input-catalogue/)
     [v8](https://heasarc.gsfc.nasa.gov/docs/tess/tess-input-catalog-version-8-tic-8-is-now-available-at-mast.html).
 
-    The catalog is read from a local parquet file. This function will match the
+    The catalog is read from a local file. This function will match the
     `measured_ra` and `measured_dec` columns (as output from `lookup_point_sources`)
     to the `catalog_ra` and `catalog_dec` columns of the catalog. The actual lookup
     is done via :py:func:`get_stars_from_wcs`.
@@ -231,43 +274,43 @@ def get_catalog_match(point_sources,
     assert point_sources is not None
 
     if catalog_stars is None:
-        print(f'Looking up stars for wcs={wcs.wcs.crval}')
+        print(f"Looking up stars for wcs={wcs.wcs.crval}")
         # Lookup stars in catalog
         catalog_stars = get_stars_from_wcs(wcs, **kwargs)
 
     if catalog_stars is None:
-        print('No catalog matches, returning table without ids')
+        print("No catalog matches, returning table without ids")
         return point_sources
 
     # Get coords for catalog stars
     catalog_coords = SkyCoord(
-        ra=catalog_stars['catalog_ra'].values * u.deg,
-        dec=catalog_stars['catalog_dec'].values * u.deg,
-        frame='icrs'
+        ra=catalog_stars["catalog_ra"].values * u.deg,
+        dec=catalog_stars["catalog_dec"].values * u.deg,
+        frame="icrs",
     )
 
     # Get coords from detected point sources
     stars_coords = SkyCoord(
         ra=point_sources[ra_column].values * u.deg,
         dec=point_sources[dec_column].values * u.deg,
-        frame='icrs'
+        frame="icrs",
     )
 
     # Do catalog matching
-    print(
-        f'Matching {len(catalog_coords)} catalog stars to {len(stars_coords)} detected stars')
+    print(f"Matching {len(catalog_coords)} catalog stars to {len(stars_coords)} detected stars")
     idx, d2d, d3d = stars_coords.match_to_catalog_sky(catalog_coords)
-    print(f'Got {len(idx)} matched sources (includes duplicates) for wcs={wcs.wcs.crval}')
+    print(f"Got {len(idx)} matched sources (includes duplicates) for wcs={wcs.wcs.crval}")
 
     catalog_matches = catalog_stars.iloc[idx].copy()
-    catalog_matches['catalog_sep'] = d2d.to_value(u.arcsec)
+    catalog_matches["catalog_sep"] = d2d.to_value(u.arcsec)
 
     # Get the XY positions
     catalog_matches = get_xy_positions(wcs, catalog_matches)
 
     # Add the matches and their separation.
     matched_sources = point_sources.reset_index(drop=True).join(
-        catalog_matches.reset_index(drop=True))
+        catalog_matches.reset_index(drop=True)
+    )
 
     # All point sources so far are matched.
     # matched_sources['status'] = 'matched'
@@ -289,19 +332,25 @@ def get_catalog_match(point_sources,
     #     new_column_order.insert(i, col)
     # matched_sources = matched_sources.reindex(columns=new_column_order)
 
-    print(f'Point sources: {len(matched_sources)} for wcs={wcs.wcs.crval!r}')
+    print(f"Point sources: {len(matched_sources)} for wcs={wcs.wcs.crval!r}")
 
     # Remove catalog matches that are too far away.
     if max_separation_arcsec is not None:
-        print(f'Removing matches > {max_separation_arcsec} arcsec from catalog.')
-        matched_sources = matched_sources.query('catalog_sep <= @max_separation_arcsec')
+        print(f"Removing matches > {max_separation_arcsec} arcsec from catalog.")
+        matched_sources = matched_sources.query("catalog_sep <= @max_separation_arcsec")
 
-    print(f'Returning matched sources: {len(matched_sources)} for wcs={wcs.wcs.crval!r}')
+    print(f"Returning matched sources: {len(matched_sources)} for wcs={wcs.wcs.crval!r}")
     return matched_sources
 
 
-def get_xy_positions(wcs_input, catalog_df, ra_column='catalog_ra', dec_column='catalog_dec',
-                     origin=1, copy_catalog=True):
+def get_xy_positions(
+    wcs_input,
+    catalog_df,
+    ra_column="catalog_ra",
+    dec_column="catalog_dec",
+    origin=1,
+    copy_catalog=True,
+):
     if copy_catalog:
         catalog_df = catalog_df.copy()
 
@@ -309,9 +358,9 @@ def get_xy_positions(wcs_input, catalog_df, ra_column='catalog_ra', dec_column='
 
     # Get the XY positions
     catalog_xy = wcs_input.all_world2pix(coords, origin, ra_dec_order=True)
-    catalog_df['catalog_wcs_x'] = catalog_xy.T[0]
-    catalog_df['catalog_wcs_y'] = catalog_xy.T[1]
-    catalog_df['catalog_wcs_x_int'] = catalog_df.catalog_wcs_x.astype(int)
-    catalog_df['catalog_wcs_y_int'] = catalog_df.catalog_wcs_y.astype(int)
+    catalog_df["catalog_wcs_x"] = catalog_xy.T[0]
+    catalog_df["catalog_wcs_y"] = catalog_xy.T[1]
+    catalog_df["catalog_wcs_x_int"] = catalog_df.catalog_wcs_x.astype(int)
+    catalog_df["catalog_wcs_y_int"] = catalog_df.catalog_wcs_y.astype(int)
 
     return catalog_df

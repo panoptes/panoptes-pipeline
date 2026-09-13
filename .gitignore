@@ -55,3 +55,7 @@ input
 output
 notebooks/
 .ipynb_checkpoints
+
+# The opt-in cross-repository workspace has its own environment and lockfile.
+workspace/.venv/
+workspace/uv.lock

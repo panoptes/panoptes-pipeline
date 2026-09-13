@@ -27,9 +27,9 @@ classifiers = [
   "Topic :: Scientific/Engineering :: Astronomy",
   "Topic :: Scientific/Engineering :: Physics",
 ]
-# Everything the algorithm and the local data path need. The cloud stack and the
-# notebook execution path are extras, so `uv sync` gives a working test
-# environment without a GCP install.
+# Everything the package needs. There are no extras: the cloud stack and the
+# notebook execution path were removed rather than made optional, so `uv sync`
+# gives an environment in which every module imports.
 dependencies = [
   # Arrays and the algorithm itself.
   "numpy",
@@ -122,7 +122,7 @@ doctest_optionflags = [
 
 testpaths = ["tests", "src"]
 # Avoid recursing into non-test directories
-norecursedirs = ["script", "resources", "dist", "build", ".tox"]
+norecursedirs = ["scripts", "dist", "build"]
 filterwarnings = [
   "ignore:elementwise == comparison failed:DeprecationWarning",
   "ignore::pytest.PytestDeprecationWarning",

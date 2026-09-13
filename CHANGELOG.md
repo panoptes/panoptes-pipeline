@@ -75,6 +75,8 @@ Changelog](https://keepachangelog.com/en/1.1.0/) format. The versioning policy
 
 ### Changed
 
+- `README.md` no longer documents `--extra cloud` and `--extra notebooks`, which
+  do not exist; it describes the catalog file the pipeline now needs instead.
 - **`sources.get_stars` reads a local catalog file instead of querying
   BigQuery.** Callers pass `catalog_filename` (or set
   `params.catalog.catalog_filename`); there is no network lookup and no

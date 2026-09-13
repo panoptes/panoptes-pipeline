@@ -114,8 +114,12 @@ def test_completeness_rises_with_depth():
         return noise * injection.trapezoid_transit(times, center, duration_hours, depth)
 
     grid = detection.completeness(
-        recover, times, depths=(0.002, 0.03), durations_hours=(2.0,),
-        threshold=7.0, num_phases=6,
+        recover,
+        times,
+        depths=(0.002, 0.03),
+        durations_hours=(2.0,),
+        threshold=7.0,
+        num_phases=6,
     )
     assert grid[(0.002, 2.0)] < grid[(0.03, 2.0)]
     assert grid[(0.03, 2.0)] > 0.5
@@ -124,8 +128,12 @@ def test_completeness_rises_with_depth():
 def test_completeness_keys_cover_the_grid():
     times, noise = series(num=200)
     grid = detection.completeness(
-        lambda d, t: noise, times, depths=(0.01, 0.02),
-        durations_hours=(1.0, 2.0), threshold=1e9, num_phases=1,
+        lambda d, t: noise,
+        times,
+        depths=(0.01, 0.02),
+        durations_hours=(1.0, 2.0),
+        threshold=1e9,
+        num_phases=1,
     )
     assert set(grid) == {(0.01, 1.0), (0.01, 2.0), (0.02, 1.0), (0.02, 2.0)}
     assert all(value == 0.0 for value in grid.values())

@@ -115,11 +115,7 @@ def infer_green_offsets(
     flat = np.asarray(sky_stamps, dtype=float).reshape(-1, height * width)
     grid = flat.reshape(-1, height, width)
 
-    levels = {
-        (dy, dx): float(np.median(grid[:, dy::2, dx::2]))
-        for dy in (0, 1)
-        for dx in (0, 1)
-    }
+    levels = {(dy, dx): float(np.median(grid[:, dy::2, dx::2])) for dy in (0, 1) for dx in (0, 1)}
     diagonal = abs(levels[(0, 0)] - levels[(1, 1)])
     anti = abs(levels[(0, 1)] - levels[(1, 0)])
     return {(0, 0), (1, 1)} if diagonal < anti else {(0, 1), (1, 0)}

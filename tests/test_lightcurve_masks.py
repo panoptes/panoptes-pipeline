@@ -76,9 +76,7 @@ def test_raw_aperture_color_ratio_swings_with_sub_pixel_position():
     ratios = []
     for center in CENTROIDS:
         aperture = masks.circular_aperture((10, 10), center=center, radius=2.0)
-        ratios.append(
-            (rgb["g"] & aperture).sum() / max((rgb["r"] & aperture).sum(), 1)
-        )
+        ratios.append((rgb["g"] & aperture).sum() / max((rgb["r"] & aperture).sum(), 1))
 
     assert max(ratios) / min(ratios) > 4.0
     assert not all(ratio == 2.0 for ratio in ratios)
@@ -124,10 +122,7 @@ def test_green_offsets_recovered_for_every_pattern(pattern):
     stamps = _synthetic_sky((10, 18), pattern)
     greens = masks.infer_green_offsets(stamps.reshape(40, -1), (10, 18))
     expected = {
-        (dy, dx)
-        for dy in (0, 1)
-        for dx in (0, 1)
-        if masks.PATTERNS[pattern][dy][dx] == masks.GREEN
+        (dy, dx) for dy in (0, 1) for dx in (0, 1) if masks.PATTERNS[pattern][dy][dx] == masks.GREEN
     }
     assert greens == expected
 
@@ -136,10 +131,7 @@ def test_green_offsets_recovered_for_every_pattern(pattern):
 def test_pattern_round_trips_given_the_red_offset(pattern):
     stamps = _synthetic_sky((10, 18), pattern)
     red = next(
-        (dy, dx)
-        for dy in (0, 1)
-        for dx in (0, 1)
-        if masks.PATTERNS[pattern][dy][dx] == masks.RED
+        (dy, dx) for dy in (0, 1) for dx in (0, 1) if masks.PATTERNS[pattern][dy][dx] == masks.RED
     )
     assert masks.infer_pattern(stamps.reshape(40, -1), (10, 18), red_offset=red) == pattern
 

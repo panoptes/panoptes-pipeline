@@ -76,9 +76,7 @@ def precision_curve(
     red noise that limits transit detection, and closing that gap is what
     improvement plan 3 is for.
     """
-    return {
-        float(width): rms(bin_flux(times, flux, width)[1]) for width in bin_minutes
-    }
+    return {float(width): rms(bin_flux(times, flux, width)[1]) for width in bin_minutes}
 
 
 def beta_factor(

@@ -414,11 +414,11 @@ The tier reached is recorded with the value (3.4).
 Given 2.1, the registry only ever has to hold what no header carries: gain,
 read noise and black level. Three numbers per camera uid, across 37 cameras.
 
-It lives in the same tree as everything else, as `units/{unit_id}/cameras/
-{uid}.json` -- the same shape a document store would use, readable offline, no
-new mechanism. It is not a schema addition to `panoptes-data`; putting the
-pipeline's calibration constants in the read client is the same inversion as
-the status enums in 5.2.
+It lives in the same tree as everything else, at
+`units/{unit_id}/cameras/{uid}.json` -- the same shape a document store would
+use, readable offline, no new mechanism. It is not a schema addition to
+`panoptes-data`; putting the pipeline's calibration constants in the read
+client is the same inversion as the status enums in 5.2.
 
 ### 6.3 Gain is a POCS problem
 

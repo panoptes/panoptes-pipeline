@@ -102,10 +102,16 @@ in arcsec. See improvement plan 1.4.
   floor), `injection` (transit injection and recovery), `detection` (matched
   filter, blind scan, false-alarm threshold, completeness). New algorithm work
   belongs here.
-- `src/panoptes/pipeline/` (the rest) -- orchestration and cloud I/O for the old
-  pipeline. Requires Firestore, BigQuery, GCS.
-- `notebooks/` -- the old execution path, via papermill. Legacy.
+- `src/panoptes/pipeline/` (the rest) -- `utils/images.py` (calibration, source
+  detection, plate solving, catalog matching; reused rather than rebuilt, see
+  improvement plan 4.1), `utils/sources.py`, `utils/gcp/` (BigQuery catalog
+  lookups, slated for removal), plus `settings.py`, `utils/observations.py` and
+  `utils/plot.py`.
 - `plans/`, `scripts/`, `tests/`.
+
+There are no notebooks. The papermill execution path, the FastAPI service and
+the console script that drove them were deleted; `notebooks/` is gitignored in
+full. A CLI comes back with improvement plan 4.2.
 
 ## Running things
 
@@ -119,25 +125,23 @@ uv run ruff check .        # lint
 uv run ruff format .       # format
 ```
 
-The legacy paths are extras, deliberately not installed by default. Both are
-scheduled for removal, so the default environment is the one to keep working:
+The legacy cloud clients are an extra, deliberately not installed by default
+and scheduled for removal, so the default environment is the one to keep
+working:
 
 ```bash
-uv sync --extra cloud      # Firestore, BigQuery, GCS, the FastAPI service
-uv sync --extra notebooks  # papermill, nbconvert, jupyterlab
+uv sync --extra cloud      # Firestore, BigQuery, GCS
 ```
 
-Without those, `panoptes.pipeline`, `panoptes.pipeline.lightcurve`, `settings`,
-`utils.observations` and `utils.plot` import; everything else in
-`src/panoptes/pipeline/` raises `ModuleNotFoundError`, including the
-`panoptes-pipeline` console script, which needs `--extra notebooks`. That split
-is the layout above, enforced by the dependency metadata rather than by comment.
+Without it, `panoptes.pipeline`, `panoptes.pipeline.lightcurve`, `settings`,
+`utils.observations` and `utils.plot` import; `utils.gcp`, `utils.sources` and
+`utils.images` raise `ModuleNotFoundError`. That split is the layout above,
+enforced by the dependency metadata rather than by comment.
 
 ```bash
-uv run --group docs sphinx-build -b html docs docs/_build/html
 uv build                   # sdist + wheel into dist/
 uv publish                 # needs UV_PUBLISH_TOKEN
-rm -rf build dist docs/_build   # clean
+rm -rf build dist          # clean
 ```
 
 Standalone scripts are PEP 723 and declare their own dependencies, so they run
@@ -240,8 +244,22 @@ writing it at merge time prevents.
   "conformance audit 5.0". Never a bare number or a file path.
 - `plans/` files are living documents. When an item is done, delete it -- no
   strikethrough, no "done" annotations. Git history is the record.
-- Anything needing a human decision goes in improvement plan 6 as its own item,
-  immediately. Do not raise it in conversation and rely on it being remembered.
+- **`plans/` is the reasoning; GitHub issues are the state.** Why a thing is
+  worth doing, and what is known about it, belongs in a plan. Whether it is
+  planned, in progress or done belongs in the tracker. Never both -- two
+  half-maintained trackers drift apart and then neither can be trusted.
+- **Anything needing a human decision is a GitHub issue with the `decision`
+  label, under the Decisions milestone, filed immediately.** Not raised in
+  conversation and relied on to be remembered. improvement plan 6 was where
+  these went before there was a tracker; it is gone.
+- **Pull before starting anything.** `git fetch --all --tags && git pull`, then
+  read, then plan. `main` and the `v*` tags move between sessions, and a plan
+  built on a stale tree proposes work that is already done.
+- **`main` is the default and only long-lived branch.** Feature branches are cut
+  from it and merged back. `develop` is retired and the triangular workflow is
+  gone -- a repository with a `develop` in its history usually still uses it, and
+  this one does not. Retired branch tips are preserved as `archive/*` tags
+  rather than kept as branches.
 - **When you start work on an issue, set its GitHub Project status to "In
   Progress"** -- at the start, not on completion, so the board says what is being
   worked on while it is happening. Closing an issue moves it to Done on its own;

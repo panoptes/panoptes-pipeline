@@ -245,6 +245,24 @@ writing it at merge time prevents.
   worth doing, and what is known about it, belongs in a plan. Whether it is
   planned, in progress or done belongs in the tracker. Never both -- two
   half-maintained trackers drift apart and then neither can be trusted.
+- **Cross-repository work is filed where the code lives.** The rebuild spans
+  four repositories -- [POCS](https://github.com/panoptes/POCS) writes the FITS
+  headers, `panoptes-utils` is the shared base, this repository processes and
+  produces, and
+  [panoptes-data](https://github.com/panoptes/panoptes-data) discovers, fetches
+  and queries. See data contract 8 for who owns what.
+  - A POCS change is a POCS issue. Filing it here instead would put it where
+    the people who maintain that code do not look.
+  - **The "Photometry rebuild" project board is the single view across all
+    four.** It has a Repository field; issues from any of them go on it. The
+    board, not a coordinating issue, is what makes the work findable.
+  - Reference across repositories fully qualified -- `panoptes/POCS#1410`,
+    never a bare `#1410`, which resolves to the wrong repository.
+  - An issue here that is blocked by or blocks another repository gets the
+    `cross-repo` label and names the other issue in its Dependencies section.
+  - The reasoning still lives in `plans/`, in this repository, whichever
+    repository the work happens in. Cross-repository issues link back to the
+    plan section rather than restating it.
 - **Anything needing a human decision is a GitHub issue with the `decision`
   label, under the Decisions milestone, filed immediately.** Not raised in
   conversation and relied on to be remembered. improvement plan 6 was where

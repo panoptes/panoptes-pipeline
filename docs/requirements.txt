@@ -1,6 +1,0 @@
-# Requirements file for ReadTheDocs, check .readthedocs.yml.
-# Mirrors the `docs` dependency group in pyproject.toml; keep the two in step.
-# The package's own dependencies come from pyproject.toml, installed by the
-# `{path: ., method: pip}` entry in .readthedocs.yml.
-myst-parser[linkify]
-sphinx>=3.2.1

@@ -78,14 +78,9 @@ dev = [
   "pytest-remotedata>=0.3.1",
   "ruff>=0.5.0",
 ]
-docs = [
-  "myst-parser[linkify]",
-  "sphinx>=3.2.1",
-]
 
 [project.urls]
 Homepage = "https://github.com/panoptes/panoptes-pipeline"
-Documentation = "https://panoptes-pipeline.readthedocs.io"
 "POCS Documentation" = "https://pocs.readthedocs.io"
 "Project PANOPTES" = "https://www.projectpanoptes.org"
 Forum = "https://forum.projectpanoptes.org"
@@ -104,7 +99,7 @@ include = [
 packages = ["src/panoptes"]
 
 [tool.hatch.build.targets.sdist]
-include = ["src", "README.md", "LICENSE.txt", "docs"]
+include = ["src", "README.md", "LICENSE.txt"]
 
 # Ruff configuration (formatting + linting)
 [tool.ruff]

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import pandas
 import pytest
+from astropy.table import Table
 
 from panoptes.pipeline.utils import sources
 
@@ -32,6 +33,8 @@ def write_catalog(path, rows=ROWS, columns=CATALOG_COLUMNS):
     frame = pandas.DataFrame(rows, columns=columns)
     if ".parquet" in path.suffixes or ".pq" in path.suffixes:
         frame.to_parquet(path)
+    elif ".ecsv" in path.suffixes:
+        Table.from_pandas(frame).write(path, format="ascii.ecsv", overwrite=True)
     elif ".tsv" in path.suffixes:
         frame.to_csv(path, sep="\t", index=False)
     else:
@@ -39,7 +42,17 @@ def write_catalog(path, rows=ROWS, columns=CATALOG_COLUMNS):
     return path
 
 
-@pytest.fixture(params=["pic.parquet", "pic.pq", "pic.csv", "pic.csv.gz", "pic.tsv"])
+@pytest.fixture(
+    params=[
+        "pic.parquet",
+        "pic.pq",
+        "pic.ecsv",
+        "pic.ecsv.gz",
+        "pic.csv",
+        "pic.csv.gz",
+        "pic.tsv",
+    ]
+)
 def catalog(request, tmp_path):
     """A catalog in each accepted format, so the tests below run against all of them."""
     return write_catalog(tmp_path / request.param)
@@ -73,11 +86,25 @@ def test_missing_columns_are_named(tmp_path):
         sources.get_stars(catalog_filename=path)
 
 
-def test_picid_stays_an_integer_across_formats(catalog):
-    """CSV has no dtypes, and a float `picid` joins as 1234.0 against integer ids."""
+def test_picid_is_categorical_across_formats(catalog):
+    """It identifies a star rather than measuring anything."""
     result = sources.get_stars(catalog_filename=catalog, vmag_min=0, vmag_max=30)
-    assert result.picid.dtype == "int64"
+    assert isinstance(result.picid.dtype, pandas.CategoricalDtype)
     assert set(result.picid) == {1, 2, 3, 4, 5}
+
+
+def test_picid_categories_are_integers_not_strings(catalog):
+    """CSV would otherwise give '1' where parquet gives 1, and neither matches."""
+    result = sources.get_stars(catalog_filename=catalog, vmag_min=0, vmag_max=30)
+    assert result.picid.cat.categories.dtype == "int64"
+
+
+def test_filtering_prunes_unused_categories(catalog):
+    """A field cut from an all-sky catalog must not carry every id in the sky."""
+    shape = dict(ra_min=0.0, ra_max=15.0, dec_min=0.0, dec_max=10.0)
+    result = sources.get_stars(shape=shape, catalog_filename=catalog, vmag_min=0, vmag_max=30)
+    assert set(result.picid) == {1}
+    assert list(result.picid.cat.categories) == [1]
 
 
 def test_a_blank_picid_fails_rather_than_becoming_a_float(tmp_path):

@@ -1,9 +1,12 @@
 """Tests for the local catalog lookup that replaced the BigQuery one.
 
 The cloud path used to do the RA/Dec/Vmag filtering in SQL, and the local path
-read the whole parquet unfiltered. These now have to agree, so the filtering
+read the whole file unfiltered. These now have to agree, so the filtering
 semantics are worth pinning down: a half-open Vmag range, an inclusive
 positional box, and a Right Ascension window that may wrap through zero.
+
+The filtering tests run against every accepted format, because the point of
+accepting more than one is that the format does not change the answer.
 """
 
 from __future__ import annotations
@@ -13,29 +16,36 @@ import pytest
 
 from panoptes.pipeline.utils import sources
 
+CATALOG_COLUMNS = ["picid", "catalog_ra", "catalog_dec", "catalog_vmag"]
 
-def write_catalog(path, rows):
-    """Write a minimal PIC-shaped parquet and return its path."""
-    frame = pandas.DataFrame(rows, columns=["picid", "catalog_ra", "catalog_dec", "catalog_vmag"])
-    frame.to_parquet(path)
+ROWS = [
+    (1, 10.0, 5.0, 8.0),
+    (2, 20.0, 5.0, 10.0),
+    (3, 20.0, 40.0, 10.0),  # outside a narrow dec box
+    (4, 350.0, 5.0, 10.0),  # only inside a wrapped RA box
+    (5, 20.0, 5.0, 20.0),  # too faint
+]
+
+
+def write_catalog(path, rows=ROWS, columns=CATALOG_COLUMNS):
+    """Write a minimal PIC-shaped catalog, picking the writer from the suffix."""
+    frame = pandas.DataFrame(rows, columns=columns)
+    if ".parquet" in path.suffixes or ".pq" in path.suffixes:
+        frame.to_parquet(path)
+    elif ".tsv" in path.suffixes:
+        frame.to_csv(path, sep="\t", index=False)
+    else:
+        frame.to_csv(path, index=False)
     return path
 
 
-@pytest.fixture
-def catalog(tmp_path):
-    return write_catalog(
-        tmp_path / "pic.parquet",
-        [
-            (1, 10.0, 5.0, 8.0),
-            (2, 20.0, 5.0, 10.0),
-            (3, 20.0, 40.0, 10.0),  # outside a narrow dec box
-            (4, 350.0, 5.0, 10.0),  # only inside a wrapped RA box
-            (5, 20.0, 5.0, 20.0),  # too faint
-        ],
-    )
+@pytest.fixture(params=["pic.parquet", "pic.pq", "pic.csv", "pic.csv.gz", "pic.tsv"])
+def catalog(request, tmp_path):
+    """A catalog in each accepted format, so the tests below run against all of them."""
+    return write_catalog(tmp_path / request.param)
 
 
-def test_no_catalog_path_fails_loudly(tmp_path):
+def test_no_catalog_path_fails_loudly():
     """A fleet-wide default is what CLAUDE.md forbids; this must raise."""
     with pytest.raises(ValueError, match="catalog_filename"):
         sources.get_stars(shape=None)
@@ -47,11 +57,35 @@ def test_missing_catalog_file_names_the_path(tmp_path):
         sources.get_stars(catalog_filename=missing)
 
 
+def test_unrecognized_format_is_rejected(tmp_path):
+    path = tmp_path / "pic.fits"
+    path.write_bytes(b"not a catalog")
+
+    with pytest.raises(ValueError, match="Unrecognized catalog format"):
+        sources.get_stars(catalog_filename=path)
+
+
 def test_missing_columns_are_named(tmp_path):
-    path = tmp_path / "wrong.parquet"
-    pandas.DataFrame({"picid": [1], "ra": [10.0]}).to_parquet(path)
+    path = tmp_path / "wrong.csv"
+    pandas.DataFrame({"picid": [1], "ra": [10.0]}).to_csv(path, index=False)
 
     with pytest.raises(ValueError, match="catalog_ra"):
+        sources.get_stars(catalog_filename=path)
+
+
+def test_picid_stays_an_integer_across_formats(catalog):
+    """CSV has no dtypes, and a float `picid` joins as 1234.0 against integer ids."""
+    result = sources.get_stars(catalog_filename=catalog, vmag_min=0, vmag_max=30)
+    assert result.picid.dtype == "int64"
+    assert set(result.picid) == {1, 2, 3, 4, 5}
+
+
+def test_a_blank_picid_fails_rather_than_becoming_a_float(tmp_path):
+    path = tmp_path / "gappy.csv"
+    rows = [(1, 10.0, 5.0, 8.0), (None, 20.0, 5.0, 10.0)]
+    pandas.DataFrame(rows, columns=CATALOG_COLUMNS).to_csv(path, index=False)
+
+    with pytest.raises(ValueError, match="picid"):
         sources.get_stars(catalog_filename=path)
 
 

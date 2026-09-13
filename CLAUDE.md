@@ -111,10 +111,12 @@ in arcsec. See improvement plan 1.4.
 **There is no cloud code path and no notebooks.** Firestore, BigQuery, GCS, the
 papermill execution path, the FastAPI service, the console script and the Docker
 image were all deleted; `notebooks/` is gitignored in full. The catalog is a
-local parquet named by `params.catalog.catalog_filename`, and `get_stars` fails
-loudly when it is unset rather than reaching for the network. A CLI comes back
-with improvement plan 4.2. See improvement plan 4.3 for why removal beat
-adapters.
+local file named by `params.catalog.catalog_filename` -- parquet or CSV, by
+suffix -- and `get_stars` fails loudly when it is unset rather than reaching for
+the network. The pipeline requires exactly four catalog columns (`picid`,
+`catalog_ra`, `catalog_dec`, `catalog_vmag`), so the catalog can be rebuilt
+without touching this package. A CLI comes back with improvement plan 4.2. See
+improvement plan 4.3 for why removal beat adapters.
 
 ## Running things
 
@@ -123,7 +125,7 @@ dependency group, so the package is importable and no `PYTHONPATH` is needed:
 
 ```bash
 uv sync                    # project + dev tooling
-uv run pytest              # 86 tests
+uv run pytest              # 113 tests
 uv run ruff check .        # lint
 uv run ruff format .       # format
 ```

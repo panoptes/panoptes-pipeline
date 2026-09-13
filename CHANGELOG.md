@@ -26,14 +26,24 @@ Changelog](https://keepachangelog.com/en/1.1.0/) format. The versioning policy
   returns 404 -- the project does not exist on Read the Docs -- and what was
   being not-published was generator boilerplate whose landing page still opened
   with "This is the main page of your project's Sphinx documentation".
-- `resources/source-extractor/`, and the `source-extractor` apt package from the
-  `Dockerfile`. Nothing referenced either; detection runs through
+- `resources/source-extractor/`. Nothing referenced it; detection runs through
   `photutils.segmentation`.
 - `AUTHORS.md` and `CONTRIBUTING.md`, folded into `README.md`. The latter was one
   line pointing at another repository's `develop` branch, describing a workflow
   this project retired.
 - `.coveragerc`, migrated to `[tool.coverage.*]` in `pyproject.toml` alongside
   the ruff and pytest configuration. Settings are unchanged.
+- **Docker, in full**: the `Dockerfile`, `.dockerignore` and `env.yaml`. The
+  image existed to run the FastAPI service, which is deleted and is not being
+  replaced, so its entrypoint pointed at a module that no longer exists -- it
+  would have built and then failed to start. There is no container build for
+  this project; `uv sync` is the supported install.
+- `env.yaml` went with it, being a conda environment whose only consumer was
+  that image. It duplicated `pyproject.toml` imperfectly and had drifted:
+  `astroplan`, `db-dtypes`, `jupyterlab_execute_time` and `scikit-image` were
+  listed there and nowhere else. Nothing imports any of them, so nothing moved
+  across. The image installed conda, then mamba, then pip on top; all three are
+  gone.
 
 ### Changed
 
@@ -42,12 +52,6 @@ Changelog](https://keepachangelog.com/en/1.1.0/) format. The versioning policy
 - Two docstrings in `utils/sources.py` described matched columns as coming from
   source-extractor. They come from photutils.
 
-### Known issue
-
-- The `Dockerfile` builds, but its entrypoint runs
-  `panoptes.pipeline.services.processing:app`, which no longer exists. Whether
-  the image survives at all is an open decision; it will either get a new
-  entrypoint or be deleted.
 
 ## v0.3.0 -- 2026-09-12
 

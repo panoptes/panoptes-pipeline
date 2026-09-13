@@ -610,19 +610,25 @@ The catalog is a local file named by `CatalogSettings.catalog_filename`, and
 `sources.get_stars` raises rather than falling back to a network lookup when it
 is unset. Metadata and results are local files.
 
-**Catalog format is parquet or CSV, chosen by suffix.** Parquet is the better
-default for an all-sky catalog: at the 6 < mV < 13 the settings ask for, that is
-millions of rows, where parquet is smaller by roughly an order of magnitude and
-round-trips dtypes exactly. CSV is accepted because a per-field or hand-trimmed
-catalog is small enough that the size argument stops applying, and requiring a
-conversion step for one would be friction with nothing behind it. The pipeline
-only cares about four columns -- `picid`, `catalog_ra`, `catalog_dec`,
-`catalog_vmag` -- so whatever produces the catalog is free to change without
-touching this package.
+**Catalog format is parquet, ECSV or CSV, chosen by suffix.** Parquet is the
+better default for an all-sky catalog: at the 6 < mV < 13 the settings ask for,
+that is millions of rows, where parquet is smaller by roughly an order of
+magnitude and round-trips dtypes exactly. **ECSV is the better default for
+anything meant to be read or hand-edited** -- astropy's plain text with a YAML
+header carrying the column types, so it stays inspectable without giving up what
+CSV gives up. Plain CSV and TSV are accepted so an existing catalog needs no
+conversion step.
 
-The one thing CSV cannot carry is dtypes, and `picid` is an identifier: a single
-blank turns the column into floats that then join as `1234.0` against integer ids
-and match nothing. `read_catalog` casts it and fails there rather than later.
+The pipeline only cares about four columns -- `picid`, `catalog_ra`,
+`catalog_dec`, `catalog_vmag` -- so whatever produces the catalog is free to
+change without touching this package.
+
+The one thing plain CSV cannot carry is dtypes, and `picid` is an identifier: a
+single blank turns the column into floats that then join as `1234.0` against
+integer ids and match nothing. `read_catalog` checks it and fails there rather
+than later. It then returns `picid` as a categorical, because it names a star
+rather than measuring one, and a filtered result prunes its unused categories --
+otherwise a field cut from an all-sky catalog carries every id in the sky.
 
 The cost was accepted knowingly: this discards working archive integration that
 would have to be rewritten if bulk cloud processing is ever wanted again. What it

@@ -54,19 +54,24 @@ Changelog](https://keepachangelog.com/en/1.1.0/) format. The versioning policy
 
 ### Added
 
-- `sources.read_catalog`, which reads the catalog as **parquet or CSV**, chosen
-  by suffix (`.parquet`, `.pq`, `.csv`, `.tsv`, and compressed variants such as
-  `.csv.gz`). Parquet remains the better default for an all-sky catalog, but a
-  per-field or hand-trimmed one is small enough that requiring a conversion step
-  would be friction with nothing behind it. `picid` is cast to an integer on
-  read and raises if it cannot be: CSV carries no dtypes, and a single blank
-  turns that column into floats that join as `1234.0` against integer ids and
-  silently match nothing.
+- `sources.read_catalog`, which reads the catalog as **parquet, ECSV or CSV**,
+  chosen by suffix (`.parquet`, `.pq`, `.ecsv`, `.csv`, `.tsv`, each optionally
+  compressed). Parquet remains the better default for an all-sky catalog;
+  astropy's ECSV is the one to reach for when the file should stay readable,
+  since its YAML header carries the column types. Plain CSV and TSV are accepted
+  so an existing catalog needs no conversion step.
+- `picid` is checked as an integer on read and **returned as a categorical** --
+  it names a star rather than measuring one. Filtering prunes unused categories,
+  so a field cut from an all-sky catalog does not carry every id in the sky.
+  Note when consuming it: `groupby` on a categorical iterates every category
+  unless passed `observed=True`. The integer check is what catches plain CSV's
+  missing dtypes, where a single blank turns that column into floats that join
+  as `1234.0` against integer ids and silently match nothing.
 - `tests/test_sources_catalog.py`, pinning the catalog filtering semantics the
   BigQuery query used to own: a half-open `[vmag_min, vmag_max)` range, an
   inclusive positional box, and a Right Ascension window that may wrap through
   zero. The filtering tests run against every accepted format, since the format
-  must not change the answer. 113 tests.
+  must not change the answer. 139 tests.
 
 ### Changed
 

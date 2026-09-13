@@ -4,30 +4,42 @@ import numpy as np
 import pandas
 from astropy import units as u
 from astropy.coordinates import SkyCoord
+from astropy.table import Table
 from astropy.wcs import WCS
 
 #: Columns the catalog must carry for matching to work. The file is expected to
 #: use the mapped PIC names rather than the raw upstream ones.
 REQUIRED_CATALOG_COLUMNS = ("picid", "catalog_ra", "catalog_dec", "catalog_vmag")
 
-#: Catalog file formats, chosen by suffix. Parquet is the better default for an
-#: all-sky catalog -- markedly smaller, and it round-trips dtypes exactly -- but
-#: CSV is accepted so a hand-made, per-field or trimmed catalog needs no
-#: conversion step first. Compressed CSV (`.csv.gz`, `.csv.bz2`) works too:
-#: pandas picks the codec from the suffix.
+#: Catalog file formats, chosen by suffix, each optionally compressed
+#: (`.ecsv.gz`, `.csv.bz2`).
+#:
+#: Parquet is the better default for an all-sky catalog: markedly smaller, and it
+#: round-trips dtypes exactly. ECSV is the better default for anything meant to
+#: be read or hand-edited -- it is plain text with a YAML header carrying the
+#: column types, so it does not have CSV's habit of quietly turning an identifier
+#: column into floats. Plain CSV and TSV are accepted so an existing catalog
+#: needs no conversion step, but they carry no type information at all; see
+#: :py:func:`read_catalog`.
 PARQUET_SUFFIXES = (".parquet", ".pq")
+ECSV_SUFFIXES = (".ecsv",)
 TEXT_SUFFIXES = (".csv", ".tsv")
 
 
 def read_catalog(catalog_filename) -> pandas.DataFrame:
     """Read a catalog file, choosing the reader from its suffix.
 
+    `picid` comes back as a `category`. It identifies a star rather than
+    measuring anything, and nothing downstream should be doing arithmetic on it.
+    One thing to know when consuming it: `groupby` over a categorical iterates
+    every category by default, so pass `observed=True` when grouping on it.
+
     Args:
-        catalog_filename (str|Path): Path to a `.parquet`/`.pq` or `.csv`/`.tsv`
-            file, optionally compressed (`.csv.gz`).
+        catalog_filename (str|Path): Path to a `.parquet`/`.pq`, `.ecsv` or
+            `.csv`/`.tsv` file, optionally compressed (`.ecsv.gz`).
 
     Returns:
-        `pandas.DataFrame`: The catalog, with `picid` as an integer.
+        `pandas.DataFrame`: The catalog, with `picid` as a categorical.
 
     Raises:
         FileNotFoundError: If the path does not exist.
@@ -43,12 +55,15 @@ def read_catalog(catalog_filename) -> pandas.DataFrame:
 
     if any(s in suffixes for s in PARQUET_SUFFIXES):
         catalog_stars = pandas.read_parquet(path)
+    elif any(s in suffixes for s in ECSV_SUFFIXES):
+        catalog_stars = Table.read(path, format="ascii.ecsv").to_pandas()
     elif any(s in suffixes for s in TEXT_SUFFIXES):
         catalog_stars = pandas.read_csv(path, sep="\t" if ".tsv" in suffixes else ",")
     else:
         raise ValueError(
             f"Unrecognized catalog format for {path}. Expected one of "
-            f"{list(PARQUET_SUFFIXES + TEXT_SUFFIXES)}, optionally compressed."
+            f"{list(PARQUET_SUFFIXES + ECSV_SUFFIXES + TEXT_SUFFIXES)}, "
+            f"optionally compressed."
         )
 
     missing = [c for c in REQUIRED_CATALOG_COLUMNS if c not in catalog_stars.columns]
@@ -58,15 +73,19 @@ def read_catalog(catalog_filename) -> pandas.DataFrame:
             f"Expected the mapped PIC names: {list(REQUIRED_CATALOG_COLUMNS)}."
         )
 
-    # `picid` is an identifier, and CSV has no dtypes: a single blank turns the
-    # whole column into floats, which then compare and join as `1234.0` against
-    # integer ids everywhere else. Fail here instead of matching nothing later.
+    # Plain CSV has no dtypes, so a single blank turns `picid` into floats that
+    # then compare and join as `1234.0` against integer ids everywhere else.
+    # Check here rather than match nothing later. Parquet and ECSV both carry the
+    # type, so for those this only confirms what the file already declares.
     try:
-        catalog_stars["picid"] = catalog_stars["picid"].astype("int64")
+        picid = catalog_stars["picid"].astype("int64")
     except (ValueError, TypeError) as e:
         raise ValueError(
             f"Catalog {path} has a `picid` column that is not integer identifiers: {e}"
         ) from e
+
+    # An identifier, not a quantity.
+    catalog_stars["picid"] = picid.astype("category")
 
     return catalog_stars
 
@@ -121,7 +140,7 @@ def get_stars(shape=None, vmag_min=7, vmag_max=14, catalog_filename=None, **kwar
 
     The PIC is derived from the [TESS Input Catalog](
     https://tess.mit.edu/science/tess-input-catalogue/) v8. It is read from a
-    local file -- parquet or CSV, see :py:func:`read_catalog` -- and getting
+    local file -- parquet, ECSV or CSV, see :py:func:`read_catalog` -- and getting
     that file onto disk is a separate fetch step, not something this function
     does. There is no network lookup; see improvement plan 4.3.
 
@@ -131,7 +150,7 @@ def get_stars(shape=None, vmag_min=7, vmag_max=14, catalog_filename=None, **kwar
     Note:
 
         In the upstream catalog the GAIA `bp` and `rp` magnitude and error
-        columns are switched. Whatever produces the parquet is responsible for
+        columns are switched. Whatever produces the catalog is responsible for
         correcting that; this function does not second-guess the file it is
         given.
 
@@ -140,8 +159,8 @@ def get_stars(shape=None, vmag_min=7, vmag_max=14, catalog_filename=None, **kwar
             `dec_min`, `dec_max`, in degrees. If None, no positional filtering.
         vmag_min (float, optional): Minimum Vmag to include, inclusive.
         vmag_max (float, optional): Maximum Vmag to include, exclusive.
-        catalog_filename (str|Path): Path to the catalog file, parquet or CSV.
-            Required; there is no default.
+        catalog_filename (str|Path): Path to the catalog file: parquet, ECSV
+            or CSV. Required; there is no default.
         **kwargs: Ignored, for call-site compatibility.
 
     Returns:
@@ -175,6 +194,11 @@ def get_stars(shape=None, vmag_min=7, vmag_max=14, catalog_filename=None, **kwar
             selected &= (ra >= shape["ra_min"]) & (ra <= shape["ra_max"])
 
     results = catalog_stars[selected].reset_index(drop=True)
+
+    # Filtering a categorical keeps every category, so a field cut from an
+    # all-sky catalog would otherwise carry millions of ids that are not in it.
+    results["picid"] = results["picid"].cat.remove_unused_categories()
+
     print(f"Found {len(results)} in Vmag=[{vmag_min}, {vmag_max}) and bounds=[{shape}]")
 
     return results

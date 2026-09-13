@@ -24,8 +24,8 @@ class CatalogSettings(BaseModel):
     localbkg_width_pixels: int = 2
     detection_threshold: float = 10.0
     num_detect_pixels: int = 4
-    #: Local PANOPTES Input Catalog, parquet or CSV. Required: there is no
-    #: network lookup, and `sources.get_stars` fails loudly when this is unset.
+    #: Local PANOPTES Input Catalog: parquet, ECSV or CSV, by suffix. Required,
+    #: as there is no network lookup -- `sources.get_stars` fails loudly if unset.
     catalog_filename: Optional[Path] = None
 
 

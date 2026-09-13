@@ -4,6 +4,51 @@ Notable changes, newest first, in the [Keep a
 Changelog](https://keepachangelog.com/en/1.1.0/) format. The versioning policy
 -- and why this project is deliberately pre-1.0 -- is in `CLAUDE.md`.
 
+## Unreleased
+
+### Removed
+
+- The papermill execution path, in full: both tracked notebooks, the
+  `panoptes-pipeline` console script and the `utils/cli` package behind it,
+  `utils/notebooks.py`, `image.py`, `observation.py`, and the FastAPI service in
+  `services/processing.py`. The notebooks were the implementation rather than a
+  demonstration of it, and everything above existed only to run them, so with
+  the notebooks gone all of it was code that could not execute. There is no path
+  from raw frames to products until the library extraction and the new CLI land;
+  the path that existed produced the un-subtracted stamps the rebuild is trying
+  to get away from.
+- The `notebooks` extra, with the execution path it installed. `fastapi`,
+  `gunicorn`, `uvicorn` and `google-cloud-pubsub` leave the `cloud` extra with
+  the service; the remaining cloud clients stay, because `utils/gcp`,
+  `utils/sources` and `utils/images` still import them.
+- The `docs/` tree, `.readthedocs.yml`, the `docs` dependency group and the
+  `Documentation` project URL. `https://panoptes-pipeline.readthedocs.io`
+  returns 404 -- the project does not exist on Read the Docs -- and what was
+  being not-published was generator boilerplate whose landing page still opened
+  with "This is the main page of your project's Sphinx documentation".
+- `resources/source-extractor/`, and the `source-extractor` apt package from the
+  `Dockerfile`. Nothing referenced either; detection runs through
+  `photutils.segmentation`.
+- `AUTHORS.md` and `CONTRIBUTING.md`, folded into `README.md`. The latter was one
+  line pointing at another repository's `develop` branch, describing a workflow
+  this project retired.
+- `.coveragerc`, migrated to `[tool.coverage.*]` in `pyproject.toml` alongside
+  the ruff and pytest configuration. Settings are unchanged.
+
+### Changed
+
+- `README.md` now carries contributing instructions and says the rebuild happens
+  on `main`. It claimed an `algorithm-v2` branch that no longer exists.
+- Two docstrings in `utils/sources.py` described matched columns as coming from
+  source-extractor. They come from photutils.
+
+### Known issue
+
+- The `Dockerfile` builds, but its entrypoint runs
+  `panoptes.pipeline.services.processing:app`, which no longer exists. Whether
+  the image survives at all is an open decision; it will either get a new
+  entrypoint or be deleted.
+
 ## v0.3.0 -- 2026-09-12
 
 ### Added

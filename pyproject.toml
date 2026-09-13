@@ -139,3 +139,26 @@ filterwarnings = [
   "ignore:elementwise == comparison failed:DeprecationWarning",
   "ignore::pytest.PytestDeprecationWarning",
 ]
+
+# Coverage, migrated from the PyScaffold-era .coveragerc.
+[tool.coverage.run]
+branch = true
+source = ["panoptes.pipeline"]
+
+[tool.coverage.paths]
+source = ["src/", "*/site-packages/"]
+
+[tool.coverage.report]
+exclude_lines = [
+  # Re-enable the standard pragma, which naming this key at all would disable.
+  "pragma: no cover",
+  # Debug-only code.
+  "def __repr__",
+  "if self\\.debug",
+  # Defensive assertions tests are not expected to reach.
+  "raise AssertionError",
+  "raise NotImplementedError",
+  # Non-runnable code.
+  "if 0:",
+  "if __name__ == .__main__.:",
+]

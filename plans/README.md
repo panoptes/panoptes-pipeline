@@ -23,4 +23,10 @@ section 3.2.3".
 - These are living documents. When an item is done, **delete it** -- do not
   strike it through or annotate it "complete". Git history is the record of
   what was finished; these files state where things stand now.
-- Anything needing a decision goes in improvement plan 6, as its own item.
+- **These documents are the reasoning; the [issue
+  tracker](https://github.com/panoptes/panoptes-pipeline/issues) is the state.**
+  Why a thing is worth doing, and what is known about it, belongs here. Whether
+  it is planned, in progress or done belongs there. Do not keep both.
+- Anything needing a human decision is a GitHub issue with the `decision` label,
+  under the Decisions milestone, filed immediately. Not raised in conversation
+  and left to be remembered.

@@ -43,7 +43,7 @@ dependencies = [
   "tables",
   # Astronomy.
   "astropy",
-  "panoptes-data>=0.1.5,<0.2",  # see improvement plan 6.18
+  "panoptes-data>=0.1.5,<0.2",  # holding pin; see issue #176
   "panoptes-utils[images]>=0.2.33",
   "photutils",
   # Plotting, configuration, logging, CLI.

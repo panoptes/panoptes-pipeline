@@ -7,6 +7,12 @@ Cite sections as "improvement plan 3.6". Companion document: the
 [conformance audit](conformance-audit.md), which records how far the current
 code has drifted from the published algorithm.
 
+This document is the *reasoning*. What is planned, in progress and done is in
+the [issue tracker](https://github.com/panoptes/panoptes-pipeline/issues), and
+anything needing a human decision is an issue with the `decision` label. This
+file used to carry an action-item list as well; two half-maintained trackers is
+one too many.
+
 ---
 
 ## 1. Goal, constraints and how success is measured
@@ -295,7 +301,7 @@ absorbing noise. That was the main risk and it is cleared.
 
 Caveats: one observation, 42 frames over ~50 minutes, 21 of them held out. The
 30 min and beta columns have too few bins to mean anything yet. Establishing a
-real baseline is action item 6.2.
+real baseline needs a decision on scope first (issue #136).
 
 ## 3. Precision work, in priority order
 
@@ -307,14 +313,17 @@ real baseline is action item 6.2.
 
 ### 3.1 Actually subtract the background
 
-Nothing else on this list can be measured honestly until this is fixed. One
-line in `ProcessFITS.ipynb` cell 18: write `reduced_data` to
-`reduced_filename` instead of `raw_data` (conformance audit 5.0). Then
-reprocess at least one observation so there is an uncontaminated fixture.
+Nothing else on this list can be measured honestly until this is fixed. The
+defect was one line -- `ProcessFITS.ipynb` cell 18 wrote `raw_data` to
+`reduced_filename` rather than `reduced_data` (conformance audit 5.0) -- and
+that notebook has since been deleted, so this is now a requirement on the
+replacement rather than a patch: whatever writes the reduced image writes the
+background-subtracted one. Then reprocess at least one observation so there is
+an uncontaminated fixture.
 
-While in there, restore the paper's 11x12 median filter (conformance audit
-4.1), and keep the background map as a saved product so per-stamp local
-background becomes possible later (3.7).
+Alongside it, restore the paper's 11x12 median filter (conformance audit 4.1),
+and keep the background map as a saved product so per-stamp local background
+becomes possible later (3.7).
 
 `lightcurve.subtract_stamp_sky` exists as a stopgap for observations already
 processed, and the benchmark scripts take `--sky-subtract`. It estimates sky
@@ -402,9 +411,9 @@ recoverable. Everything else is.
 
 6. **Diagnose rotation versus translation** before any of the above. Fit the
    per-star offsets to translation plus rotation about a free center and report
-   the split. `ProcessObservation.ipynb` cell 44 filters frames on the *mean* xy
-   offset across all stars, which assumes pure translation and would hide
-   rotation entirely.
+   the split. The deleted `ProcessObservation.ipynb` filtered frames on the
+   *mean* xy offset across all stars (cell 44), which assumes pure translation
+   and hides rotation entirely. Do not reproduce that.
 
 7. **Down-weight trailed frames.** `photutils_eccentricity` and
    `photutils_fwhm` are already computed per source. An elongated frame has a
@@ -532,7 +541,7 @@ The flat field is the part a background fit cannot reach, because it is
 multiplicative. Each target's stamp sits at a fixed detector position, so the
 sensitivity pattern beneath it is constant in time -- which means a median stack
 over many frames yields a sky flat without any new acquisition procedure. Worth
-trying before asking the fleet to take dome flats (6.10).
+trying before asking the fleet to take dome flats (issue #144).
 
 
 
@@ -563,9 +572,10 @@ improved with confidence.
 ### 4.1 Package layout
 
 `panoptes.pipeline.lightcurve` (done, 2.1) is the pattern: pure functions over
-arrays, no I/O. Extend it to the image-level steps currently trapped in
-`ProcessFITS.ipynb` -- background subtraction, source detection, catalog
-matching -- so each is importable and testable.
+arrays, no I/O. Extend it to the image-level steps -- background subtraction,
+source detection, catalog matching -- so each is importable and testable. They
+were last implemented in `ProcessFITS.ipynb`, which is deleted; git history is
+the reference for what those cells did.
 
 **Keep `images.py` where it earns its place; rebuild from stamp extraction
 down.** Settled. Its wrappers around astropy, photutils and astrometry.net for
@@ -580,10 +590,14 @@ and everything after, rebuilt.
 
 ### 4.2 CLI
 
-Extend the existing Typer app so `panoptes-pipeline` can process a local
-directory end to end: calibrate, detect, match, extract stamps, build
-lightcurves, write output. Today `cli/main.py` only orchestrates papermill and
-points at two notebook paths that do not exist (conformance audit 5.14).
+A Typer app so `panoptes-pipeline` can process a local directory end to end:
+calibrate, detect, match, extract stamps, build lightcurves, write output.
+
+There is nothing left to extend. The previous `cli/main.py` was papermill
+orchestration pointing at two notebook paths that did not exist (conformance
+audit 5.14), and it was deleted along with the notebooks, so the console script
+is currently absent rather than broken. It comes back when there is a library
+for it to drive.
 
 ### 4.3 Storage adapters
 
@@ -592,11 +606,22 @@ catalog from a local parquet file (already half-supported via
 `CatalogSettings.catalog_filename`), metadata to local JSON, results to local
 parquet. Cloud becomes a deployment choice rather than a hard requirement.
 
-### 4.4 Notebooks become demos
+### 4.4 Notebooks, if they come back
 
-Once the library owns the algorithm, the notebooks import it and plot. They
-stop being the implementation. `notebooks/working/` -- 20 files including six
-`RunProcessFits-Copy*.ipynb` and two `Untitled` -- gets archived or deleted.
+`notebooks/` is gitignored in full, and the two files that were tracked by
+exception -- `ProcessFITS.ipynb` and `ProcessObservation.ipynb` -- have been
+deleted. Nothing in the repository is a notebook.
+
+If notebooks return they import the library and plot; they do not hold the
+algorithm. The reason is in conformance audit 5.0 and 5.13: logic consequential
+enough to invalidate every measurement in this document sat in a cell where no
+test could reach it.
+
+Note for anyone reading an older version of this section: the working copies
+described there (`notebooks/working/`, the `RunProcessFits-Copy*` variants, the
+`Untitled` files) were never in the repository. They are one person's local
+directory, covered by the `notebooks/` ignore rule, and no repository cleanup
+reaches them.
 
 ### 4.5 Test data and the archive
 
@@ -670,9 +695,9 @@ the numbers fails the build rather than being discovered months later.
 
 ## 5. Sequencing
 
-**First, and blocking** -- 3.1. One line, then reprocess one observation. Until
-that lands, every measurement in this plan is diluted by an unknown factor and
-no result can be defended.
+**First, and blocking** -- 3.1. Subtract the background, then reprocess one
+observation. Until that lands, every measurement in this plan is diluted by an
+unknown factor and no result can be defended.
 
 **Then, and probably the big one** -- 3.2. Start with its diagnostic (how much
 variance the measured drift explains) and the rotation-versus-translation split,
@@ -690,90 +715,7 @@ Deliberately deferred: anything that improves throughput before precision is
 established, and any move to fit transit parameters. Get one target right
 first.
 
-## 6. Action items
-
-Open decisions and things only Wilfred can provide. Ordered by what blocks what,
-not by importance. Delete an item once it is settled -- the answer belongs in the
-body of the document, not here.
-
-### Blocking
-
-**6.1 -- Pull down one raw sequence.** Nothing else can be measured until this
-lands. Criteria in 1.3; dataset B (300+ frames over 3+ hours, modern unit) is
-the one that makes the metrics in 1.2 mean anything, since beta and any binned
-number need roughly 100 frames minimum. Raw frames, not an existing
-`observation.h5`.
-
-### Decisions about direction
-
-**6.5 -- `panoptes-data`: extend or start fresh?** Recommendation and reasoning
-in 4.6, with a cheap test -- write one real selection query for dataset B against
-the existing package and decide on that rather than in advance.
-
-**6.18 -- `panoptes-data` dropped `panoptes.data.images`.** The module, and
-`ObservationStatus` with it, are gone as of 0.2.0, and `image.py`,
-`utils/images.py`, `utils/gcp/firestore.py` and `observation.py` all still import
-them. `pyproject.toml` pins `panoptes-data<0.2` so the locked environment is
-importable, which is a holding action: either those four modules are ported to
-the 0.2.x API or they go with the GCP removal. Settling 6.5 settles this too.
-
-**6.6 -- Where camera profiles live.** Proposal in 4.6: keyed on camera serial,
-stored with the unit and camera records in `panoptes-data`, consumed through the
-4.3 adapter boundary so the algorithm still runs offline from a local file.
-It means a schema addition on that side.
-
-### Measurements worth making early
-
-**6.7 -- Do the photon budget properly.** A rough envelope puts the per-exposure
-floor near 0.9% at V=10 and the 30-minute binned floor near 0.13%, which would
-put the paper's ~1% binned result well above the floor and make 0.5% a
-systematics problem rather than a physical limit. If that holds, the target is
-reachable and the whole plan is aimed correctly. If it does not, the plan needs
-rethinking. Needs measured gain per camera (1.4), so it follows 6.1.
-
-**6.8 -- Check the archive for defocused sequences.** Focus drifts with
-temperature, so some almost certainly exist. Defocusing spreads the PSF over
-many superpixels and largely dissolves the Bayer systematic at source, at the
-cost of more sky in the aperture -- a real trade, not an obvious win. Existing
-accidental data makes it measurable for free, before anyone changes an observing
-procedure.
-
-**6.9 -- `MEASRGGB` for the PAN007 sequence.** Lets the channel labels on the
-measurements already taken be corrected from "one color channel" to the actual
-filter. Low value on its own, trivial if the header is to hand.
-
-### Network-level goal (algorithm design 6)
-
-**6.15 -- Adopt BJD_TDB now.** Cheap to do before an archive is reprocessed,
-painful to retrofit afterwards. Needed for combining segments across sites and
-epochs.
-
-**6.16 -- Define the shared comparison-ensemble convention.** Two units can only
-stitch if they measure flux against the same reference set. How is that set
-agreed -- fixed catalog selection per field, or negotiated per observation?
-This shapes what the algorithm must emit alongside each lightcurve.
-
-**6.17 -- Scheduling must guarantee overlap, not just continuity.** Per algorithm
-design 6.3, without overlapping segments the per-unit offsets are degenerate
-with the transit depth. Worth confirming that whatever schedules the network
-treats overlap as a requirement.
-
-### Background, when convenient
-
-**6.10 -- Flat fields (3.7).** Does any unit take them today? The
-sky-flat-by-median-stacking route needs no new acquisition procedure and should
-be tried first, so this may resolve without touching POCS.
-
-**6.11 -- Calibration frames in the archive.** Do any bias, dark or flat
-sequences exist? They would let the measured camera constants in 1.4 be checked
-rather than trusted, at least for the cameras that have them.
-
-**6.12 -- Baseline scope.** Proposal: once a clean sequence is reduced, run the
-harness over ~200 targets spanning 8 < mV < 12 and freeze that as the reference
-baseline. Needs sign-off on magnitude range and target count before it becomes
-the number everything is measured against.
-
-## 7. Risks
+## 6. Risks
 
 **Precision is much further away than the first measurement suggested.** The
 honest single-channel number is 4.8%, not the sub-percent figures the
@@ -785,7 +727,7 @@ measured on properly reduced data.
 its result "approaches the fundamental noise floor possible from a single
 camera". If the floor ratio in 1.2 comes back near 1, the remaining paths are
 combining units or longer exposures, not algorithm work. Measuring the floor
-ratio early (6.7) tells us which problem we are solving, and should happen
+ratio early (issue #141) tells us which problem we are solving, and should happen
 before any large effort is spent on 3.5.
 
 **Overfitting is the standing hazard.** 100 free coefficients fit to one

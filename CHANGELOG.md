@@ -25,7 +25,7 @@ Changelog](https://keepachangelog.com/en/1.1.0/) format. The versioning policy
 - `pydantic-settings`, `typer`, `matplotlib`, `astropy`, `tqdm` and
   `python-dateutil` are declared dependencies instead of arriving transitively.
 - `panoptes-data` pinned `<0.2`, which dropped `panoptes.data.images`. A holding
-  action; see improvement plan 6.18.
+  action; see issue #176.
 - `google-cloud-bigquery-storage[pandas]` relaxed from `==2.6.2` to `>=2.6.2`.
 - The `Programming Language :: Python :: 3.8` classifier is now `3.12`, matching
   `requires-python`.

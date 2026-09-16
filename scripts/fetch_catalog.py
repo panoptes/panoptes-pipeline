@@ -35,6 +35,7 @@ side of the same problem.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import typer
@@ -70,22 +71,64 @@ def default_name(ra: float, dec: float, radius: float, vmag_min: float, vmag_max
     return f"gaia_{ra:08.4f}{dec:+08.4f}_r{radius:.2f}_g{vmag_min:g}-{vmag_max:g}.parquet"
 
 
-def looks_usable(path: Path) -> bool:
-    """True if `path` already holds a catalog with the columns the pipeline needs.
+#: Suffix sets `sources.read_catalog` accepts. Mirrored rather than imported:
+#: this script runs in its own environment and must not depend on the package.
+PARQUET_SUFFIXES = (".parquet", ".pq")
+ECSV_SUFFIXES = (".ecsv",)
 
-    A bare `exists()` would also skip the query for a truncated download or a
-    file left over from a schema change, and the failure would then land much
-    later, in catalog matching. Reading the columns is cheap -- parquet keeps
-    them in the footer -- and turns "the file is there" into "the file is
-    usable".
-    """
+#: Where the exact query is stored inside a parquet catalog.
+QUERY_METADATA_KEY = b"panoptes_query"
+
+
+def read_columns(path: Path) -> set[str]:
+    """Column names of an existing catalog, by suffix, as `read_catalog` reads them."""
     import pandas
 
+    suffixes = [s.lower() for s in path.suffixes]
+    if any(s in suffixes for s in PARQUET_SUFFIXES):
+        import pyarrow.parquet as pq
+
+        return set(pq.read_schema(path).names)
+    if any(s in suffixes for s in ECSV_SUFFIXES):
+        from astropy.table import Table
+
+        return set(Table.read(path, format="ascii.ecsv").colnames)
+    return set(pandas.read_csv(path, nrows=1, sep=None, engine="python").columns)
+
+
+def stored_query(path: Path) -> dict | None:
+    """The query a parquet catalog records having been built from, if any."""
+    suffixes = [s.lower() for s in path.suffixes]
+    if not any(s in suffixes for s in PARQUET_SUFFIXES):
+        return None
+
+    import pyarrow.parquet as pq
+
+    metadata = pq.read_schema(path).metadata or {}
+    raw = metadata.get(QUERY_METADATA_KEY)
+    return json.loads(raw) if raw else None
+
+
+def looks_usable(path: Path, query: dict) -> bool:
+    """True if `path` already holds the catalog `query` would produce.
+
+    Two checks, because "the file exists" is not the question.
+
+    The columns have to be the ones the pipeline needs. A bare `exists()` would
+    also skip the query for a truncated download or a file left over from a
+    schema change, and that failure would land much later, in catalog matching.
+
+    The recorded query has to match. The filename rounds its arguments so it
+    stays readable, which means two *slightly* different cones can land on the
+    same name -- centres a few milliarcseconds apart, or radii differing in the
+    third decimal. Those produce catalogs that are equivalent in practice, but
+    "in practice" is not something to rely on silently, so the exact arguments
+    are written into the parquet metadata and compared here. A catalog written
+    before this existed, or in a format with nowhere to put it, falls back to
+    the column check with a warning.
+    """
     try:
-        if path.suffix == ".parquet":
-            columns = set(pandas.read_parquet(path, columns=None).columns)
-        else:
-            columns = set(pandas.read_csv(path, nrows=1).columns)
+        columns = read_columns(path)
     except Exception as error:  # noqa: BLE001 - any unreadable file is "not usable"
         typer.echo(f"{path} exists but could not be read ({error!r}); re-fetching.")
         return False
@@ -93,6 +136,14 @@ def looks_usable(path: Path) -> bool:
     missing = set(COLUMN_MAP.values()) - columns
     if missing:
         typer.echo(f"{path} exists but is missing {sorted(missing)}; re-fetching.")
+        return False
+
+    recorded = stored_query(path)
+    if recorded is None:
+        typer.echo(f"{path} records no query; assuming it matches. Use --force to be sure.")
+        return True
+    if recorded != query:
+        typer.echo(f"{path} was built from a different query ({recorded}); re-fetching.")
         return False
 
     return True
@@ -125,12 +176,12 @@ def main(
     the filename does not encode.
     """
     output = output or directory / default_name(ra, dec, radius, vmag_min, vmag_max)
+    query_key = dict(
+        ra=ra, dec=dec, radius=radius, vmag_min=vmag_min, vmag_max=vmag_max, release="gaiadr3"
+    )
 
-    if output.exists() and not force and looks_usable(output):
-        import pandas
-
-        rows = len(pandas.read_parquet(output) if output.suffix == ".parquet" else [])
-        typer.echo(f"{output} already exists ({rows} rows); not querying. Use --force to refetch.")
+    if output.exists() and not force and looks_usable(output, query_key):
+        typer.echo(f"{output} already exists and matches; not querying. Use --force to refetch.")
         raise typer.Exit()
 
     from astroquery.gaia import Gaia
@@ -142,12 +193,18 @@ def main(
     # download is the stars the pipeline would actually extract. Sources with no
     # BP or RP are dropped: the colour-excess columns would be null and
     # reference selection cannot use them.
+    #
+    # The magnitude bound is half-open, `>= min` and `< max`, because that is
+    # what `get_stars` applies (`inclusive="left"`). ADQL `BETWEEN` includes
+    # both ends, which would fetch sources at exactly `vmag_max` that the
+    # pipeline then discards.
     query = f"""
         SELECT source_id, ra, dec,
                phot_g_mean_mag, phot_bp_mean_mag, phot_rp_mean_mag
         FROM gaiadr3.gaia_source
         WHERE 1 = CONTAINS(POINT({ra}, {dec}), CIRCLE(ra, dec, {radius}))
-          AND phot_g_mean_mag BETWEEN {vmag_min} AND {vmag_max}
+          AND phot_g_mean_mag >= {vmag_min}
+          AND phot_g_mean_mag < {vmag_max}
           AND phot_bp_mean_mag IS NOT NULL
           AND phot_rp_mean_mag IS NOT NULL
     """
@@ -168,14 +225,26 @@ def main(
     frame = frame[list(dict.fromkeys(COLUMN_MAP.values()))]
 
     output.parent.mkdir(parents=True, exist_ok=True)
-    if output.suffix == ".parquet":
-        frame.to_parquet(output, index=False)
-    elif output.suffix == ".csv":
-        frame.to_csv(output, index=False)
-    else:
+    suffixes = [s.lower() for s in output.suffixes]
+    if any(s in suffixes for s in PARQUET_SUFFIXES):
+        # Write through pyarrow so the exact query travels with the catalog.
+        # The filename is a readable cache key; this is the exact one.
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+
+        table = pa.Table.from_pandas(frame, preserve_index=False)
+        table = table.replace_schema_metadata(
+            {**(table.schema.metadata or {}), QUERY_METADATA_KEY: json.dumps(query_key).encode()}
+        )
+        pq.write_table(table, output)
+    elif any(s in suffixes for s in ECSV_SUFFIXES):
         from astropy.table import Table
 
-        Table.from_pandas(frame).write(output, overwrite=True)
+        written = Table.from_pandas(frame)
+        written.meta["panoptes_query"] = query_key
+        written.write(output, format="ascii.ecsv", overwrite=True)
+    else:
+        frame.to_csv(output, index=False)
 
     size = output.stat().st_size / 1e6
     typer.echo(f"Wrote {len(frame)} rows to {output} ({size:.1f} MB)")

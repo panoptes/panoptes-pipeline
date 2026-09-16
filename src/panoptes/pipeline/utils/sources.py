@@ -15,7 +15,7 @@ from astropy.wcs import WCS
 #: with no crossmatch step.
 REQUIRED_CATALOG_COLUMNS = ("picid", "catalog_ra", "catalog_dec", "catalog_vmag")
 
-#: Optional enrichment. Present, `match_sources` derives three colour-excess
+#: Optional enrichment. Present, `match_sources` derives three color-excess
 #: columns for reference selection; absent, it skips them. Deliberately *not*
 #: required: CLAUDE.md promises the catalog can be rebuilt without touching this
 #: package, and a four-column catalog has to actually work for that to be true.

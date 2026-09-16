@@ -97,8 +97,8 @@ def test_a_frame_with_no_saturated_pixels_still_calibrates(raw_header, params):
     assert not calibrated.mask.any()
 
 
-def test_the_background_mesh_is_kept_per_colour(raw_header, params):
-    """Summing the colours is what loses information; the mesh does not."""
+def test_the_background_mesh_is_kept_per_color(raw_header, params):
+    """Summing the colors is what loses information; the mesh does not."""
     data = np.random.default_rng(0).normal(1000, 10, (200, 200))
 
     calibrated = processing.calibrate(data, raw_header, params)

@@ -54,7 +54,7 @@ from panoptes.pipeline.status import ImageStatus
 SEPARATOR = "_"
 
 #: Document blocks that do not become columns. `image.params` is a whole
-#: settings dump per row, and `params_fingerprint` already summarises it in one
+#: settings dump per row, and `params_fingerprint` already summarizes it in one
 #: column -- the fingerprint is the part with meaning, since it is what the
 #: work-list walk compares.
 DROPPED = (("image", "params"),)

@@ -253,6 +253,12 @@ writing it at merge time prevents.
 
 ## Conventions
 
+- **American English throughout** -- code, comments, docstrings, commit
+  messages, issues, plans and changelog. `color` not `colour`, `normalize` not
+  `normalise`, `center` not `centre`, `labeled` not `labelled`. The exception is
+  a name that belongs to someone else: matplotlib's `Greys` colormap, a Gaia
+  column, a quoted title. Those are identifiers, not prose, and changing them
+  breaks things.
 - Cite a plan section by short name plus number: "algorithm design 2.1",
   "conformance audit 5.0". Never a bare number or a file path.
 - `plans/` files are living documents. When an item is done, delete it -- no

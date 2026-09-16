@@ -55,7 +55,7 @@ def subtract_stamp_sky(
             everything outside the central few pixels.
         channel_masks: Optional ``{name: (n,) mask}``. Each color gets its own
             sky level, which matters because the Bayer channels have different
-            responses and the sky is not grey.
+            responses and the sky is not gray.
 
     Returns:
         Array of the same shape, pedestal removed.

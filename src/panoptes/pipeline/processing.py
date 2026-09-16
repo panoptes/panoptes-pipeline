@@ -74,7 +74,7 @@ def calibrate(raw_data: np.ndarray, header: fits.Header, params: PipelineParams)
     header value into that same comparison would have masked about 512 ADU too
     aggressively on every frame. Doing it first removes the ambiguity.
 
-    The background is computed per Bayer colour, because the colours sit on
+    The background is computed per Bayer color, because the colors sit on
     different pedestals; that is why `get_rgb_background` exists rather than a
     single `Background2D`.
     """
@@ -96,9 +96,9 @@ def calibrate(raw_data: np.ndarray, header: fits.Header, params: PipelineParams)
     )
     rgb_masks = bayer.get_rgb_masks(data)
 
-    # Each colour's model covers the whole frame with the other colours masked,
+    # Each color's model covers the whole frame with the other colors masked,
     # so the full-resolution planes are summed back into one image while the
-    # meshes are kept per colour -- the summation is what loses information, and
+    # meshes are kept per color -- the summation is what loses information, and
     # it is only needed for detection.
     background = np.ma.array(
         [np.ma.array(data=bg.background, mask=m) for bg, m in zip(backgrounds, rgb_masks)]

@@ -178,9 +178,9 @@ def main(
     The default radius allows for pointing error. A PANOPTES frame is about
     14.9 x 9.9 degrees, so its corners sit 8.92 degrees from the field centre and
     a 9 degree cone covers them with 5 arcminutes to spare -- but only if it is
-    centred on the *solved* position, which is not known until after solving. On
+    centered on the *solved* position, which is not known until after solving. On
     the frame this was measured against, the mount pointing was 0.379 degrees
-    away, and a 9 degree cone centred there would have needed 9.235 to reach the
+    away, and a 9 degree cone centered there would have needed 9.235 to reach the
     far corner. 10 degrees leaves roughly a degree of slack for about 23% more
     rows, which is cheap insurance against silently clipping a corner.
     """
@@ -200,7 +200,7 @@ def main(
 
     # A cone big enough to cover the frame's corners, filtered on G so the
     # download is the stars the pipeline would actually extract. Sources with no
-    # BP or RP are dropped: the colour-excess columns would be null and
+    # BP or RP are dropped: the color-excess columns would be null and
     # reference selection cannot use them.
     #
     # The magnitude bound is half-open, `>= min` and `< max`, because that is
@@ -226,7 +226,7 @@ def main(
     )
     # `catalog_gaiamag` is Gaia G, the same quantity `catalog_vmag` carries. It
     # is duplicated rather than aliased because the two are used for different
-    # things -- brightness selection and colour excess -- and a later change to
+    # things -- brightness selection and color excess -- and a later change to
     # either should not silently move the other.
     frame["catalog_gaiamag"] = frame["catalog_vmag"]
 

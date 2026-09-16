@@ -236,7 +236,7 @@ def write_image(
     ~50x71 model behind a 96 MB array: the array is four orders of magnitude
     larger than the thing it was made from and reconstructs exactly from it,
     given the parameters, which the document records and fingerprints. Passing
-    the mesh per colour also keeps information the old summed array threw away.
+    the mesh per color also keeps information the old summed array threw away.
 
     The mask is compressed. It is derivable -- it is ``raw >= saturation``, and
     saturation sits in the document with its provenance -- but it is the

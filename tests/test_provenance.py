@@ -26,7 +26,7 @@ def test_saturation_comes_from_the_header_not_the_default(raw_header):
     assert saturation.value < CameraSettings().saturation
 
 
-def test_a_default_is_labelled_as_one(bare_header):
+def test_a_default_is_labeled_as_one(bare_header):
     resolved = provenance.resolve_camera(bare_header, CameraSettings())
 
     assert resolved["saturation"].provenance is Provenance.DEFAULT

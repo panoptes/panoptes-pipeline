@@ -81,7 +81,7 @@ def extract_metadata(header, path_info, camera_settings: CameraSettings | None =
     data contract 3.1.
 
     ``camera_settings`` supplies the fallbacks for calibration values the
-    header does not carry. Whatever it supplies is labelled `Provenance.DEFAULT`
+    header does not carry. Whatever it supplies is labeled `Provenance.DEFAULT`
     in the resulting document rather than being indistinguishable from a
     measurement.
     """
@@ -245,7 +245,7 @@ def match_sources(
     matched_sources["catalog_dec_bin"] = matched_sources.catalog_dec.astype("int")
     matched_sources["catalog_ra_bin"] = matched_sources.catalog_ra.astype("int")
 
-    # Colour excesses, where the catalog carries Gaia photometry. These are an
+    # Color excesses, where the catalog carries Gaia photometry. These are an
     # enrichment, not a requirement: a catalog holding only the four columns
     # `REQUIRED_CATALOG_COLUMNS` names is valid, and CLAUDE.md promises it can
     # be rebuilt without touching this package. Computing them unconditionally
@@ -253,7 +253,7 @@ def match_sources(
     # then died on `catalog_gaiabp` after solving and detection had already run.
     #
     # Nothing reads these columns yet. They are here for reference selection,
-    # where matching a reference's colour to the target's is the point, and that
+    # where matching a reference's color to the target's is the point, and that
     # step does not exist. See #202.
     if set(sources.GAIA_CATALOG_COLUMNS) <= set(matched_sources.columns):
         matched_sources["catalog_gaia_bg_excess"] = (
@@ -267,7 +267,7 @@ def match_sources(
         )
     else:
         logger.debug(
-            "Catalog carries no Gaia photometry; colour excesses are not computed. "
+            "Catalog carries no Gaia photometry; color excesses are not computed. "
             f"Add {list(sources.GAIA_CATALOG_COLUMNS)} to the catalog to get them."
         )
 

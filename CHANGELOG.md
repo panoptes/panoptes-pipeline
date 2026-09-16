@@ -101,7 +101,7 @@ Changelog](https://keepachangelog.com/en/1.1.0/) format. The versioning policy
   read `catalog_gaiabp`, `catalog_gaiarp` and `catalog_gaiamag` unconditionally,
   so a catalog built to the stated contract passed validation, matched, and then
   raised `AttributeError` -- after plate solving and source detection had already
-  run. Those three are optional enrichment: present, three colour-excess columns
+  run. Those three are optional enrichment: present, three color-excess columns
   are derived; absent, they are skipped. Nothing reads the excesses yet.
 
 - An absent `CAMSN` records as null instead of the string `"None"`.

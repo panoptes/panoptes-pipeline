@@ -97,8 +97,8 @@ def test_a_four_column_catalog_matches(catalog, wcs, tmp_path):
     assert "picid" in matched.columns
 
 
-def test_a_four_column_catalog_gets_no_colour_excesses(catalog, wcs, tmp_path):
-    """Skipped, not faked: absent photometry must not become a zero colour."""
+def test_a_four_column_catalog_gets_no_color_excesses(catalog, wcs, tmp_path):
+    """Skipped, not faked: absent photometry must not become a zero color."""
     path, frame = catalog(with_gaia=False)
 
     matched = match_sources(

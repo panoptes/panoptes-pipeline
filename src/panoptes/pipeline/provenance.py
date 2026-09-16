@@ -13,7 +13,7 @@ are distinguishable by anything reading the archive. See data contract 3.4.
 The tiers are ordered best to worst. Nothing here refuses to produce a value:
 declaring which header keywords are required, and failing when one is missing,
 is a separate change against the header contract. What this module guarantees
-is that a fallback is never silent -- it is labelled `Provenance.DEFAULT` and
+is that a fallback is never silent -- it is labeled `Provenance.DEFAULT` and
 carries the name of the setting it fell back to.
 
 One rule follows for anything reading the archive, and it is worth stating

@@ -19,7 +19,11 @@ from panoptes.pipeline import processing, products, worklist
 from panoptes.pipeline.processing import SolverMissing
 from panoptes.pipeline.settings import CameraSettings, ImageSettings, PipelineParams
 from panoptes.pipeline.status import ImageStatus
-from panoptes.pipeline.utils.images import extract_metadata
+from panoptes.pipeline.utils.images import (
+    NoSourcesDetected,
+    detect_sources,
+    extract_metadata,
+)
 
 #: An end-to-end run needs three things this repository cannot ship: the
 #: `solve-field` binary, astrometry.net index files covering a 10-20 degree
@@ -118,6 +122,103 @@ def test_calibration_does_not_mutate_the_params(raw_header, params):
     processing.calibrate(np.full((200, 200), 1000.0), raw_header, params)
 
     assert params.fingerprint == before
+
+
+# --- source detection -----------------------------------------------------
+
+
+def synthetic_wcs():
+    from astropy.wcs import WCS
+
+    wcs = WCS(naxis=2)
+    wcs.wcs.ctype = ["RA---TAN", "DEC--TAN"]
+    wcs.wcs.crval = [86.5, 8.7]
+    wcs.wcs.crpix = [100, 100]
+    wcs.wcs.cdelt = [-0.0025, 0.0025]
+    return wcs
+
+
+@pytest.fixture
+def starfield(raw_header, params):
+    """A calibrated frame with real stars and a real saturation mask."""
+    rng = np.random.default_rng(0)
+    data = rng.normal(1000, 5, (200, 200))
+    yy, xx = np.mgrid[0:200, 0:200]
+    for x, y in [(40, 50), (120, 80), (160, 150), (75, 170)]:
+        data += 400 * np.exp(-((xx - x) ** 2 + (yy - y) ** 2) / 6)
+    data[0, 0] = raw_header["WHTLVLN"] + 10  # force a masked pixel
+    return processing.calibrate(data, raw_header, params)
+
+
+def test_source_detection_runs_on_a_calibrated_frame(starfield, params, tmp_path):
+    """Covers the whole gap between solving and matching, which had no test.
+
+    Two bugs lived here and neither was reachable from the suite: `skimage` was
+    undeclared, so deblending raised `ModuleNotFoundError`, and a masked array
+    was handed to photutils as `data`, which fails inside its moment
+    calculation. See #200.
+    """
+    detected = detect_sources(
+        synthetic_wcs(),
+        starfield.reduced,
+        starfield.background,
+        starfield.rms,
+        settings=ImageSettings(params=params, output_dir=tmp_path),
+    )
+
+    assert len(detected) > 0
+    assert "photutils_sky_centroid_ra" in detected.columns
+    assert detected.photutils_fwhm.notna().all()
+
+
+def test_deblending_is_available(starfield):
+    """`photutils` only declares scikit-image under its `all` extra."""
+    import skimage  # noqa: F401
+    from photutils import segmentation
+
+    assert hasattr(segmentation, "deblend_sources")
+
+
+def test_detection_tolerates_a_frame_with_nothing_masked(raw_header, params, tmp_path):
+    """The `nomask` scalar path, which used to build a 0-d mask."""
+    rng = np.random.default_rng(1)
+    data = rng.normal(1000, 5, (200, 200))
+    yy, xx = np.mgrid[0:200, 0:200]
+    for x, y in [(40, 50), (120, 80)]:
+        data += 400 * np.exp(-((xx - x) ** 2 + (yy - y) ** 2) / 6)
+
+    calibrated = processing.calibrate(data, raw_header, params)
+    assert not calibrated.mask.any()
+
+    detected = detect_sources(
+        synthetic_wcs(),
+        calibrated.reduced,
+        calibrated.background,
+        calibrated.rms,
+        settings=ImageSettings(params=params, output_dir=tmp_path),
+    )
+    assert len(detected) > 0
+
+
+def test_a_frame_with_no_sources_fails_legibly(raw_header, params, tmp_path):
+    """Clouds and lost tracking are ordinary over a survey, not a crash.
+
+    photutils returns None when nothing clears the threshold, and deblending
+    then raised `TypeError: segmentation_image must be a SegmentationImage`,
+    which says nothing about the frame.
+    """
+    calibrated = processing.calibrate(
+        np.random.default_rng(1).normal(1000, 5, (200, 200)), raw_header, params
+    )
+
+    with pytest.raises(NoSourcesDetected, match="background RMS"):
+        detect_sources(
+            synthetic_wcs(),
+            calibrated.reduced,
+            calibrated.background,
+            calibrated.rms,
+            settings=ImageSettings(params=params, output_dir=tmp_path),
+        )
 
 
 # --- the solver gate ------------------------------------------------------

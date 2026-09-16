@@ -40,6 +40,13 @@ Changelog](https://keepachangelog.com/en/1.1.0/) format. The versioning policy
 
 ### Changed
 
+- `scikit-image` is a declared dependency again. v0.4.0 dropped it from the
+  retired `env.yaml` on the grounds that nothing imported it, which was true
+  of this package's own source and missed that `photutils` imports it at
+  runtime for deblending. A plain `uv sync` therefore produced an environment
+  where source detection raised `ModuleNotFoundError` -- the split environment
+  that release set out to eliminate. Checking direct imports is not enough to
+  retire a dependency.
 - `extract_metadata` reads image dimensions from `NAXIS1`/`NAXIS2` rather than
   `IMAGEW`/`IMAGEH`, which only plate solving writes -- raw frames silently
   yielded zero.

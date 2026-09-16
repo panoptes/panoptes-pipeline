@@ -25,8 +25,9 @@ Changelog](https://keepachangelog.com/en/1.1.0/) format. The versioning policy
   a genuine failure.
 - `scripts/fetch_catalog.py` builds a local catalog for a field from a Gaia DR3
   cone search. Nothing in this repository could previously produce the catalog
-  the pipeline requires -- the archive's came from a BigQuery table deleted with
-  the cloud stack -- so the pipeline could not be run on a frame at all. `picid`
+  the pipeline requires -- the archive's catalog came from a BigQuery table that
+  was deleted with the cloud stack -- so the pipeline could not be run on a frame
+  at all. `picid`
   is exactly the Gaia DR3 `source_id`, so no crossmatch is involved. PEP 723, so
   `astroquery` stays out of the package. The default filename states the query
   that produced it, and an existing, usable file is left alone, so re-running

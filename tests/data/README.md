@@ -42,6 +42,11 @@ with `index-4116`. 8x binning does not work, because `plate_solve` also passes
 To regenerate it, mean-bin a raw frame 4x4, clip to `uint16`, keep only the
 keywords the pipeline reads, and `fpack` the result.
 
+It carries no `FILENAME` keyword, which is deliberate: `ImagePathInfo`
+reads that first and only falls back to `SEQID`/`IMAGEID` on a `ValueError`,
+so a frame without it used to raise `KeyError`. The fixture keeps that path
+covered.
+
 **Solving a `.fz` consumes it.** `get_solve_field` unpacks a compressed input
 and does not restore it when `replace=False`, so a test must copy this file into
 `tmp_path` and never solve it in place.

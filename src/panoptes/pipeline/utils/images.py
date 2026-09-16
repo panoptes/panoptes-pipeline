@@ -7,9 +7,9 @@ from astropy.stats import gaussian_fwhm_to_sigma
 from astropy.wcs import WCS
 from dateutil.parser import parse as parse_date
 from dateutil.tz import UTC
-from panoptes.data.images import ImagePathInfo
 from panoptes.utils.images import bayer
 from panoptes.utils.images import fits as fits_utils
+from panoptes.utils.images.fits import ImagePathInfo
 from photutils import segmentation
 from photutils.utils import calc_total_error
 

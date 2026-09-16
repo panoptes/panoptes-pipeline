@@ -296,11 +296,7 @@ def write_frame(
     directory = frame_directory(root, path_info)
     directory.mkdir(parents=True, exist_ok=True)
 
-    written = {
-        "metadata": write_document(
-            directory / files.metadata_filename, metadata, force_new=force_new
-        )
-    }
+    written = {}
 
     if reduced is not None:
         written["reduced"] = write_image(
@@ -317,6 +313,15 @@ def write_frame(
         path = directory / files.sources_filename
         sources.to_parquet(path)
         written["sources"] = path
+
+    # The document goes last, because it is the completion marker: the
+    # work-list walk decides a frame is done by reading its status and
+    # fingerprint from here. Writing it first would mean a failure part way
+    # through the products left a frame that claims to be finished and is not,
+    # and the next walk would skip it.
+    written["metadata"] = write_document(
+        directory / files.metadata_filename, metadata, force_new=force_new
+    )
 
     logger.debug(f"Wrote {len(written)} product(s) for {path_info.id} to {directory}")
     return written

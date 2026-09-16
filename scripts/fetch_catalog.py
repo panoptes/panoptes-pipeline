@@ -153,7 +153,7 @@ def looks_usable(path: Path, query: dict) -> bool:
 def main(
     ra: float = typer.Argument(..., help="Field centre RA, degrees."),
     dec: float = typer.Argument(..., help="Field centre Dec, degrees."),
-    radius: float = typer.Option(9.0, help="Cone radius, degrees."),
+    radius: float = typer.Option(10.0, help="Cone radius, degrees."),
     vmag_min: float = typer.Option(6.0, help="Brightest Gaia G to include."),
     vmag_max: float = typer.Option(13.0, help="Faintest Gaia G to include."),
     output: Path = typer.Option(
@@ -174,6 +174,15 @@ def main(
     so re-running for a field that has been fetched once costs nothing. Pass
     `--force` to fetch again -- worth doing if the Gaia data release moves, which
     the filename does not encode.
+
+    The default radius allows for pointing error. A PANOPTES frame is about
+    14.9 x 9.9 degrees, so its corners sit 8.92 degrees from the field centre and
+    a 9 degree cone covers them with 5 arcminutes to spare -- but only if it is
+    centred on the *solved* position, which is not known until after solving. On
+    the frame this was measured against, the mount pointing was 0.379 degrees
+    away, and a 9 degree cone centred there would have needed 9.235 to reach the
+    far corner. 10 degrees leaves roughly a degree of slack for about 23% more
+    rows, which is cheap insurance against silently clipping a corner.
     """
     output = output or directory / default_name(ra, dec, radius, vmag_min, vmag_max)
     query_key = dict(

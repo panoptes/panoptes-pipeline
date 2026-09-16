@@ -23,6 +23,12 @@ Changelog](https://keepachangelog.com/en/1.1.0/) format. The versioning policy
   threshold. Clouds, a closed dome and lost tracking all produce such a frame,
   so it is an ordinary outcome over a survey and callers can distinguish it from
   a genuine failure.
+- `scripts/fetch_catalog.py` builds a local catalog for a field from a Gaia DR3
+  cone search. Nothing in this repository could previously produce the catalog
+  the pipeline requires -- the archive's came from a BigQuery table deleted with
+  the cloud stack -- so the pipeline could not be run on a frame at all. `picid`
+  is exactly the Gaia DR3 `source_id`, so no crossmatch is involved. PEP 723, so
+  `astroquery` stays out of the package.
 - `panoptes.pipeline.worklist` classifies every raw frame against an output
   root as missing, params changed, prior error, incomplete, forced or up to
   date, without opening any pixels. `as_table` renders the result as a CSV-able

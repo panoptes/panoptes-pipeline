@@ -152,7 +152,13 @@ against a throwaway environment rather than the synced one:
 ```bash
 uv run scripts/benchmark_lightcurve.py OBS.h5 --channel r --sky-subtract --held-out
 uv run scripts/survey_targets.py OBS.h5 --sky-subtract
+uv run scripts/fetch_catalog.py 86.49 8.72 --radius 9 -o pic.parquet
 ```
+
+`fetch_catalog.py` is how you get a catalog at all: `catalog_filename` names a
+local file and there is no network lookup, so without it the pipeline reaches
+catalog matching and stops. `picid` is exactly the Gaia DR3 `source_id`, so the
+catalog is a cone search with columns renamed -- no crossmatch.
 
 ## Measuring a change
 

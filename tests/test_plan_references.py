@@ -21,9 +21,16 @@ SECTION = re.compile(r"^#{2,4}\s+(\d+(?:\.\d+)?)[.\s]", re.MULTILINE)
 ACTION_ITEM = re.compile(r"^\*\*(\d+\.\d+)\s+--", re.MULTILINE)
 #: bare "(3.5)" and prefixed "improvement plan 3.4" / "conformance audit 5.0"
 BARE_REF = re.compile(r"\((\d+\.\d+)\)")
-NAMED_REF = re.compile(r"(improvement plan|conformance audit)\s+(\d+(?:\.\d+)?)")
+NAMED_REF = re.compile(
+    r"(improvement plan|conformance audit|data contract|algorithm design)\s+(\d+(?:\.\d+)?)"
+)
 
-DOC_FILES = {"improvement plan": "improvement-plan.md", "conformance audit": "conformance-audit.md"}
+DOC_FILES = {
+    "improvement plan": "improvement-plan.md",
+    "conformance audit": "conformance-audit.md",
+    "data contract": "data-contract.md",
+    "algorithm design": "algorithm-design.md",
+}
 
 
 def sections(name: str) -> set[str]:

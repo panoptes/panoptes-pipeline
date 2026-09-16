@@ -19,6 +19,10 @@ from panoptes.pipeline.settings import CameraSettings, ImageSettings
 from panoptes.pipeline.utils import sources
 
 
+class NoSourcesDetected(ValueError):
+    """Nothing in the frame cleared the detection threshold."""
+
+
 def save_fits(filename, data_list, header, force_new=False):
     hdul = fits.HDUList()
     for name, d in data_list.items():
@@ -274,15 +278,35 @@ def detect_sources(
     if reduced_data.mask is np.ma.nomask or reduced_data.mask.shape != reduced_data.shape:
         reduced_data.mask = np.zeros(reduced_data.shape, dtype=bool)
 
+    # photutils wants a plain array plus an explicit `mask`, never a masked
+    # array as `data`. Its moment calculation is a matrix product
+    # (`yp.T @ arr @ xp`), and `numpy.ma` cannot propagate a mask through `@`:
+    # it tries to combine the operands' masks and fails to broadcast them,
+    # raising "operands could not be broadcast together" from inside
+    # `SourceCatalog`. Passing both is also redundant -- the mask is already
+    # carried separately.
+    mask = np.asarray(reduced_data.mask, dtype=bool)
+    data = np.ma.filled(reduced_data, 0.0)
+
     image_segments = segmentation.detect_sources(
-        reduced_data,
+        data,
         threshold,
         npixels=settings.params.catalog.num_detect_pixels,
-        mask=reduced_data.mask,
+        mask=mask,
     )
+    # `detect_sources` returns None when nothing clears the threshold, and
+    # `deblend_sources` then raises "segmentation_image must be a
+    # SegmentationImage" -- which says nothing about the frame. Clouds, a closed
+    # dome or lost tracking all produce such a frame, so it is an ordinary
+    # outcome over a survey and deserves a legible reason in the record.
+    if image_segments is None:
+        raise NoSourcesDetected(
+            f"no sources above {settings.params.catalog.detection_threshold}x the background RMS"
+        )
+
     print("De-blending image segments")
     deblended_segments = segmentation.deblend_sources(
-        reduced_data,
+        data,
         image_segments,
         npixels=settings.params.catalog.num_detect_pixels,
         nlevels=32,
@@ -290,7 +314,7 @@ def detect_sources(
     )
     print(f"Calculating total error for data using gain={settings.params.camera.effective_gain}")
     error = calc_total_error(
-        reduced_data, combined_bg_residual_data, settings.params.camera.effective_gain
+        data, np.asarray(combined_bg_residual_data), settings.params.camera.effective_gain
     )
     table_cols = [
         "background_mean",
@@ -308,11 +332,11 @@ def detect_sources(
     ]
     print("Building source catalog for deblended_segments")
     detected_catalog = segmentation.SourceCatalog(
-        reduced_data,
+        data,
         deblended_segments,
-        background=combined_bg_data,
+        background=np.asarray(combined_bg_data),
         error=error,
-        mask=reduced_data.mask,
+        mask=mask,
         wcs=solved_wcs0,
         localbkg_width=settings.params.catalog.localbkg_width_pixels,
     )

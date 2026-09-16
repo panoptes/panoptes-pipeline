@@ -46,6 +46,10 @@ dependencies = [
   # 0.3.1 is where `ImagePathInfo` landed, which this package imports.
   "panoptes-utils[images]>=0.3.1",
   "photutils",
+  # `photutils.segmentation.deblend_sources` imports scikit-image, which
+  # photutils only declares under its `all` extra. Source detection raises
+  # `ModuleNotFoundError` without it.
+  "scikit-image",
   # Plotting, configuration, logging, CLI.
   "loguru",
   "matplotlib",

@@ -168,17 +168,25 @@ def write_document(path: Path, document: Mapping[str, Any], force_new: bool = Tr
 
 
 def read_document(path: Path) -> dict[str, Any] | None:
-    """Read a metadata document, or return None if it is missing or unreadable.
+    """Read a metadata document, or return None if it is missing or unusable.
 
-    A frame whose document cannot be parsed is treated exactly like one that
-    has no document: it gets reprocessed. Raising here would mean a single
-    truncated file stops a walk over half a million frames, and the file is
-    about to be rewritten anyway.
+    A frame whose document cannot be read is treated exactly like one that has
+    no document: it gets reprocessed. Raising here would mean a single bad file
+    stops a walk over half a million frames, and the file is about to be
+    rewritten anyway.
+
+    "Unusable" includes a file that parses as valid JSON but is not an object.
+    ``json.loads`` happily returns a list, a number or a string, and every
+    caller here expects a mapping -- returning one would move the failure to an
+    `AttributeError` at the call site, which is exactly the walk-stopping crash
+    this function exists to prevent.
     """
     try:
-        return json.loads(path.read_text())
-    except (OSError, json.JSONDecodeError):
+        document = json.loads(path.read_text())
+    except (OSError, UnicodeError, json.JSONDecodeError):
         return None
+
+    return document if isinstance(document, dict) else None
 
 
 def record_processing(

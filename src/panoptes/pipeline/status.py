@@ -59,16 +59,22 @@ class ObservationStatus(IntEnum):
     MATCHED = auto()
 
 
-def image_status(name: str | None) -> ImageStatus:
-    """Read a status name from a document, tolerating what is not there.
+def image_status(name: object) -> ImageStatus:
+    """Read a status name from a document, tolerating whatever is actually there.
 
     A document written by an older pipeline, or one that never recorded a
     status, reads as `ImageStatus.UNKNOWN` rather than raising -- `UNKNOWN`
     sorts below `PROCESSING`, so an unreadable status means the frame is
     reprocessed. Failing closed here would strand every frame written before
     statuses were recorded.
+
+    The argument is typed `object` on purpose: it comes from JSON that this
+    pipeline may not have written, so it can be any type at all. A list is
+    unhashable and would make ``ImageStatus[name]`` raise `TypeError` rather
+    than `KeyError`, which is how one malformed document could stop a walk over
+    the whole archive.
     """
-    if name is None:
+    if not isinstance(name, str):
         return ImageStatus.UNKNOWN
     try:
         return ImageStatus[name]

@@ -151,6 +151,82 @@ def test_a_document_without_a_status_is_reprocessed(tmp_path, make_raw_tree, par
     assert frame.needs_processing
 
 
+@pytest.mark.parametrize(
+    "content",
+    [
+        "{ this is not json",
+        "[]",
+        "42",
+        '"a string"',
+        "null",
+        '{"image": null}',
+        '{"image": []}',
+        '{"image": {"status": []}}',
+        '{"image": {"status": 7}}',
+        '{"image": {"status": "NOT_A_STATUS"}}',
+    ],
+    ids=[
+        "truncated",
+        "array",
+        "number",
+        "string",
+        "null",
+        "null-image",
+        "array-image",
+        "unhashable-status",
+        "numeric-status",
+        "unknown-status",
+    ],
+)
+def test_a_malformed_document_never_stops_the_walk(tmp_path, make_raw_tree, params, content):
+    """Valid JSON is not a valid document; one bad file must not abort a walk."""
+    raw_root = make_raw_tree(count=1)
+    raw_path = next(worklist.find_frames(raw_root))
+    processed = tmp_path / "processed"
+    written = process(processed, raw_path, params)
+    written["metadata"].write_text(content)
+
+    frame = worklist.decide(raw_path, processed, params)
+
+    assert frame.needs_processing
+    assert len(worklist.build(raw_root, processed, params)) == 1
+
+
+def test_a_document_that_is_not_utf8_is_treated_as_missing(tmp_path, make_raw_tree, params):
+    raw_root = make_raw_tree(count=1)
+    raw_path = next(worklist.find_frames(raw_root))
+    processed = tmp_path / "processed"
+    written = process(processed, raw_path, params)
+    written["metadata"].write_bytes(b"\xff\xfe not text at all")
+
+    assert worklist.decide(raw_path, processed, params).reason is Reason.MISSING
+
+
+# --- identity -------------------------------------------------------------
+
+
+def test_identity_comes_from_the_path_without_reading_the_file(tmp_path):
+    """The archive layout already says where a frame belongs."""
+    path = tmp_path / "PAN001" / "abc123" / "20220115T082108" / "20220115T082209.fits"
+    path.parent.mkdir(parents=True)
+
+    path_info = worklist.identify(path)
+
+    assert not path.exists()
+    assert path_info.unit_id == "PAN001"
+    assert path_info.camera_id == "abc123"
+    assert path_info.image_id == "PAN001_abc123_20220115T082209"
+
+
+def test_identity_falls_back_to_the_header_for_a_flat_layout(tmp_path, raw_frame):
+    import shutil
+
+    flat = tmp_path / "20160909T081314.fits"
+    shutil.copy(raw_frame, flat)
+
+    assert worklist.identify(flat).unit_id == "PAN001"
+
+
 # --- the walk -------------------------------------------------------------
 
 

@@ -6,11 +6,47 @@ Changelog](https://keepachangelog.com/en/1.1.0/) format. The versioning policy
 
 ## Unreleased
 
+### Added
+
+- `panoptes.pipeline.products` writes a frame's metadata document and products
+  to a local tree at `<root>/{unit}/{camera}/{sequence_time}/{image_time}/`,
+  as `metadata.json`, `image.fits`, `extras.fits` and `sources.parquet`. The
+  pipeline had produced no metadata at all since the Firestore writer was
+  deleted, while `panoptes-data` and the observation summary still read products
+  nothing was making. The document is checked against document-store rules
+  before it is written -- no dotted field names, no arrays of arrays, no bulk
+  tables inline -- so attaching a store later is an upload rather than a
+  migration. `metadata.json` is written atomically.
+- `panoptes.pipeline.provenance` records each calibration value with the tier it
+  was resolved from: `header`, `measured`, `registry` or `default`. A value read
+  from `WHTLVLN` and a fleet-wide constant used because nobody knew used to
+  serialize identically, which is how `params_camera_saturation=15872` came to
+  sit in archive records against 37 different cameras. Falling back to a default
+  now also logs a warning naming the values that fell back.
+- Real POCS frames under `tests/data/`, copied from that repository, covering a
+  raw frame, a plate-solved one and a header carrying almost nothing.
+
 ### Changed
 
+- `extract_metadata` reads image dimensions from `NAXIS1`/`NAXIS2` instead of
+  `IMAGEW`/`IMAGEH`. POCS never writes the latter -- astrometry.net adds them
+  during plate solving -- so a raw frame silently yielded zero, which is why 16%
+  of the observation index has null dimensions.
+- The camera id and body serial are now in the `image` document as well as the
+  `sequence` one. The white level is measured per frame while the identifier was
+  recorded per sequence, which made joining the two awkward for no reason: both
+  are in every header.
+- `extract_metadata` takes an optional `CameraSettings`, used for the fallbacks
+  when the header cannot answer.
 - `panoptes-utils` floor raised to `0.3.1`, the release that introduced
   `ImagePathInfo`. The pipeline now imports it from `panoptes.utils.images.fits`
   rather than from `panoptes.data.images`, where it no longer lives.
+
+### Fixed
+
+- An absent `CAMSN` is recorded as null rather than the literal string `"None"`,
+  which read downstream as a body serial shared by every camera missing the
+  keyword.
 
 ### Removed
 

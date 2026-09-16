@@ -105,8 +105,11 @@ in arcsec. See improvement plan 1.4.
 - `src/panoptes/pipeline/` (the rest) -- `utils/images.py` (calibration, source
   detection, plate solving, catalog matching; reused rather than rebuilt, see
   improvement plan 4.1), `utils/sources.py` (catalog matching against a local
-  parquet), plus `settings.py`, `utils/observations.py` and `utils/plot.py`.
-- `plans/`, `scripts/`, `tests/`.
+  parquet), `products.py` (the per-frame document and product writer),
+  `provenance.py` (where a calibration value came from), plus `settings.py`,
+  `utils/observations.py` and `utils/plot.py`.
+- `plans/`, `scripts/`, `tests/`. `tests/data/` holds real POCS frames copied
+  from that repository; see its README for what each one exercises.
 
 **There is no cloud code path and no notebooks.** Firestore, BigQuery, GCS, the
 papermill execution path, the FastAPI service, the console script and the Docker

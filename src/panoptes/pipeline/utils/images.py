@@ -7,13 +7,15 @@ from astropy.stats import gaussian_fwhm_to_sigma
 from astropy.wcs import WCS
 from dateutil.parser import parse as parse_date
 from dateutil.tz import UTC
+from loguru import logger
 from panoptes.utils.images import bayer
 from panoptes.utils.images import fits as fits_utils
 from panoptes.utils.images.fits import ImagePathInfo
 from photutils import segmentation
 from photutils.utils import calc_total_error
 
-from panoptes.pipeline.settings import ImageSettings
+from panoptes.pipeline import provenance
+from panoptes.pipeline.settings import CameraSettings, ImageSettings
 from panoptes.pipeline.utils import sources
 
 
@@ -32,7 +34,7 @@ def get_metadata(settings: ImageSettings, path_info: ImagePathInfo) -> dict:
     header = fits.getheader(settings.files.reduced_filename)
 
     # Puts metadata into better structures.
-    metadata = extract_metadata(header, path_info)
+    metadata = extract_metadata(header, path_info, settings.params.camera)
     wcs_meta = WCS(header).to_header(relax=True)
 
     obstime = metadata["image"]["image_time"]
@@ -67,10 +69,28 @@ def get_metadata(settings: ImageSettings, path_info: ImagePathInfo) -> dict:
     return metadata
 
 
-def extract_metadata(header, path_info) -> dict:
-    """Get the metadata from a FITS image."""
+def extract_metadata(header, path_info, camera_settings: CameraSettings | None = None) -> dict:
+    """Get the metadata from a FITS image.
+
+    Returns ``dict(unit=..., sequence=..., image=...)``, one key per document.
+    That shape is the contract and predates this function's current form; see
+    data contract 3.1.
+
+    ``camera_settings`` supplies the fallbacks for calibration values the
+    header does not carry. Whatever it supplies is labelled `Provenance.DEFAULT`
+    in the resulting document rather than being indistinguishable from a
+    measurement.
+    """
+    camera_settings = camera_settings or CameraSettings()
     try:
         measured_rggb = [float(x) for x in header.get("MEASRGGB", "0 0 0 0").split(" ")]
+        calibration = provenance.resolve_camera(header, camera_settings)
+
+        # `str(header.get("CAMSN"))` produced the literal string "None" on every
+        # frame POCS wrote without the keyword, which reads downstream as a body
+        # serial that 37 cameras share. Absent is absent.
+        camera_serial = header.get("CAMSN")
+        camera_serial = str(camera_serial) if camera_serial is not None else None
         file_date = path_info.image_time.to_datetime(timezone=UTC)
         camera_date = parse_date(header.get("DATE-OBS", path_info.image_time)).replace(tzinfo=UTC)
 
@@ -94,10 +114,11 @@ def extract_metadata(header, path_info) -> dict:
             camera=dict(
                 camera_id=path_info.camera_id,
                 lens_serial_number=header.get("INTSN"),
-                serial_number=str(header.get("CAMSN")),
+                serial_number=camera_serial,
             ),
-            imagew=int(header.get("IMAGEW", 0)),
-            imageh=int(header.get("IMAGEH", 0)),
+            # NAXIS1/NAXIS2, not IMAGEW/IMAGEH: see `provenance.resolve_camera`.
+            imagew=calibration["image_width"].value,
+            imageh=calibration["image_height"].value,
             field_name=header.get("FIELD", ""),
             software_version=header.get("CREATOR", ""),
         )
@@ -105,6 +126,13 @@ def extract_metadata(header, path_info) -> dict:
         image_info = dict(
             uid=path_info.get_full_id(sep="_"),
             camera=dict(
+                # The camera identifiers repeat here on purpose. They sat only
+                # in `sequence_info`, which made joining a per-frame white level
+                # to a per-camera profile awkward -- the measurement is per
+                # frame and the identifier was per sequence. Both are in every
+                # header, so carrying them costs nothing. See data contract 3.1.
+                camera_id=path_info.camera_id,
+                serial_number=camera_serial,
                 blue_balance=float(header.get("BLUEBAL")),
                 circconf=float(header.get("CIRCCONF", "0.").split(" ")[0]),
                 colortemp=float(header.get("COLORTMP")),
@@ -126,6 +154,9 @@ def extract_metadata(header, path_info) -> dict:
                 moonfrac=float(header.get("MOONFRAC")),
                 moonsep=float(header.get("MOONSEP")),
             ),
+            # Resolved calibration, each value with the tier it came from, so a
+            # header reading and a fleet-wide default do not serialize alike.
+            calibration=provenance.as_document(calibration),
             file_creation_date=file_date,
             image_time=path_info.image_time.to_datetime(timezone=UTC),
         )
@@ -133,6 +164,12 @@ def extract_metadata(header, path_info) -> dict:
     except Exception as e:
         print(f"Error in extracting metadata: {e!r}")
         raise e
+
+    if fell_back := provenance.defaulted(calibration):
+        logger.warning(
+            f"{path_info.id}: no better source than a fleet-wide default for "
+            f"{', '.join(fell_back)} -- see improvement plan 1.4"
+        )
 
     print("Metadata extracted from header")
     return dict(unit=unit_info, sequence=sequence_info, image=image_info)

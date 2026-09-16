@@ -7,9 +7,6 @@ catalog, so there is nothing useful to write, and a flag that produced
 unmatched frames would just move the failure downstream.
 """
 
-import os
-import shutil
-
 import numpy as np
 import pandas
 import pytest
@@ -17,27 +14,19 @@ from astropy.io import fits
 
 from panoptes.pipeline import processing, products, worklist
 from panoptes.pipeline.processing import SolverMissing
-from panoptes.pipeline.settings import CameraSettings, ImageSettings, PipelineParams
+from panoptes.pipeline.settings import (
+    CameraSettings,
+    CatalogSettings,
+    ImageSettings,
+    PipelineParams,
+)
 from panoptes.pipeline.status import ImageStatus
 from panoptes.pipeline.utils.images import (
     NoSourcesDetected,
     detect_sources,
     extract_metadata,
 )
-
-#: An end-to-end run needs three things this repository cannot ship: the
-#: `solve-field` binary, astrometry.net index files covering a 10-20 degree
-#: field, and a local catalog to match against. The `solve-field` binary alone
-#: is not enough -- it is installed here and still cannot solve anything,
-#: because no index files are present. Point these at a real wide-field frame
-#: and catalog to run it.
-REAL_FRAME = os.environ.get("PANOPTES_TEST_FRAME")
-REAL_CATALOG = os.environ.get("PANOPTES_TEST_CATALOG")
-
-needs_real_data = pytest.mark.skipif(
-    not (REAL_FRAME and REAL_CATALOG and shutil.which("solve-field")),
-    reason="needs solve-field, index files, PANOPTES_TEST_FRAME and PANOPTES_TEST_CATALOG",
-)
+from tests.solver import needs_solver
 
 
 @pytest.fixture
@@ -364,17 +353,55 @@ def test_sequences_are_discoverable_without_processing(tmp_path, make_raw_tree, 
 # --- end to end -----------------------------------------------------------
 
 
-@needs_real_data
-def test_a_frame_processes_end_to_end(tmp_path):
-    """The only test that exercises solve, detect and match together."""
-    params = PipelineParams.model_validate({"catalog": {"catalog_filename": REAL_CATALOG}})
+@needs_solver
+def test_a_frame_processes_end_to_end(widefield, widefield_catalog, tmp_path):
+    """The only test that exercises calibrate, solve, detect and match together.
 
-    written = processing.process_frame(REAL_FRAME, tmp_path / "processed", params)
+    Every other test stops short of one of those steps, which is how three
+    defects reached `main` -- an undeclared `scikit-image`, a masked array
+    handed to `photutils`, and a solver that discarded FITS extensions. All
+    three were found by running the pipeline, not by the suite. This is the
+    suite running it.
+    """
+    params = PipelineParams(catalog=CatalogSettings(catalog_filename=widefield_catalog))
+
+    written = processing.process_frame(widefield, tmp_path / "processed", params, solve_timeout=180)
 
     assert set(written) == {"metadata", "reduced", "sources"}
+
     document = products.read_document(written["metadata"])
     assert document["image"]["status"] == "MATCHED"
-    assert document["image"]["sources"]["num_detected"] > 0
+    assert document["image"]["params_fingerprint"] == params.fingerprint
+
+    # Saturation resolved from the header, not a fleet-wide default. This is the
+    # value #183 exists to get right, asserted on a real frame.
+    saturation = document["image"]["calibration"]["saturation"]
+    assert saturation["provenance"] == "header"
+    assert saturation["source"] == "WHTLVLN"
+
+    matched = pandas.read_parquet(written["sources"])
+    assert len(matched) > 1000, "detection or matching has collapsed"
+    assert matched.picid.nunique() == len(matched), "a star matched twice"
+    # `picid` is the Gaia DR3 `source_id`, so these are 19-digit integers.
+    assert matched.picid.min() > 10**17
+
+
+@needs_solver
+def test_a_processed_frame_indexes(widefield, widefield_catalog, tmp_path):
+    """The whole loop: raw frame in, queryable index out."""
+    from panoptes.pipeline import index
+
+    params = PipelineParams(catalog=CatalogSettings(catalog_filename=widefield_catalog))
+    processed = tmp_path / "processed"
+    processing.process_frame(widefield, processed, params, solve_timeout=180)
+
+    index.build(processed, tmp_path / "index")
+    frames, observations = index.read(tmp_path / "index")
+
+    assert len(frames) == 1
+    assert len(observations) == 1
+    assert observations.num_usable.iloc[0] == 1
+    assert observations.total_exptime.iloc[0] > 0
 
 
 def test_a_failed_frame_is_recorded_so_the_next_walk_finds_it(

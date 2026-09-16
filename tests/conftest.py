@@ -4,6 +4,7 @@ The FITS files under `tests/data/` are real POCS output; see that directory's
 README for what each one is and which quirks they carry.
 """
 
+import shutil
 from pathlib import Path
 
 import pytest
@@ -85,3 +86,22 @@ def make_raw_tree(tmp_path, raw_frame):
         return root
 
     return build
+
+
+@pytest.fixture
+def widefield(tmp_path) -> Path:
+    """A copy of the wide-field frame, because solving destroys its input.
+
+    `get_solve_field` unpacks a compressed file and does not restore it when
+    `replace=False`, so solving the committed fixture in place would delete it
+    from the working tree.
+    """
+    target = tmp_path / "widefield.fits.fz"
+    shutil.copy(DATA_DIR / "widefield.fits.fz", target)
+    return target
+
+
+@pytest.fixture
+def widefield_catalog() -> Path:
+    """The trimmed Gaia catalog covering `widefield.fits.fz`."""
+    return DATA_DIR / "widefield_catalog.parquet"

@@ -40,12 +40,19 @@ jobs:
       # `astrometry-data-tycho2-10-19` provides index-4110 to index-4119. A real
       # PANOPTES frame solves with index-4112 and the test fixture with
       # index-4116, so this series is what our field scale needs and no extra
-      # index download is required. Matches what `panoptes-utils` installs.
+      # index download is required.
+      #
+      # `libcfitsio-bin` supplies `funpack`. Without it `get_solve_field` cannot
+      # unpack a `.fz`, hands `solve-field` a file it cannot read, and every
+      # solve of a compressed frame fails with "no WCS header present" -- while
+      # uncompressed frames still solve, which makes it look like a fixture
+      # problem rather than a missing tool. `panoptes-utils` installs it for the
+      # same reason.
       - name: Install astrometry.net and index files
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            astrometry.net astrometry-data-tycho2-10-19
+            astrometry.net astrometry-data-tycho2-10-19 libcfitsio-bin
 
       - name: Install uv
         uses: astral-sh/setup-uv@v6

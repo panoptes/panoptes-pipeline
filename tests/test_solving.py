@@ -21,9 +21,16 @@ from panoptes.pipeline import processing, products
 from panoptes.pipeline.settings import ImageSettings, PipelineParams
 from panoptes.pipeline.utils.images import plate_solve
 
+#: The fixture is `.fz`, so `funpack` is as much a requirement as the solver:
+#: `get_solve_field` unpacks a compressed input before handing it over, and
+#: without it every solve fails with "no WCS header present" while uncompressed
+#: frames still work -- which reads as a fixture problem rather than a missing
+#: tool. Naming both here turns that into a skip with a reason.
+MISSING_TOOLS = [tool for tool in ("solve-field", "funpack") if shutil.which(tool) is None]
+
 needs_solver = pytest.mark.skipif(
-    shutil.which("solve-field") is None,
-    reason="astrometry.net solve-field is not installed",
+    bool(MISSING_TOOLS),
+    reason=f"not installed: {', '.join(MISSING_TOOLS)}",
 )
 
 #: The field `widefield.fits.fz` was taken of, from its own solved WCS.

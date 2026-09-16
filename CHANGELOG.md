@@ -97,6 +97,13 @@ Changelog](https://keepachangelog.com/en/1.1.0/) format. The versioning policy
 
 ### Fixed
 
+- A catalog carrying only the four documented columns now works. `match_sources`
+  read `catalog_gaiabp`, `catalog_gaiarp` and `catalog_gaiamag` unconditionally,
+  so a catalog built to the stated contract passed validation, matched, and then
+  raised `AttributeError` -- after plate solving and source detection had already
+  run. Those three are optional enrichment: present, three colour-excess columns
+  are derived; absent, they are skipped. Nothing reads the excesses yet.
+
 - An absent `CAMSN` records as null instead of the string `"None"`.
 - A frame's metadata document is written after its products, not before. It is
   the marker the work-list walk reads to decide a frame is done, so a failure

@@ -9,7 +9,17 @@ from astropy.wcs import WCS
 
 #: Columns the catalog must carry for matching to work. The file is expected to
 #: use the mapped PIC names rather than the raw upstream ones.
+#: What the pipeline cannot run without. `picid` is exactly the Gaia DR3
+#: `source_id` -- an alias and nothing more (#203) -- so a catalog is a Gaia cone
+#: search with its columns renamed, and `scripts/fetch_catalog.py` builds one
+#: with no crossmatch step.
 REQUIRED_CATALOG_COLUMNS = ("picid", "catalog_ra", "catalog_dec", "catalog_vmag")
+
+#: Optional enrichment. Present, `match_sources` derives three colour-excess
+#: columns for reference selection; absent, it skips them. Deliberately *not*
+#: required: CLAUDE.md promises the catalog can be rebuilt without touching this
+#: package, and a four-column catalog has to actually work for that to be true.
+GAIA_CATALOG_COLUMNS = ("catalog_gaiabp", "catalog_gaiarp", "catalog_gaiamag")
 
 #: Catalog file formats, chosen by suffix, each optionally compressed
 #: (`.ecsv.gz`, `.csv.bz2`).

@@ -48,7 +48,8 @@ from astropy.time import Time
 from loguru import logger
 from panoptes.utils.images.fits import ImagePathInfo
 
-from panoptes.pipeline.settings import FileSettings
+from panoptes.pipeline.settings import FileSettings, PipelineParams
+from panoptes.pipeline.status import ImageStatus
 
 #: Field-name characters a document store will not accept. Firestore reads a
 #: `.` as a path separator, so a key containing one is unaddressable rather
@@ -164,6 +165,36 @@ def write_document(path: Path, document: Mapping[str, Any], force_new: bool = Tr
         temporary.unlink(missing_ok=True)
 
     return path
+
+
+def read_document(path: Path) -> dict[str, Any] | None:
+    """Read a metadata document, or return None if it is missing or unreadable.
+
+    A frame whose document cannot be parsed is treated exactly like one that
+    has no document: it gets reprocessed. Raising here would mean a single
+    truncated file stops a walk over half a million frames, and the file is
+    about to be rewritten anyway.
+    """
+    try:
+        return json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def record_processing(
+    metadata: dict[str, Any],
+    params: PipelineParams,
+    status: ImageStatus,
+) -> dict[str, Any]:
+    """Stamp the document with the settings and stage it was produced at.
+
+    The fingerprint is what the next work-list walk compares against, so the
+    field names live here rather than being spelled out at each call site.
+    """
+    metadata["image"]["params"] = json.loads(params.model_dump_json())
+    metadata["image"]["params_fingerprint"] = params.fingerprint
+    metadata["image"]["status"] = status.name
+    return metadata
 
 
 def write_frame(

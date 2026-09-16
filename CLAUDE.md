@@ -106,8 +106,9 @@ in arcsec. See improvement plan 1.4.
   detection, plate solving, catalog matching; reused rather than rebuilt, see
   improvement plan 4.1), `utils/sources.py` (catalog matching against a local
   parquet), `products.py` (the per-frame document and product writer),
-  `provenance.py` (where a calibration value came from), plus `settings.py`,
-  `utils/observations.py` and `utils/plot.py`.
+  `provenance.py` (where a calibration value came from), `worklist.py` (which
+  frames need processing, and why), `status.py` (the pipeline's own stages),
+  plus `settings.py`, `utils/observations.py` and `utils/plot.py`.
 - `plans/`, `scripts/`, `tests/`. `tests/data/` holds real POCS frames copied
   from that repository; see its README for what each one exercises.
 

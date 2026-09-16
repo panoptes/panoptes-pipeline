@@ -8,6 +8,15 @@ Changelog](https://keepachangelog.com/en/1.1.0/) format. The versioning policy
 
 ### Added
 
+- `scripts/survey_headers.py` surveys the FITS headers of a local copy of the
+  raw archive into `headers.parquet`, one row per frame. It reads headers and
+  never pixels, so it needs no processed tree and no plate solving -- which is
+  what makes it usable now, and what keeps benchmark selection honest: the
+  processed index is built from output of the implementation being replaced.
+  WCS written back into archived frames by the retired cloud pipeline is
+  excluded for that reason, and kept only as `plate_solved`/`solve_date`
+  provenance, since the archive's "raw" frames turn out to be raw to different
+  degrees by era. Sharded per sequence, so an interrupted run resumes.
 - `panoptes.pipeline.products` writes a frame's metadata document and products
   to `<root>/{unit}/{camera}/{sequence_time}/{image_time}/` as `metadata.json`,
   `image.fits`, `extras.fits` and `sources.parquet`. The pipeline had produced

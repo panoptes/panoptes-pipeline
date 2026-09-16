@@ -29,7 +29,10 @@ from enum import StrEnum
 from pathlib import Path
 
 import pandas
+from astropy.time import Time
+from dateutil.parser import parse as parse_date
 from loguru import logger
+from panoptes.utils.images import fits as fits_utils
 from panoptes.utils.images.fits import ImagePathInfo
 
 from panoptes.pipeline import products
@@ -92,7 +95,24 @@ def identify(raw_path: Path) -> ImagePathInfo:
     try:
         return ImagePathInfo(path=str(raw_path))
     except ValueError:
-        return ImagePathInfo.from_fits(raw_path)
+        pass
+
+    # `from_fits_header` reads `FILENAME` first and only catches `ValueError`,
+    # so a frame without that keyword raises `KeyError` rather than falling
+    # through to `SEQID`/`IMAGEID`. Most POCS frames carry it; a frame that does
+    # not is still perfectly identifiable.
+    header = fits_utils.getheader(str(raw_path))
+    try:
+        return ImagePathInfo.from_fits_header(header)
+    except KeyError:
+        unit_id, camera_id, sequence_time = header["SEQID"].split("_")
+        _, _, image_time = header["IMAGEID"].split("_")
+        return ImagePathInfo(
+            unit_id=unit_id,
+            camera_id=camera_id,
+            sequence_time=Time(parse_date(sequence_time)),
+            image_time=Time(parse_date(image_time)),
+        )
 
 
 def decide(

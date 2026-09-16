@@ -11,6 +11,7 @@ CI installs both; a developer machine without them skips.
 """
 
 import shutil
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -28,12 +29,45 @@ from panoptes.pipeline.utils.images import plate_solve
 #: tool. Naming both here turns that into a skip with a reason.
 MISSING_TOOLS = [tool for tool in ("solve-field", "funpack") if shutil.which(tool) is None]
 
-needs_solver = pytest.mark.skipif(
-    bool(MISSING_TOOLS),
-    reason=f"not installed: {', '.join(MISSING_TOOLS)}",
+#: Where astrometry.net keeps its configuration, across the packagings we care
+#: about: Debian, Homebrew, a source build.
+CONFIG_PATHS = (
+    "/etc/astrometry.cfg",
+    "/usr/local/etc/astrometry.cfg",
+    "/opt/homebrew/etc/astrometry.cfg",
+    "/usr/share/astrometry/astrometry.cfg",
 )
 
-#: The field `widefield.fits.fz` was taken of, from its own solved WCS.
+
+def has_index_files() -> bool:
+    """True if any index file is installed where the solver will look.
+
+    The binary being present says nothing about whether it can solve: index
+    files are a separate package, and without them `solve-field` runs happily
+    and finds nothing. That failure reads as a bad fixture rather than a missing
+    dataset, which is how the `funpack` omission cost a CI round trip. Checking
+    here turns it into a skip with a reason.
+    """
+    for config in CONFIG_PATHS:
+        path = Path(config)
+        if not path.is_file():
+            continue
+        for line in path.read_text().splitlines():
+            if line.strip().startswith("add_path"):
+                directory = Path(line.split(maxsplit=1)[1].strip())
+                if any(directory.glob("index-*.fits")):
+                    return True
+    return False
+
+
+MISSING = [*MISSING_TOOLS, *([] if MISSING_TOOLS or has_index_files() else ["index files"])]
+
+needs_solver = pytest.mark.skipif(
+    bool(MISSING),
+    reason=f"not available: {', '.join(MISSING)}",
+)
+
+#: The centre of the field `widefield.fits.fz` shows, from its own solved WCS.
 EXPECTED_RA, EXPECTED_DEC = 86.497, 8.729
 
 
@@ -65,7 +99,7 @@ def test_a_widefield_frame_solves_with_production_options(widefield, tmp_path):
 
 @needs_solver
 def test_solving_a_product_in_place_keeps_its_extensions(widefield, tmp_path):
-    """The panoptes-utils#378 defect, against the real solver rather than a mock.
+    """The panoptes/panoptes-utils#378 defect, against the real solver not a mock.
 
     `solve-field` rewrites a file as a single HDU instead of adding a WCS to it,
     so solving a multi-extension product discards BACKGROUND, RMS and MASK.
@@ -102,11 +136,16 @@ def test_solving_a_product_in_place_keeps_its_extensions(widefield, tmp_path):
 
 
 @needs_solver
-def test_the_solver_writes_nothing_beside_the_product(widefield, tmp_path):
-    """Solver leftovers must not reach a frame's product directory."""
-    products_dir = tmp_path / "products"
-    products_dir.mkdir()
-    products.write_image(products_dir / "image.fits", np.zeros((32, 32), dtype=np.float32))
+def test_solving_leaves_artifacts_beside_its_input(widefield, tmp_path):
+    """Which is why `process_frame` solves a scratch copy rather than the product.
+
+    Recording the behaviour, not wishing it away: `solve-field` writes `.new`,
+    `.corr` and friends next to whatever it is pointed at, even in the
+    non-destructive mode. An earlier version of this test asserted a directory
+    was clean while pointing the solver somewhere else entirely, so nothing
+    could have failed it.
+    """
+    before = {p.name for p in widefield.parent.iterdir()}
 
     plate_solve(
         settings=ImageSettings(params=PipelineParams(), output_dir=tmp_path),
@@ -114,7 +153,26 @@ def test_the_solver_writes_nothing_beside_the_product(widefield, tmp_path):
         timeout=180,
     )
 
-    assert {p.name for p in products_dir.iterdir()} == {"image.fits"}
+    assert {p.name for p in widefield.parent.iterdir()} - before
+
+
+@needs_solver
+def test_processing_leaves_no_solver_artifacts_in_the_frame_directory(widefield, tmp_path):
+    """The invariant that matters, asserted on the directory the solver ran for.
+
+    `process_frame` cannot finish without a catalog, but it solves before it
+    matches -- so a run that fails at catalog matching has already exercised the
+    scratch-copy path, and the frame directory must hold only named products.
+    """
+    processed = tmp_path / "processed"
+
+    with pytest.raises(ValueError, match="local catalog"):
+        processing.process_frame(widefield, processed, PipelineParams(), solve_timeout=180)
+
+    written = {p.name for p in processed.rglob("*") if p.is_file()}
+
+    assert written <= {"image.fits", "metadata.json", "sources.parquet"}
+    assert not [name for name in written if name.endswith((".new", ".corr", ".axy", ".wcs"))]
 
 
 @needs_solver

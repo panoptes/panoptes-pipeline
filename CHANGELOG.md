@@ -100,6 +100,11 @@ Changelog](https://keepachangelog.com/en/1.1.0/) format. The versioning policy
 
 ### Fixed
 
+- A frame whose header has no `FILENAME` keyword can be identified. `worklist.identify`
+  fell through to `ImagePathInfo.from_fits_header`, which reads that keyword
+  first and catches only `ValueError`, so a missing one raised `KeyError` and
+  `process_frame` could not place the frame at all.
+
 - A catalog carrying only the four documented columns now works. `match_sources`
   read `catalog_gaiabp`, `catalog_gaiarp` and `catalog_gaiamag` unconditionally,
   so a catalog built to the stated contract passed validation, matched, and then

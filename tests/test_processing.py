@@ -11,6 +11,7 @@ import os
 import shutil
 
 import numpy as np
+import pandas
 import pytest
 from astropy.io import fits
 
@@ -275,15 +276,80 @@ def test_a_frame_processes_end_to_end(tmp_path):
     assert document["image"]["sources"]["num_detected"] > 0
 
 
-def test_a_failed_frame_is_recorded_so_the_next_walk_finds_it(tmp_path, make_raw_tree, params):
-    """A frame that cannot be solved still leaves a document saying so."""
+def test_a_failed_frame_is_recorded_so_the_next_walk_finds_it(
+    tmp_path, make_raw_tree, params, monkeypatch
+):
+    """A frame that cannot be solved still leaves a document saying so.
+
+    The solver is stubbed in both directions -- present, then failing -- so the
+    failure happens inside the guarded stage rather than at the gate. Relying
+    on a real `solve-field` being installed (or absent) would make the test
+    assert something different depending on the machine.
+    """
+    monkeypatch.setattr(processing.shutil, "which", lambda _: "/usr/bin/solve-field")
+    monkeypatch.setattr(
+        processing,
+        "plate_solve",
+        lambda **kwargs: (_ for _ in ()).throw(RuntimeError("no solution")),
+    )
+
     raw_root = make_raw_tree(count=1)
     raw_path = next(worklist.find_frames(raw_root))
     processed = tmp_path / "processed"
 
-    with pytest.raises(Exception):
+    with pytest.raises(RuntimeError, match="no solution"):
         processing.process_frame(raw_path, processed, params)
 
     frame = worklist.decide(raw_path, processed, params)
     assert frame.status is ImageStatus.ERROR
     assert frame.reason is worklist.Reason.PRIOR_ERROR
+
+
+def test_a_rerun_with_nothing_to_do_needs_no_solver(tmp_path, make_raw_tree, params, monkeypatch):
+    """Confirming there is nothing to do is the normal case, not the exception."""
+    monkeypatch.setattr(processing.shutil, "which", lambda _: None)
+    raw_root = make_raw_tree(count=2)
+    processed = tmp_path / "processed"
+
+    for frame in worklist.build(raw_root, processed, params):
+        metadata = products.record_processing(
+            extract_metadata(fits.getheader(frame.raw_path), frame.path_info),
+            params,
+            ImageStatus.MATCHED,
+        )
+        products.write_frame(processed, frame.path_info, metadata)
+
+    table = processing.process_observation(raw_root, processed, params)
+
+    assert set(table.outcome) == {"skipped"}
+
+
+def test_a_rerun_with_work_to_do_still_demands_a_solver(
+    tmp_path, make_raw_tree, params, monkeypatch
+):
+    monkeypatch.setattr(processing.shutil, "which", lambda _: None)
+    raw_root = make_raw_tree(count=1)
+
+    with pytest.raises(SolverMissing):
+        processing.process_observation(raw_root, tmp_path / "processed", params)
+
+
+def test_the_document_is_written_after_the_products(tmp_path, raw_path_info, raw_header, params):
+    """The document is the completion marker, so it must be committed last.
+
+    A failure part way through the products would otherwise leave a frame
+    claiming to be finished, and the next walk would skip it.
+    """
+    metadata = products.record_processing(
+        extract_metadata(raw_header, raw_path_info), params, ImageStatus.MATCHED
+    )
+
+    class Exploding(pandas.DataFrame):
+        def to_parquet(self, *args, **kwargs):
+            raise OSError("disk full")
+
+    with pytest.raises(OSError, match="disk full"):
+        products.write_frame(tmp_path, raw_path_info, metadata, sources=Exploding({"picid": [1]}))
+
+    document = products.frame_directory(tmp_path, raw_path_info) / "metadata.json"
+    assert not document.exists()

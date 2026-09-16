@@ -273,13 +273,20 @@ def process_observation(
     `ImageStatus.ERROR` for the next walk to find.
     """
     params = params or PipelineParams()
-    require_solver()
 
     frames = worklist.build(raw_root, processed_root, params, force_new=force_new, files=files)
     logger.info(f"Work list: {worklist.summarize(frames)}")
 
+    # Only demand a solver if there is something to solve. Checking first would
+    # make an idempotent rerun fail on a machine without `solve-field` even when
+    # every frame is already up to date -- and re-running to confirm there is
+    # nothing to do is the normal case, not the exception.
+    todo = worklist.pending(frames)
+    if todo:
+        require_solver()
+
     outcomes = {}
-    for frame in worklist.pending(frames):
+    for frame in todo:
         try:
             process_frame(
                 frame.raw_path,

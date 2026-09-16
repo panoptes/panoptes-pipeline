@@ -11,7 +11,6 @@ CI installs both; a developer machine without them skips.
 """
 
 import shutil
-from pathlib import Path
 
 import numpy as np
 import pytest
@@ -21,52 +20,13 @@ from astropy.wcs import WCS
 from panoptes.pipeline import processing, products
 from panoptes.pipeline.settings import ImageSettings, PipelineParams
 from panoptes.pipeline.utils.images import plate_solve
+from tests.solver import needs_solver
 
 #: The fixture is `.fz`, so `funpack` is as much a requirement as the solver:
 #: `get_solve_field` unpacks a compressed input before handing it over, and
 #: without it every solve fails with "no WCS header present" while uncompressed
 #: frames still work -- which reads as a fixture problem rather than a missing
 #: tool. Naming both here turns that into a skip with a reason.
-MISSING_TOOLS = [tool for tool in ("solve-field", "funpack") if shutil.which(tool) is None]
-
-#: Where astrometry.net keeps its configuration, across the packagings we care
-#: about: Debian, Homebrew, a source build.
-CONFIG_PATHS = (
-    "/etc/astrometry.cfg",
-    "/usr/local/etc/astrometry.cfg",
-    "/opt/homebrew/etc/astrometry.cfg",
-    "/usr/share/astrometry/astrometry.cfg",
-)
-
-
-def has_index_files() -> bool:
-    """True if any index file is installed where the solver will look.
-
-    The binary being present says nothing about whether it can solve: index
-    files are a separate package, and without them `solve-field` runs happily
-    and finds nothing. That failure reads as a bad fixture rather than a missing
-    dataset, which is how the `funpack` omission cost a CI round trip. Checking
-    here turns it into a skip with a reason.
-    """
-    for config in CONFIG_PATHS:
-        path = Path(config)
-        if not path.is_file():
-            continue
-        for line in path.read_text().splitlines():
-            if line.strip().startswith("add_path"):
-                directory = Path(line.split(maxsplit=1)[1].strip())
-                if any(directory.glob("index-*.fits")):
-                    return True
-    return False
-
-
-MISSING = [*MISSING_TOOLS, *([] if MISSING_TOOLS or has_index_files() else ["index files"])]
-
-needs_solver = pytest.mark.skipif(
-    bool(MISSING),
-    reason=f"not available: {', '.join(MISSING)}",
-)
-
 #: The centre of the field `widefield.fits.fz` shows, from its own solved WCS.
 EXPECTED_RA, EXPECTED_DEC = 86.497, 8.729
 

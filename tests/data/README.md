@@ -50,3 +50,22 @@ covered.
 **Solving a `.fz` consumes it.** `get_solve_field` unpacks a compressed input
 and does not restore it when `replace=False`, so a test must copy this file into
 `tmp_path` and never solve it in place.
+
+
+## `widefield_catalog.parquet`
+
+The Gaia DR3 sources landing on `widefield.fits.fz`, so the end-to-end test has
+something to match against. 6,929 rows, 361 kB.
+
+Built by solving the fixture, projecting the full cone through the resulting
+WCS, and keeping sources inside the frame plus a 50-pixel margin and brighter
+than G=11 -- the margin so the catalog is not cut exactly at the frame edge.
+
+G=11 rather than the pipeline's G=13 default because the fixture is
+undersampled: 4x4 binning plus `plate_solve`'s `--downsample 4` leaves a FWHM of
+about 1.2 pixels, and it matches 1,350 sources at full depth, of which 1,238 are
+brighter than G=11. The remaining 8% would triple the file. Matching 1,238 of
+6,929 candidates keeps it a real exercise rather than a lookup that cannot fail.
+
+`picid` is the Gaia DR3 `source_id`, so `scripts/fetch_catalog.py` can rebuild a
+superset of this from the field centre with no crossmatch step.

@@ -100,6 +100,9 @@ Changelog](https://keepachangelog.com/en/1.1.0/) format. The versioning policy
 
 ### Fixed
 
+- `process_frame` reports the reduced image it wrote. The path was returned by
+  `write_image` and then dropped, so the result named every product except the
+  largest one.
 - A frame whose header has no `FILENAME` keyword can be identified. `worklist.identify`
   fell through to `ImagePathInfo.from_fits_header`, which reads that keyword
   first and catches only `ValueError`, so a missing one raised `KeyError` and

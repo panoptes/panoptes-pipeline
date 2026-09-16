@@ -191,7 +191,7 @@ def process_frame(
             wcs = plate_solve(settings=settings, filename=scratch_path, timeout=solve_timeout)
 
         header.update(wcs.to_header(relax=True))
-        products.write_image(
+        reduced_path = products.write_image(
             image_path,
             calibrated.reduced,
             background=calibrated.background_mesh,
@@ -227,14 +227,20 @@ def process_frame(
         products.write_frame(processed_root, path_info, metadata, files=files, force_new=True)
         raise
 
-    return products.write_frame(
-        processed_root,
-        path_info,
-        metadata,
-        sources=matched,
-        files=files,
-        force_new=force_new,
-    )
+    # `image.fits` is written before solving rather than through `write_frame`,
+    # so it has to be merged in here -- otherwise this reports everything it
+    # wrote except the largest product.
+    return {
+        "reduced": reduced_path,
+        **products.write_frame(
+            processed_root,
+            path_info,
+            metadata,
+            sources=matched,
+            files=files,
+            force_new=force_new,
+        ),
+    }
 
 
 def source_statistics(matched: pandas.DataFrame) -> dict[str, float | int]:

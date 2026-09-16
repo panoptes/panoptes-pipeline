@@ -137,7 +137,7 @@ dependency group, so the package is importable and no `PYTHONPATH` is needed:
 
 ```bash
 uv sync                    # project + dev tooling
-uv run pytest              # 139 tests
+uv run pytest              # 283 tests
 uv run ruff check .        # lint
 uv run ruff format .       # format
 ```
@@ -253,6 +253,45 @@ writing it at merge time prevents.
   reuse it.
 
 ## Conventions
+
+- **Reach for `panoptes-utils` first.** It is a utility library and the shared
+  base across all four repositories, and the pipeline already imports it in
+  `processing.py`, `products.py`, `worklist.py`, `utils/images.py` and
+  `utils/plot.py`. Before writing a helper, check whether it is already there.
+  A local reimplementation is not merely duplicate -- it is a *second* answer to
+  a question that already has one, and the two drift.
+
+  What it covers:
+
+  - `images.fits` -- `getheader` (picks the right extension for `.fz`),
+    `getdata`, `getval`, `ImagePathInfo`, `get_solve_field`, `solve_field`,
+    `get_wcsinfo`, `fpack`/`funpack`, `write_fits`, `extract_metadata`.
+  - `images.bayer` -- the color filter array: `get_rgb_data`, `get_rgb_masks`,
+    `get_rgb_background`, `get_pixel_color`, `get_stamp_slice`, `RGB`.
+  - `images.misc` -- `mask_saturated`, `crop_data`. `images.focus` --
+    `focus_metric`, `vollath_F4`. `images.plot` -- plotting helpers.
+  - `time` -- **`current_time`**, `flatten_time`, `CountdownTimer`. Not
+    `datetime.now`.
+  - `utils` -- `listify`, `altaz_to_radec`, `get_quantity_value`,
+    `normalize_file_input`. `serializers` -- `to_json`/`from_json`,
+    `to_yaml`/`from_yaml`. `error` -- the `PanError` hierarchy, including
+    `SolveError`, `NotFound` and `IllegalValue`.
+
+  Then check `src/panoptes/pipeline/utils/`. Only then write it.
+
+  **The failure mode is silence, not an exception.** Two from one session:
+  `ImagePathInfo` parses *both* archive layouts -- modern
+  `<unit>/<camera>/<sequence time>/` and legacy
+  `<unit>/<field>/<camera>/<sequence time>/` -- so a regex written against the
+  modern one drops every legacy frame as unparseable and still reports a clean
+  run; and `fits_utils.getheader` encodes the `.fz`-means-extension-1 rule that
+  is easy to hand-roll and easy to get subtly wrong.
+
+  This is "check first", not "always replace": where a local call is deliberate
+  it stays, such as `products.py` using `json.dumps(..., sort_keys=True)` with
+  its own encoder because the fingerprint has to be byte-stable. If the shared
+  helper is close but wrong, fix it **there** and file the issue in
+  `panoptes-utils` -- improving the base is worth more than routing around it.
 
 - **American English throughout** -- code, comments, docstrings, commit
   messages, issues, plans and changelog. `color` not `colour`, `normalize` not

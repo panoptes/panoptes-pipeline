@@ -4,6 +4,25 @@ Notable changes, newest first, in the [Keep a
 Changelog](https://keepachangelog.com/en/1.1.0/) format. The versioning policy
 -- and why this project is deliberately pre-1.0 -- is in `CLAUDE.md`.
 
+## Unreleased
+
+### Changed
+
+- `panoptes-utils` floor raised to `0.3.1`, the release that introduced
+  `ImagePathInfo`. The pipeline now imports it from `panoptes.utils.images.fits`
+  rather than from `panoptes.data.images`, where it no longer lives.
+
+### Removed
+
+- `panoptes-data` is no longer a dependency. `ImagePathInfo` was the only thing
+  this package used from it, and nothing else imported it. The dependency also
+  pointed the wrong way: `panoptes-data` is downstream of this pipeline, reading
+  the products it writes. The `<0.2` holding pin goes with it, so the two
+  repositories are no longer version-coupled.
+- Twenty-one transitive packages leave the locked environment with it, among them
+  `ipython` and `ipywidgets`. That was the last Jupyter machinery `uv sync`
+  installed, which v0.4.0 had intended to remove.
+
 ## v0.4.0 -- 2026-09-12
 
 The package stops requiring Google Cloud, Docker, conda and Jupyter. Every

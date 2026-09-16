@@ -19,6 +19,15 @@ Changelog](https://keepachangelog.com/en/1.1.0/) format. The versioning policy
   and a fleet-wide fallback no longer serialize alike. Falling back warns.
 - Real POCS frames under `tests/data/`: a raw frame, a solved one, and a header
   carrying almost nothing.
+- `panoptes.pipeline.index` builds the query surface by walking the documents
+  the pipeline wrote: `frames.parquet`, one row per frame, and
+  `observations.parquet`, one row per sequence derived from it. This replaces
+  the Firestore-generated `observations.csv`, which nothing has produced since
+  the cloud removal. It reads no pixels, and it computes what the old summary
+  could not express -- usable frames as distinct from frames, duration,
+  `total_exptime` as a sum over frames rather than a number only the index
+  holds, and a flag for a camera uid whose serial is inconsistent across a
+  sequence.
 - `NoSourcesDetected`, raised when nothing in a frame clears the detection
   threshold. Clouds, a closed dome and lost tracking all produce such a frame,
   so it is an ordinary outcome over a survey and callers can distinguish it from

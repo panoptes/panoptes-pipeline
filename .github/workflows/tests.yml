@@ -1,0 +1,64 @@
+name: Tests
+
+# Pull requests and pushes to main only. There is one long-lived branch, so
+# anything else is a feature branch that will arrive here as a pull request
+# anyway, and running both would double the work for no extra signal.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A new push to a pull request makes the run in progress irrelevant. `main`
+# keeps its runs, since those are the ones that say whether the branch is good.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      # One version failing should not hide the result for the other.
+      fail-fast: false
+      matrix:
+        # `requires-python = ">=3.12"`, so both supported versions are covered
+        # rather than only the one that happens to be installed locally.
+        python-version: ["3.12", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # `hatch-vcs` derives the version from the nearest `v*` tag, and a
+          # default checkout fetches no tags at all -- so a shallow clone gives
+          # the package no version to build from.
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      # `uv sync` installs the project plus the `dev` group, which is what
+      # CLAUDE.md documents and what a contributor runs. Nothing else is
+      # needed: the suite wants no credentials, no network and no cloud
+      # project.
+      - name: Install
+        run: uv sync --python ${{ matrix.python-version }}
+
+      - name: Lint
+        run: uv run ruff check --output-format=github .
+
+      - name: Format
+        run: uv run ruff format --check .
+
+      # The end-to-end processing test skips here by design: it needs
+      # astrometry.net index files and a local catalog, neither of which can be
+      # shipped in the repository. `-ra` is already in `addopts`, so the skip
+      # and its reason are printed rather than silently passing.
+      - name: Test
+        run: uv run pytest

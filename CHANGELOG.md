@@ -67,6 +67,13 @@ Changelog](https://keepachangelog.com/en/1.1.0/) format. The versioning policy
 ### Fixed
 
 - An absent `CAMSN` records as null instead of the string `"None"`.
+- A frame's metadata document is written after its products, not before. It is
+  the marker the work-list walk reads to decide a frame is done, so a failure
+  part way through the products used to leave a frame claiming to be finished
+  with its products missing, and the next walk skipped it.
+- `process_observation` only requires `solve-field` when the work list is not
+  empty, so re-running to confirm there is nothing to do no longer fails on a
+  machine without a solver.
 - Source detection no longer crashes on a frame with saturated pixels. Its mask
   guard tested a masked array for truthiness, which raises for any real mask and
   built a 0-d mask when there was none. It was unreachable only because the

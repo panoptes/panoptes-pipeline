@@ -126,8 +126,9 @@ without touching this package; `catalog_gaiabp`, `catalog_gaiarp` and
 **`picid` is exactly the Gaia DR3 `source_id`** -- an alias and nothing more, so
 a catalog is a Gaia cone search with its columns renamed and no crossmatch step,
 which is what `scripts/fetch_catalog.py` does. It is also a categorical: it names
-a star rather than measuring one, so group on it with `observed=True`. A CLI comes back with improvement plan 4.2. See
-improvement plan 4.3 for why removal beat adapters.
+a star rather than measuring one, so group on it with `observed=True`. A CLI
+comes back with improvement plan 4.2. See improvement plan 4.3 for why removal
+beat adapters.
 
 ## Running things
 
@@ -319,6 +320,32 @@ writing it at merge time prevents.
   `numpy.ma` convention is the opposite; convert only at that boundary.
 - Stamp arrays unpack as `(height, width)`. Stamps are non-square in existing
   data; getting this backwards is conformance audit 5.4.
+- **A test for a fixed bug is run against the unfixed code first, and the
+  commit says so.** Stash the source, run the new test, watch it fail, restore:
+
+  ```bash
+  git stash push src/panoptes/pipeline/<changed>.py   # then run the new test
+  ```
+
+  This is not ceremony. Three tests in the #166 batch passed while asserting
+  nothing -- a serial check that grouped on the wrong axis, a missing-field test
+  where a second document kept the column alive, and a directory assertion about
+  a directory the solver was never pointed at. Every test that was checked
+  against the broken code was sound; every test that was not, was not. Where
+  there is no "before" -- new code rather than a fix -- break the code by hand
+  instead: invert the condition, return a constant, delete the line.
+
+  Two habits catch the same class more cheaply:
+
+  - **The object of the action and the object of the assertion must be the same
+    variable.** `plate_solve(filename=widefield)` followed by an assertion about
+    `products_dir` cannot fail.
+  - **When the setup builds a condition, assert the condition before asserting
+    the behavior.** If the setup silently did not take, the test is measuring
+    the default path.
+
+  Line coverage does not find any of this: the vacuous tests all executed the
+  code under test and the suite was green.
 - **`ruff check .` and `ruff format .` both pass before anything is committed.**
   The repository is clean on both as of #181, so any error you see is one you
   introduced -- there is no pre-existing noise to read past.

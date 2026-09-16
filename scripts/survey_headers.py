@@ -88,11 +88,17 @@ from panoptes.utils.images import fits as fits_utils
 from panoptes.utils.images.fits import ImagePathInfo
 from tqdm import tqdm
 
-#: Cards that say nothing about the observation. The SIP and astrometry.net
-#: blocks are plate-solve *output*, hundreds of cards wide, and belong to the
-#: solver rather than to POCS; the `Z*` block describes the fpack tiling; the
-#: `_`-prefixed cards are astrometry.net's truncated duplicates of its own WCS.
-NOISE_PREFIXES = ("_", "A_", "B_", "AP_", "BP_", "Z", "PV", "TTYPE", "TFORM")
+#: Cards that say nothing about the observation under any option. The `Z*`
+#: block describes the fpack tiling, `TTYPE`/`TFORM` the compressed table, and
+#: the `_`-prefixed cards are astrometry.net's *truncated* duplicates of its own
+#: WCS -- malformed keywords like `_RVAL1` and `__ORDER`, never worth keeping.
+NOISE_PREFIXES = ("_", "Z", "TTYPE", "TFORM")
+
+#: The SIP distortion blocks. Solver output like `SOLVER_KEYS`, and kept by the
+#: same `--keep-wcs`: excluding them there would hand back a WCS that cannot
+#: actually be applied, since the distortion is most of what it is worth.
+WCS_PREFIXES = ("A_", "B_", "AP_", "BP_", "PV")
+WCS_KEYS = frozenset({"A_ORDER", "B_ORDER", "AP_ORDER", "BP_ORDER"})
 #: Cards written by astrometry.net, not by POCS. The old cloud pipeline solved
 #: frames and wrote the WCS *back into the archived file*, so a 2018 frame is
 #: not the raw header POCS produced. Keeping these as if they were header facts
@@ -116,6 +122,8 @@ SOLVER_KEYS = frozenset(
         "CD2_1",
         "CD2_2",
         "WCSAXES",
+        "RADESYS",
+        "RADECSYS",
         "EQUINOX",
         "LONPOLE",
         "LATPOLE",
@@ -139,10 +147,6 @@ NOISE_KEYS = frozenset(
         "GCOUNT",
         "TFIELDS",
         "EXTNAME",
-        "A_ORDER",
-        "B_ORDER",
-        "AP_ORDER",
-        "BP_ORDER",
         "BSCALE",
         "BZERO",
     }
@@ -175,8 +179,17 @@ def solve_provenance(header: fits.Header) -> dict:
     return row
 
 
-def is_noise(key: str) -> bool:
-    """Whether a header keyword carries nothing about the observation."""
+def is_noise(key: str, *, keep_wcs: bool = False) -> bool:
+    """Whether a header keyword carries nothing about the observation.
+
+    `keep_wcs` exempts the solver's WCS and SIP cards, which are excluded by
+    default as circular for benchmark selection but are the whole point of the
+    option when it is set.
+    """
+    if keep_wcs and (key in WCS_KEYS or key in SOLVER_KEYS or key.startswith(WCS_PREFIXES)):
+        return False
+    if key in WCS_KEYS or key.startswith(WCS_PREFIXES):
+        return True
     if key in NOISE_KEYS:
         return True
     # `Z` alone would eat `ZP`-style keys, so require the compression block's
@@ -233,7 +246,7 @@ def read_frame(path: Path, root: Path, *, keep_wcs: bool = False) -> dict:
     row["naxis2"] = header.get("ZNAXIS2", header.get("NAXIS2"))
 
     for key in header:
-        if is_noise(key) or (key in SOLVER_KEYS and not keep_wcs):
+        if is_noise(key, keep_wcs=keep_wcs) or (key in SOLVER_KEYS and not keep_wcs):
             continue
         value = header[key]
         if isinstance(value, fits.card.Undefined):
@@ -241,10 +254,15 @@ def read_frame(path: Path, root: Path, *, keep_wcs: bool = False) -> dict:
         row.setdefault(column_name(key), value)
 
     # The path and the header are two independent claims about identity. Record
-    # the disagreement; do not pick a winner.
+    # a disagreement; do not pick a winner. Both are checked, because they fail
+    # apart: `SEQID` catches a frame filed under the wrong sequence, `IMAGEID`
+    # catches one whose own timestamp does not match its filename.
     seqid = header.get("SEQID")
     if seqid and seqid != row["sequence_id"]:
         row["seqid_disagrees"] = True
+    imageid = header.get("IMAGEID")
+    if imageid and imageid != row["image_id"]:
+        row["imageid_disagrees"] = True
 
     return row
 
@@ -367,7 +385,11 @@ def main() -> None:
         raise SystemExit(f"not a directory: {root}")
 
     output: Path = args.output.expanduser().resolve()
-    shard_dir = output / "shards"
+    # The shard directory is named for the options that produced its contents.
+    # Keying reuse on the sequence path alone would let a `--keep-wcs` rerun
+    # skip shards extracted without it and report a result that silently lacks
+    # the WCS that was asked for -- and the reverse.
+    shard_dir = output / ("shards-keep-wcs" if args.keep_wcs else "shards")
     shard_dir.mkdir(parents=True, exist_ok=True)
 
     wanted = set(args.units) if args.units else None
@@ -392,17 +414,24 @@ def main() -> None:
     if skipped:
         print(f"{skipped} already indexed; --rebuild to redo them")
 
-    total_errors = 0
     if payload:
         with ProcessPoolExecutor(max_workers=args.jobs) as pool:
-            for _, _, errors in tqdm(
+            for _ in tqdm(
                 pool.map(index_sequence, payload, chunksize=4),
                 total=len(payload),
                 desc="sequences",
             ):
-                total_errors += errors
+                pass
 
-    shards = sorted(shard_dir.glob("*.parquet"))
+    # Built from the sequences this run asked for, never from a glob over the
+    # directory: after a full survey, `--units PAN012` would otherwise combine
+    # every unit already on disk and write a `headers.parquet` far wider than
+    # the scope requested. Resuming still works, because `sequences` is the
+    # whole requested scope while `payload` was only the part not yet done.
+    shards = [shard_dir / f"{shard_name(seq, root)}.parquet" for seq in sequences]
+    missing = [p for p in shards if not p.exists()]
+    if missing:
+        raise SystemExit(f"{len(missing)} shard(s) missing, first: {missing[0]}")
     if not shards:
         raise SystemExit("no shards were written")
 
@@ -413,8 +442,11 @@ def main() -> None:
 
     print(f"\n{len(combined)} frames, {len(combined.columns)} columns -> {combined_path}")
     print(f"{combined_path.stat().st_size / 1e6:.1f} MB")
-    if total_errors:
-        print(f"{total_errors} frame(s) recorded with an error")
+    # Counted from the combined table rather than from this run, which would
+    # report zero for a resumed survey whose errors are all in earlier shards.
+    errors = int(combined["error"].notna().sum()) if "error" in combined else 0
+    if errors:
+        print(f"{errors} frame(s) recorded with an error")
     if "plate_solved" in combined:
         solved = int(combined["plate_solved"].fillna(False).sum())
         print(f"{solved} of {len(combined)} frames were written back to by a solver")

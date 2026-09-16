@@ -180,7 +180,20 @@ def match_sources(
     solved_wcs0: WCS,
     settings: ImageSettings,
     image_edge: int = 10,
+    image_width: int | None = None,
+    image_height: int | None = None,
 ) -> pandas.DataFrame:
+    """Match detected sources against the catalog and drop the ones near the edge.
+
+    `image_width` and `image_height` are passed in rather than read from
+    `settings` because the settings hold fleet-wide defaults, and the frame's
+    real dimensions come from its own `NAXIS1`/`NAXIS2`. The old notebook
+    reconciled this by writing the shape back into the settings object, which
+    would now change the params fingerprint from frame to frame and make the
+    idempotency check meaningless.
+    """
+    image_width = image_width or settings.params.camera.image_width
+    image_height = image_height or settings.params.camera.image_height
     print(f"Matching {len(detected_sources)} sources to wcs.")
     catalog_filename = settings.params.catalog.catalog_filename
     vmag_limits = settings.params.catalog.vmag_limits
@@ -201,15 +214,12 @@ def match_sources(
         max_separation_arcsec=settings.params.catalog.max_separation_arcsec,
     )
     # Drop matches near border
-    print(
-        f"Filtering sources near within {image_edge} pixels of "
-        f"{settings.params.camera.image_width}x{settings.params.camera.image_height}"
-    )
+    print(f"Filtering sources near within {image_edge} pixels of {image_width}x{image_height}")
     matched_sources = matched_sources.query(
         f"catalog_wcs_x_int > {image_edge} and "
-        f"catalog_wcs_x_int < {settings.params.camera.image_width - image_edge} and "
+        f"catalog_wcs_x_int < {image_width - image_edge} and "
         f"catalog_wcs_y_int > {image_edge} and "
-        f"catalog_wcs_y_int < {settings.params.camera.image_height - image_edge}"
+        f"catalog_wcs_y_int < {image_height - image_edge}"
     ).copy()
     print(f"Found {len(matched_sources)} matching sources")
 
@@ -254,8 +264,15 @@ def detect_sources(
     kernel.normalize()
 
     # Check to make sure we have a valid mask, if not make empty.
-    if not reduced_data.mask:
-        reduced_data.mask = np.zeros_like(reduced_data.mask, dtype=bool)
+    # `np.ma` uses the scalar `nomask` when nothing is masked, so the obvious
+    # `if not reduced_data.mask` was wrong in both directions: on a frame with
+    # no saturated pixels it built a 0-d mask from that scalar, and on a frame
+    # with any saturated pixel it raised "truth value of an array ... is
+    # ambiguous". The second branch was unreachable only because the fleet-wide
+    # saturation default was too high to ever mask anything; resolving it from
+    # `WHTLVLN` makes real masks appear and would have started crashing here.
+    if reduced_data.mask is np.ma.nomask or reduced_data.mask.shape != reduced_data.shape:
+        reduced_data.mask = np.zeros(reduced_data.shape, dtype=bool)
 
     image_segments = segmentation.detect_sources(
         reduced_data,
@@ -312,7 +329,19 @@ def detect_sources(
     return detected_sources
 
 
-def plate_solve(settings: ImageSettings, filename=None, timeout=30, **kwargs):
+def plate_solve(settings: ImageSettings, filename=None, timeout=30, replace=False, **kwargs):
+    """Solve `filename` and return its WCS.
+
+    `replace` defaults to False, which is `panoptes-utils`' non-destructive
+    mode: the WCS goes to a `.new` file and the input is left alone. The
+    library default is True, and it does not merely add a WCS -- `solve-field`
+    rewrites the file as a single HDU, so solving a multi-extension product in
+    place silently discards every extension beside the science frame. Verified
+    against a real frame: a four-extension file came back with one.
+
+    The same applies to `panoptes-utils image fits solve`, which forwards its
+    keywords to the same function and so carries the same default.
+    """
     filename = filename or settings.files.reduced_filename
     print(f"Plate solving {filename}")
 
@@ -352,7 +381,12 @@ def plate_solve(settings: ImageSettings, filename=None, timeout=30, **kwargs):
     ]
 
     solved_headers = fits_utils.get_solve_field(
-        str(filename), skip_solved=False, solve_opts=options, timeout=300, **kwargs
+        str(filename),
+        skip_solved=False,
+        replace=replace,
+        solve_opts=options,
+        timeout=timeout,
+        **kwargs,
     )
     solved_path = solved_headers.pop("solved_fits_file")
     print(f"Solving completed successfully for {solved_path}")

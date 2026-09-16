@@ -11,9 +11,10 @@ from datetime import UTC, datetime
 import numpy as np
 import pandas
 import pytest
+from astropy.io import fits
 from astropy.time import Time
 
-from panoptes.pipeline import products
+from panoptes.pipeline import processing, products
 from panoptes.pipeline.products import DocumentError
 from panoptes.pipeline.utils.images import extract_metadata
 
@@ -31,7 +32,7 @@ def test_the_frame_directory_mirrors_the_bucket_layout(tmp_path, raw_path_info):
     )
 
 
-def test_writing_a_frame_produces_the_four_named_artifacts(tmp_path, raw_path_info, raw_header):
+def test_writing_a_frame_produces_the_named_artifacts(tmp_path, raw_path_info, raw_header):
     metadata = extract_metadata(raw_header, raw_path_info)
     sources = pandas.DataFrame({"picid": [1, 2], "x": [3.0, 4.0]})
 
@@ -40,21 +41,81 @@ def test_writing_a_frame_produces_the_four_named_artifacts(tmp_path, raw_path_in
         raw_path_info,
         metadata,
         reduced=np.zeros((4, 4), dtype=np.float32),
-        extras=dict(background=np.ones((4, 4), dtype=np.float32)),
+        background=np.ones((2, 2), dtype=np.float32),
+        rms=np.ones((2, 2), dtype=np.float32),
+        mask=np.zeros((4, 4), dtype=bool),
         sources=sources,
         header=raw_header,
     )
 
-    assert set(written) == {"metadata", "reduced", "extras", "sources"}
+    assert set(written) == {"metadata", "reduced", "sources"}
     for path in written.values():
         assert path.exists()
     assert {p.name for p in products.frame_directory(tmp_path, raw_path_info).iterdir()} == {
         "metadata.json",
         "image.fits",
-        "extras.fits",
         "sources.parquet",
     }
     assert pandas.read_parquet(written["sources"]).equals(sources)
+
+
+def test_the_pixels_are_one_file_with_named_extensions(tmp_path):
+    """One file, because reduced and background always change together."""
+    path = products.write_image(
+        tmp_path / "image.fits",
+        np.zeros((8, 8), dtype=np.float32),
+        background=np.ones((2, 2), dtype=np.float32),
+        rms=np.full((2, 2), 3.0, dtype=np.float32),
+        mask=np.zeros((8, 8), dtype=bool),
+    )
+
+    planes = processing.read_image(path)
+
+    assert set(planes) == {"reduced", "background", "rms", "mask"}
+    assert planes["reduced"].shape == (8, 8)
+    assert planes["mask"].shape == (8, 8)
+
+
+def test_the_background_is_stored_as_a_mesh_not_a_full_frame(tmp_path):
+    """The model is four orders of magnitude smaller than its interpolation."""
+    reduced = np.zeros((400, 400), dtype=np.float32)
+    mesh = np.ones((3, 5, 5), dtype=np.float32)
+
+    path = products.write_image(tmp_path / "image.fits", reduced, background=mesh, rms=mesh)
+    planes = processing.read_image(path)
+
+    assert planes["background"].shape == mesh.shape
+    assert planes["background"].shape != reduced.shape
+
+    with fits.open(path) as hdul:
+        assert hdul["BACKGROUND"].header["MESH"] is True
+
+
+def test_raw_pixels_are_not_written(tmp_path):
+    """The raw frame already exists upstream; copying it buys nothing."""
+    path = products.write_image(tmp_path / "image.fits", np.zeros((8, 8), dtype=np.float32))
+
+    assert "raw" not in processing.read_image(path)
+
+
+def test_a_masked_array_keeps_its_mask_as_nan(tmp_path):
+    reduced = np.ma.array(np.ones((4, 4), dtype=np.float32), mask=np.eye(4, dtype=bool))
+
+    planes = processing.read_image(
+        products.write_image(tmp_path / "image.fits", reduced, mask=np.eye(4, dtype=bool))
+    )
+
+    assert np.isnan(planes["reduced"]).sum() == 4
+    assert planes["mask"].sum() == 4
+
+
+def test_an_existing_image_is_kept_unless_forced(tmp_path):
+    products.write_image(tmp_path / "image.fits", np.zeros((4, 4), dtype=np.float32))
+
+    with pytest.raises(FileExistsError):
+        products.write_image(
+            tmp_path / "image.fits", np.zeros((4, 4), dtype=np.float32), force_new=False
+        )
 
 
 def test_only_the_document_is_required(tmp_path, raw_path_info, raw_header):

@@ -1,7 +1,14 @@
+import hashlib
+import json
 from pathlib import Path
 
 from pydantic import BaseModel
 from pydantic_settings import BaseSettings
+
+#: Characters of the params digest kept as the fingerprint. Twelve hex
+#: characters is 48 bits: collision-free across any plausible number of
+#: parameter sets, and short enough to sit in a filename or a log line.
+FINGERPRINT_LENGTH = 12
 
 
 class CameraSettings(BaseModel):
@@ -32,6 +39,24 @@ class PipelineParams(BaseSettings):
     camera: CameraSettings = CameraSettings()
     catalog: CatalogSettings = CatalogSettings()
     background: BackgroundSettings = BackgroundSettings()
+
+    @property
+    def fingerprint(self) -> str:
+        """A short digest of every parameter that affects a product.
+
+        This is the cache key, not decoration. The old flow stored `params` in
+        every document and never compared them, so changing a setting left
+        stale products behind with no signal that they no longer matched the
+        settings that were supposed to have produced them. See data contract
+        3.4.
+
+        Keys are sorted so the digest depends on the values and not on field
+        declaration order -- otherwise reordering a model would invalidate the
+        entire archive.
+        """
+        canonical = json.dumps(json.loads(self.model_dump_json()), sort_keys=True)
+        digest = hashlib.sha256(canonical.encode()).hexdigest()
+        return digest[:FINGERPRINT_LENGTH]
 
 
 class ObservationSettings(BaseModel):

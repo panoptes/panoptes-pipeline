@@ -19,6 +19,20 @@ Changelog](https://keepachangelog.com/en/1.1.0/) format. The versioning policy
   and a fleet-wide fallback no longer serialize alike. Falling back warns.
 - Real POCS frames under `tests/data/`: a raw frame, a solved one, and a header
   carrying almost nothing.
+- `panoptes.pipeline.worklist` classifies every raw frame against an output
+  root as missing, params changed, prior error, incomplete, forced or up to
+  date, without opening any pixels. `as_table` renders the result as a CSV-able
+  table, so a settings change can be shown to have invalidated what was expected
+  and nothing more.
+- `PipelineParams.fingerprint`, a short digest of every parameter that affects a
+  product. Settings were previously stored in each document but never compared,
+  so a change left stale products in place with no signal.
+- `panoptes.pipeline.status` holds `ImageStatus` and `ObservationStatus`, moved
+  back from `panoptes-data`. They describe this pipeline's own stages, so the
+  client that reads its output should not own them.
+- `products.record_processing` stamps a document with the settings, fingerprint
+  and stage it was produced at; `products.read_document` reads one back,
+  returning None rather than raising on a file that will be rewritten anyway.
 
 ### Changed
 

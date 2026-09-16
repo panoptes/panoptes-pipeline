@@ -28,7 +28,9 @@ Changelog](https://keepachangelog.com/en/1.1.0/) format. The versioning policy
   the pipeline requires -- the archive's came from a BigQuery table deleted with
   the cloud stack -- so the pipeline could not be run on a frame at all. `picid`
   is exactly the Gaia DR3 `source_id`, so no crossmatch is involved. PEP 723, so
-  `astroquery` stays out of the package.
+  `astroquery` stays out of the package. The default filename states the query
+  that produced it, and an existing, usable file is left alone, so re-running
+  for a field already fetched costs nothing.
 - `panoptes.pipeline.worklist` classifies every raw frame against an output
   root as missing, params changed, prior error, incomplete, forced or up to
   date, without opening any pixels. `as_table` renders the result as a CSV-able

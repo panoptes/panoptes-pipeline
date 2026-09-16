@@ -18,7 +18,10 @@ Changelog](https://keepachangelog.com/en/1.1.0/) format. The versioning policy
   came from -- `header`, `measured`, `registry` or `default` -- so a measurement
   and a fleet-wide fallback no longer serialize alike. Falling back warns.
 - Real POCS frames under `tests/data/`: a raw frame, a solved one, and a header
-  carrying almost nothing.
+  carrying almost nothing, plus `widefield.fits.fz` -- a real PANOPTES frame
+  rebinned 4x4 so it keeps its 14.9 x 9.9 degree angular size in 0.92 MB. CI now
+  installs `astrometry.net` and the Tycho-2 index files and solves it with
+  production options, so plate solving is tested rather than skipped.
 - `panoptes.pipeline.index` builds the query surface by walking the documents
   the pipeline wrote: `frames.parquet`, one row per frame, and
   `observations.parquet`, one row per sequence derived from it. This replaces

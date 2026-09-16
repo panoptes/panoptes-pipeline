@@ -22,3 +22,26 @@ Two quirks to know before writing a test against them:
 
 `tiny.fits` is preferred over POCS's `unsolved.fits`, which carries an
 identical header in an 11x larger file.
+
+## `widefield.fits.fz`
+
+Not from POCS. A real PAN025 frame -- `20220227T062239`, the FU Orionis field --
+rebinned 4x4 and stored as `uint16` through `fpack`.
+
+It exists because **plate solving has to be tested against a frame at PANOPTES
+angular scale.** `plate_solve` hardcodes `--scale-low 10 --scale-high 20
+--scale-units degw`, and POCS's `unsolved.fits` is a 700x700 crop spanning about
+1.7 degrees, so it fails with our options -- a test built on it would exercise
+the plumbing while bypassing the real scale hints.
+
+Rebinning preserves angular size where cropping cannot: 1505x1004 covering the
+same 14.9 x 9.9 degrees, 0.92 MB instead of 18 MB, solving in about 2 seconds
+with `index-4116`. 8x binning does not work, because `plate_solve` also passes
+`--downsample 4` and the two compound to 32x.
+
+To regenerate it, mean-bin a raw frame 4x4, clip to `uint16`, keep only the
+keywords the pipeline reads, and `fpack` the result.
+
+**Solving a `.fz` consumes it.** `get_solve_field` unpacks a compressed input
+and does not restore it when `replace=False`, so a test must copy this file into
+`tmp_path` and never solve it in place.

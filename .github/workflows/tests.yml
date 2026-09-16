@@ -37,6 +37,16 @@ jobs:
           # the package no version to build from.
           fetch-depth: 0
 
+      # `astrometry-data-tycho2-10-19` provides index-4110 to index-4119. A real
+      # PANOPTES frame solves with index-4112 and the test fixture with
+      # index-4116, so this series is what our field scale needs and no extra
+      # index download is required. Matches what `panoptes-utils` installs.
+      - name: Install astrometry.net and index files
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            astrometry.net astrometry-data-tycho2-10-19
+
       - name: Install uv
         uses: astral-sh/setup-uv@v6
         with:
@@ -56,9 +66,9 @@ jobs:
       - name: Format
         run: uv run ruff format --check .
 
-      # The end-to-end processing test skips here by design: it needs
-      # astrometry.net index files and a local catalog, neither of which can be
-      # shipped in the repository. `-ra` is already in `addopts`, so the skip
-      # and its reason are printed rather than silently passing.
+      # Plate solving runs for real here, against a rebinned frame committed
+      # under `tests/data`. The full end-to-end test still skips: it also needs
+      # a catalog, which is per-field and not shipped. `-ra` is already in
+      # `addopts`, so any skip prints its reason rather than passing silently.
       - name: Test
         run: uv run pytest

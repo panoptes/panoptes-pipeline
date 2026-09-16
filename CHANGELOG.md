@@ -26,8 +26,10 @@ Changelog](https://keepachangelog.com/en/1.1.0/) format. The versioning policy
   the cloud removal. It reads no pixels, and it computes what the old summary
   could not express -- usable frames as distinct from frames, duration,
   `total_exptime` as a sum over frames rather than a number only the index
-  holds, and a flag for a camera uid whose serial is inconsistent across a
-  sequence.
+  holds, and a flag for a camera uid recording more than one serial across
+  sequences. A `schema.json` manifest records the column contract, so a
+  consumer in another repository reads a stated schema rather than
+  reverse-engineering one.
 - `NoSourcesDetected`, raised when nothing in a frame clears the detection
   threshold. Clouds, a closed dome and lost tracking all produce such a frame,
   so it is an ordinary outcome over a survey and callers can distinguish it from

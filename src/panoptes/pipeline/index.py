@@ -35,6 +35,7 @@ Nothing here opens a FITS file or reads a pixel. See data contract 4.2, and
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -60,6 +61,47 @@ DROPPED = (("image", "params"),)
 
 FRAMES_FILENAME = "frames.parquet"
 OBSERVATIONS_FILENAME = "observations.parquet"
+SCHEMA_FILENAME = "schema.json"
+
+#: Bumped when the column contract changes, so a reader can tell.
+SCHEMA_VERSION = 1
+
+#: Columns the observation index groups and aggregates on. Guaranteed present in
+#: `frames.parquet` even when no document supplies them, because a tree of
+#: documents written by an older pipeline must still index rather than raise --
+#: and because a consumer needs one schema that does not depend on what happened
+#: to be in the archive.
+REQUIRED_FRAME_COLUMNS = (
+    "unit_unit_id",
+    "sequence_sequence_id",
+    "sequence_sequence_time",
+    "sequence_field_name",
+    "sequence_camera_camera_id",
+    "sequence_camera_serial_number",
+    "image_uid",
+    "image_image_time",
+    "image_status",
+    "image_camera_exptime",
+    "image_params_fingerprint",
+)
+
+#: The observation index's columns, in order. Declared so an empty archive
+#: writes the same schema as a full one.
+OBSERVATION_COLUMNS = (
+    "sequence_sequence_id",
+    "unit_id",
+    "camera_id",
+    "field_name",
+    "sequence_time",
+    "num_frames",
+    "num_usable",
+    "start_time",
+    "end_time",
+    "duration_minutes",
+    "total_exptime",
+    "num_serials",
+    "camera_num_serials",
+)
 
 
 def flatten(document: dict[str, Any], prefix: str = "") -> dict[str, Any]:
@@ -119,15 +161,22 @@ def build_frames(processed_root: Path | str, files: FileSettings | None = None) 
         rows.append(flatten(document))
 
     # `pandas` unions the keys, so a field absent from one document arrives as a
-    # null in that row rather than failing the build.
-    return pandas.DataFrame(rows)
+    # null in that row rather than failing the build. `reindex` extends that to
+    # a field absent from *every* document: without it, a tree written before a
+    # field existed produces no column at all and the aggregation below raises
+    # `KeyError` on exactly the old documents this is supposed to tolerate.
+    frames = pandas.DataFrame(rows)
+    missing = [c for c in REQUIRED_FRAME_COLUMNS if c not in frames.columns]
+    if missing:
+        logger.debug(f"No document supplied {missing}; indexing them as null.")
+    return frames.reindex(columns=[*dict.fromkeys([*REQUIRED_FRAME_COLUMNS, *frames.columns])])
 
 
 def build_observations(frames: pandas.DataFrame) -> pandas.DataFrame:
     """One row per sequence, grouped from `frames`.
 
-    Three of these columns are the point of the whole index, because the thing
-    it replaces could not express them:
+    Four of these columns are the point, because the thing this replaces could
+    not express them:
 
     ``num_usable``
         Frames that actually reached `ImageStatus.MATCHED`, as distinct from
@@ -136,19 +185,47 @@ def build_observations(frames: pandas.DataFrame) -> pandas.DataFrame:
     ``total_exptime``
         A sum over frames rather than a number the index alone holds. That
         distinction is why the field is currently null for every long sequence
-        in the archive with nowhere to recover it from.
+        in the archive with nowhere to recover it from. Summed with
+        ``min_count=1``, so a sequence where *no* frame recorded an exposure
+        stays null instead of reporting a confident zero -- the whole point
+        being to stop missing data from looking like measured data.
+
+    ``camera_num_serials``
+        Distinct serials recorded against this camera uid **across every
+        sequence in the index**. This is the defect data contract 2.3 describes:
+        `14d3bd` carries 2,332 sequences on one serial and 4 on another. It is a
+        property of the camera, not of a sequence, so grouping by sequence
+        cannot see it -- within any one sequence the serial is almost always
+        constant. Necessarily limited by what is indexed: an index covering one
+        sequence cannot observe cross-sequence variation.
 
     ``num_serials``
-        Distinct camera serials recorded against one camera uid. Anything above
-        one is a data defect rather than a camera swap -- `14d3bd` carries 2,332
-        sequences on one serial and 4 on another, confined to a 22-minute
-        window. See data contract 2.3.
+        Distinct serials *within* one sequence. A different, rarer defect, kept
+        because it is nearly free once the column is there.
     """
     if frames.empty:
-        return pandas.DataFrame(columns=["sequence_sequence_id"])
+        return pandas.DataFrame(columns=list(OBSERVATION_COLUMNS))
 
     table = frames.copy()
-    table["image_time"] = pandas.to_datetime(table["image_image_time"], format="mixed", utc=True)
+    table["image_time"] = pandas.to_datetime(
+        table["image_image_time"], format="mixed", utc=True, errors="coerce"
+    )
+
+    # `groupby` drops null keys silently, which would make frames disappear from
+    # the index with no signal. Say so instead.
+    unplaceable = table["sequence_sequence_id"].isna().sum()
+    if unplaceable:
+        logger.warning(f"{unplaceable} frame(s) have no sequence id and are not indexed")
+        table = table[table["sequence_sequence_id"].notna()]
+    if table.empty:
+        return pandas.DataFrame(columns=list(OBSERVATION_COLUMNS))
+
+    # Serial cardinality per *camera*, across the whole table -- see the
+    # docstring. Computed before grouping by sequence, because that grouping is
+    # exactly what hides it.
+    serials_per_camera = table.groupby("sequence_camera_camera_id", observed=True)[
+        "sequence_camera_serial_number"
+    ].nunique()
 
     grouped = table.groupby("sequence_sequence_id", observed=True)
     observations = grouped.agg(
@@ -159,7 +236,7 @@ def build_observations(frames: pandas.DataFrame) -> pandas.DataFrame:
         num_frames=("image_uid", "size"),
         start_time=("image_time", "min"),
         end_time=("image_time", "max"),
-        total_exptime=("image_camera_exptime", "sum"),
+        total_exptime=("image_camera_exptime", lambda values: values.sum(min_count=1)),
         num_serials=("sequence_camera_serial_number", "nunique"),
     )
     observations["num_usable"] = grouped["image_status"].apply(
@@ -168,14 +245,46 @@ def build_observations(frames: pandas.DataFrame) -> pandas.DataFrame:
     observations["duration_minutes"] = (
         observations.end_time - observations.start_time
     ).dt.total_seconds() / 60
+    observations["camera_num_serials"] = observations.camera_id.map(serials_per_camera)
 
-    # A sequence whose frames disagree about the camera serial is a data defect,
-    # and silence is how the existing two went unnoticed for years.
-    inconsistent = observations.index[observations.num_serials > 1].tolist()
+    inconsistent = sorted(serials_per_camera.index[serials_per_camera > 1].tolist())
     if inconsistent:
-        logger.warning(f"Camera serial is inconsistent within {len(inconsistent)} sequence(s)")
+        logger.warning(
+            f"Camera uid(s) {inconsistent} record more than one serial across sequences; "
+            "this is a data defect rather than a camera swap -- see data contract 2.3"
+        )
 
-    return observations.reset_index()
+    return observations.reset_index()[list(OBSERVATION_COLUMNS)]
+
+
+def schema(frames: pandas.DataFrame, observations: pandas.DataFrame) -> dict[str, Any]:
+    """The column contract, as data rather than as source code.
+
+    #207 requires the flattened-name mapping to be *recorded* where
+    `panoptes-data` can read it. `SEPARATOR` and `DROPPED` are constants in this
+    package, which a consumer in another repository cannot import and should not
+    have to reverse-engineer from a parquet footer. This writes them down.
+
+    No timestamps: a rebuild of an unchanged tree must produce an identical
+    manifest, or the deletable rule stops being checkable.
+    """
+    return {
+        "version": SCHEMA_VERSION,
+        "separator": SEPARATOR,
+        "dropped": [list(block) for block in DROPPED],
+        "required_frame_columns": list(REQUIRED_FRAME_COLUMNS),
+        "files": {
+            FRAMES_FILENAME: {
+                "row": "frame",
+                "columns": {name: str(dtype) for name, dtype in frames.dtypes.items()},
+            },
+            OBSERVATIONS_FILENAME: {
+                "row": "sequence",
+                "derived_from": FRAMES_FILENAME,
+                "columns": {name: str(dtype) for name, dtype in observations.dtypes.items()},
+            },
+        },
+    }
 
 
 def build(
@@ -183,7 +292,7 @@ def build(
     index_root: Path | str | None = None,
     files: FileSettings | None = None,
 ) -> dict[str, Path]:
-    """Write both index files, returning what was written.
+    """Write both index files and the schema manifest, returning what was written.
 
     `index_root` defaults to the processed tree's own root, which keeps the
     index beside what it describes. It is regenerable, so nothing is lost by
@@ -198,9 +307,11 @@ def build(
     written = {
         "frames": index_root / FRAMES_FILENAME,
         "observations": index_root / OBSERVATIONS_FILENAME,
+        "schema": index_root / SCHEMA_FILENAME,
     }
     frames.to_parquet(written["frames"], index=False)
     observations.to_parquet(written["observations"], index=False)
+    written["schema"].write_text(json.dumps(schema(frames, observations), indent=2, sort_keys=True))
 
     logger.info(
         f"Indexed {len(frames)} frame(s) in {len(observations)} sequence(s) into {index_root}"

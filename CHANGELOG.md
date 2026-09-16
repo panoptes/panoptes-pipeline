@@ -19,6 +19,10 @@ Changelog](https://keepachangelog.com/en/1.1.0/) format. The versioning policy
   and a fleet-wide fallback no longer serialize alike. Falling back warns.
 - Real POCS frames under `tests/data/`: a raw frame, a solved one, and a header
   carrying almost nothing.
+- `NoSourcesDetected`, raised when nothing in a frame clears the detection
+  threshold. Clouds, a closed dome and lost tracking all produce such a frame,
+  so it is an ordinary outcome over a survey and callers can distinguish it from
+  a genuine failure.
 - `panoptes.pipeline.worklist` classifies every raw frame against an output
   root as missing, params changed, prior error, incomplete, forced or up to
   date, without opening any pixels. `as_table` renders the result as a CSV-able
@@ -81,6 +85,15 @@ Changelog](https://keepachangelog.com/en/1.1.0/) format. The versioning policy
 - `process_observation` only requires `solve-field` when the work list is not
   empty, so re-running to confirm there is nothing to do no longer fails on a
   machine without a solver.
+- Source detection could not complete on any frame at all. A masked array was
+  handed to `photutils` as `data` while its mask was also passed separately;
+  `photutils` computes image moments as a matrix product and `numpy.ma` cannot
+  propagate a mask through `@`, so `SourceCatalog` raised "operands could not be
+  broadcast together". Detection now returns sources on a real frame.
+- A frame with no detections raises `NoSourcesDetected`, naming the threshold it
+  failed to clear, instead of `TypeError: segmentation_image must be a
+  SegmentationImage` from inside `photutils` -- which said nothing about the
+  frame.
 - Source detection no longer crashes on a frame with saturated pixels. Its mask
   guard tested a masked array for truthiness, which raises for any real mask and
   built a 0-d mask when there was none. It was unreachable only because the

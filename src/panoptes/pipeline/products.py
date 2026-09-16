@@ -205,13 +205,78 @@ def record_processing(
     return metadata
 
 
+def write_image(
+    path: Path,
+    reduced: np.ndarray,
+    *,
+    background: np.ndarray | None = None,
+    rms: np.ndarray | None = None,
+    mask: np.ndarray | None = None,
+    header: fits.Header | None = None,
+    force_new: bool = True,
+) -> Path:
+    """Write one frame's pixels as a single multi-extension FITS file.
+
+    ``PRIMARY`` is the reduced science frame; ``BACKGROUND``, ``RMS`` and
+    ``MASK`` follow as named extensions. One file rather than two because
+    ``reduced = data - background``: any change to the background model changes
+    the science frame as well, so they share a fingerprint and a lifetime, and
+    splitting them could only let them drift apart in a way the work-list walk
+    cannot see -- it reads only the metadata document. `fits.open` is lazy, so
+    a reader touching only ``PRIMARY`` pays nothing for the rest.
+
+    **Raw pixels are not written.** The raw frame already exists, unchanged, in
+    the raw tree; copying the largest array in the pipeline across the archive
+    buys nothing, and the reduction stays auditable because what was subtracted
+    is right here beside it.
+
+    ``background`` and ``rms`` are the low-resolution **meshes**, not their
+    interpolation up to the frame's shape. `photutils` computes a mesh and
+    interpolates it, so at ``box_size = (79, 84)`` a 6000x4000 frame has a
+    ~50x71 model behind a 96 MB array: the array is four orders of magnitude
+    larger than the thing it was made from and reconstructs exactly from it,
+    given the parameters, which the document records and fingerprints. Passing
+    the mesh per colour also keeps information the old summed array threw away.
+
+    The mask is compressed. It is derivable -- it is ``raw >= saturation``, and
+    saturation sits in the document with its provenance -- but it is the
+    extension most often wanted and a boolean array costs almost nothing once
+    compressed.
+    """
+    if path.exists() and not force_new:
+        raise FileExistsError(f"{path} exists and force_new is False")
+
+    reduced = np.ma.filled(reduced, np.nan) if np.ma.isMaskedArray(reduced) else reduced
+    hdul = fits.HDUList([fits.PrimaryHDU(np.asarray(reduced, dtype=np.float32), header=header)])
+
+    for name, data in (("BACKGROUND", background), ("RMS", rms)):
+        if data is None:
+            continue
+        hdu = fits.ImageHDU(np.asarray(data, dtype=np.float32), name=name)
+        hdu.header["MESH"] = (True, "Low-resolution model, not interpolated to NAXIS")
+        hdul.append(hdu)
+
+    if mask is not None:
+        hdul.append(
+            fits.CompImageHDU(
+                np.asarray(mask, dtype=np.uint8), name="MASK", compression_type="GZIP_1"
+            )
+        )
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    hdul.writeto(path, overwrite=force_new)
+    return path
+
+
 def write_frame(
     root: Path | str,
     path_info: ImagePathInfo,
     metadata: Mapping[str, Any],
     *,
     reduced: np.ndarray | None = None,
-    extras: Mapping[str, np.ndarray] | None = None,
+    background: np.ndarray | None = None,
+    rms: np.ndarray | None = None,
+    mask: np.ndarray | None = None,
     sources: pandas.DataFrame | None = None,
     header: fits.Header | None = None,
     files: FileSettings | None = None,
@@ -223,6 +288,9 @@ def write_frame(
     has not plate-solved, or is re-emitting a document after a settings
     change, writes what it has instead of a file full of nulls. The returned
     mapping names only the files that were actually written.
+
+    `background` and `rms` are the low-resolution **meshes**, not their
+    interpolation up to the frame's shape; see `write_image` for why.
     """
     files = files or FileSettings()
     directory = frame_directory(root, path_info)
@@ -235,19 +303,15 @@ def write_frame(
     }
 
     if reduced is not None:
-        path = directory / files.reduced_filename
-        fits.PrimaryHDU(reduced, header=header).writeto(path, overwrite=force_new)
-        written["reduced"] = path
-
-    if extras:
-        path = directory / files.extras_filename
-        hdul = fits.HDUList([fits.PrimaryHDU(header=header)])
-        for name, data in extras.items():
-            hdu = fits.ImageHDU(data, header=header)
-            hdu.name = name.upper()
-            hdul.append(hdu)
-        hdul.writeto(path, overwrite=force_new)
-        written["extras"] = path
+        written["reduced"] = write_image(
+            directory / files.reduced_filename,
+            reduced,
+            background=background,
+            rms=rms,
+            mask=mask,
+            header=header,
+            force_new=force_new,
+        )
 
     if sources is not None:
         path = directory / files.sources_filename

@@ -33,6 +33,10 @@ Changelog](https://keepachangelog.com/en/1.1.0/) format. The versioning policy
 - `products.record_processing` stamps a document with the settings, fingerprint
   and stage it was produced at; `products.read_document` reads one back,
   returning None rather than raising on a file that will be rewritten anyway.
+- `panoptes.pipeline.processing` restores the two entry points as library
+  functions: `process_frame` for a single FITS, `process_observation` for a
+  sequence. Calibration is `calibrate`; the sequence document is written once
+  at the end of a batch, by the only writer that exists at that point.
 
 ### Changed
 
@@ -42,12 +46,32 @@ Changelog](https://keepachangelog.com/en/1.1.0/) format. The versioning policy
 - The camera id and body serial are now in the `image` document as well as
   `sequence`, so a per-frame measurement can be joined to its camera.
 - `extract_metadata` takes an optional `CameraSettings` for header fallbacks.
+- A frame's pixels are one multi-extension `image.fits` -- `PRIMARY` reduced,
+  plus `BACKGROUND`, `RMS` and `MASK` -- instead of `image.fits` and
+  `extras.fits`. `extras_filename` is gone. Raw pixels are no longer copied
+  into the processed tree, and the background is stored as the low-resolution
+  mesh photutils actually fits rather than its interpolation, which is four
+  orders of magnitude larger. Roughly 100 MB per frame instead of 312 MB.
+- `CameraSettings.saturation` is now raw ADU, matching `WHTLVLN`, and
+  saturation is masked before bias subtraction. The default moves `15872` ->
+  `16384`; those are the same number in different domains (`15872 = 2**14 -
+  512`), but mixing them would have over-masked by the bias on every frame.
+- `plate_solve` no longer replaces the file it solves, and honours its own
+  `timeout` argument instead of a hardcoded 300 seconds.
+- `match_sources` takes the frame's dimensions explicitly. They previously came
+  from fleet-wide settings that the caller was expected to overwrite per frame,
+  which would now change the params fingerprint from frame to frame.
 - `panoptes-utils` floor raised to `0.3.1`, which introduced `ImagePathInfo`;
   it is now imported from `panoptes.utils.images.fits`.
 
 ### Fixed
 
 - An absent `CAMSN` records as null instead of the string `"None"`.
+- Source detection no longer crashes on a frame with saturated pixels. Its mask
+  guard tested a masked array for truthiness, which raises for any real mask and
+  built a 0-d mask when there was none. It was unreachable only because the
+  fleet-wide saturation default was too high to mask anything; resolving
+  saturation from the header makes real masks appear.
 
 ### Removed
 

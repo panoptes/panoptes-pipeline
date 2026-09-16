@@ -13,7 +13,16 @@ FINGERPRINT_LENGTH = 12
 
 class CameraSettings(BaseModel):
     zero_bias: float = 512.0
-    saturation: float = 15872.0  # ADU after bias subtraction.
+    #: Raw ADU, as written in the file and as `WHTLVLN` reports it -- *not*
+    #: post-bias. Saturation is a property of the detector, so it is measured
+    #: and applied in the raw domain, before any bias is removed.
+    #:
+    #: This was `15872.0`, documented as "ADU after bias subtraction", which is
+    #: exactly `2**14 - 512`: a 14-bit full scale with the bias already taken
+    #: off. Feeding a raw `WHTLVLN` into that comparison would have masked
+    #: roughly 512 ADU too aggressively. The value is unchanged in substance,
+    #: only moved into the domain everything else uses.
+    saturation: float = 16384.0
     effective_gain: float = 1.5
     image_width: int = 6000
     image_height: int = 4000
@@ -67,8 +76,13 @@ class ObservationSettings(BaseModel):
 
 
 class FileSettings(BaseModel):
+    #: One multi-extension file per frame: PRIMARY is the reduced science
+    #: frame, with BACKGROUND, RMS and MASK beside it. The reduced frame and
+    #: its background model always change together -- `reduced = data -
+    #: background` -- so splitting them across two files could only let them
+    #: drift out of sync, which the work-list walk cannot detect because it
+    #: reads only the metadata document.
     reduced_filename: Path = "image.fits"
-    extras_filename: Path = "extras.fits"
     metadata_filename: Path = "metadata.json"
     sources_filename: Path = "sources.parquet"
 

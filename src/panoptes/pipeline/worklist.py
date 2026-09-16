@@ -12,8 +12,12 @@ reasons are worth seeing before committing to hours of work, and a diffable
 work list is how a parameter change proves it invalidated what was expected
 and nothing more. `as_table` is what makes that diff possible.
 
-Nothing here opens a FITS file. The decision is made from the raw path, the
-presence of a document, and two fields inside it. See data contract 5.1.
+No pixel data is read. The decision is made from the frame's identity, whether
+a document exists, and two fields inside it. Identity comes from the path where
+the raw tree is laid out the way the archive is, and only falls back to reading
+the FITS *header* when it is not -- so the walk is a directory scan in the
+normal case and never more than a header read in the worst one. See data
+contract 5.1.
 """
 
 from __future__ import annotations
@@ -77,6 +81,20 @@ class Frame:
         return self.reason is not Reason.UP_TO_DATE
 
 
+def identify(raw_path: Path) -> ImagePathInfo:
+    """Work out where a raw frame belongs in the output tree.
+
+    The path is tried first: the raw tree mirrors the bucket layout, so
+    ``PAN001/abc123/20220115T082108/20220115T082209.fits`` already says
+    everything needed and costs no I/O. Only a path that does not parse falls
+    back to the header, which is what happens for a flat directory of frames.
+    """
+    try:
+        return ImagePathInfo(path=str(raw_path))
+    except ValueError:
+        return ImagePathInfo.from_fits(raw_path)
+
+
 def decide(
     raw_path: Path,
     processed_root: Path | str,
@@ -100,7 +118,7 @@ def decide(
     products in place and nothing downstream could tell.
     """
     files = files or FileSettings()
-    path_info = path_info or ImagePathInfo.from_fits(raw_path)
+    path_info = path_info or identify(raw_path)
 
     document_path = products.frame_directory(processed_root, path_info) / files.metadata_filename
     document = products.read_document(document_path)
@@ -109,7 +127,12 @@ def decide(
         # Forced still reports MISSING: there was nothing to force past.
         return Frame(raw_path, path_info, Reason.MISSING, ImageStatus.UNKNOWN)
 
-    image = document.get("image", {})
+    # The document may not have been written by this pipeline, so nothing about
+    # its shape can be assumed. An `image` that is absent, null or not a map
+    # leaves the frame looking unprocessed, which is the safe direction.
+    image = document.get("image")
+    image = image if isinstance(image, dict) else {}
+
     status = image_status(image.get("status"))
     fingerprint = image.get("params_fingerprint")
 

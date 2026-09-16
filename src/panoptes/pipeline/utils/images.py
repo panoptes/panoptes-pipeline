@@ -245,16 +245,31 @@ def match_sources(
     matched_sources["catalog_dec_bin"] = matched_sources.catalog_dec.astype("int")
     matched_sources["catalog_ra_bin"] = matched_sources.catalog_ra.astype("int")
 
-    # Precompute some columns.
-    matched_sources["catalog_gaia_bg_excess"] = (
-        matched_sources.catalog_gaiabp - matched_sources.catalog_gaiamag
-    )
-    matched_sources["catalog_gaia_br_excess"] = (
-        matched_sources.catalog_gaiabp - matched_sources.catalog_gaiarp
-    )
-    matched_sources["catalog_gaia_rg_excess"] = (
-        matched_sources.catalog_gaiarp - matched_sources.catalog_gaiamag
-    )
+    # Colour excesses, where the catalog carries Gaia photometry. These are an
+    # enrichment, not a requirement: a catalog holding only the four columns
+    # `REQUIRED_CATALOG_COLUMNS` names is valid, and CLAUDE.md promises it can
+    # be rebuilt without touching this package. Computing them unconditionally
+    # broke that promise -- such a catalog passed `read_catalog`, matched, and
+    # then died on `catalog_gaiabp` after solving and detection had already run.
+    #
+    # Nothing reads these columns yet. They are here for reference selection,
+    # where matching a reference's colour to the target's is the point, and that
+    # step does not exist. See #202.
+    if set(sources.GAIA_CATALOG_COLUMNS) <= set(matched_sources.columns):
+        matched_sources["catalog_gaia_bg_excess"] = (
+            matched_sources.catalog_gaiabp - matched_sources.catalog_gaiamag
+        )
+        matched_sources["catalog_gaia_br_excess"] = (
+            matched_sources.catalog_gaiabp - matched_sources.catalog_gaiarp
+        )
+        matched_sources["catalog_gaia_rg_excess"] = (
+            matched_sources.catalog_gaiarp - matched_sources.catalog_gaiamag
+        )
+    else:
+        logger.debug(
+            "Catalog carries no Gaia photometry; colour excesses are not computed. "
+            f"Add {list(sources.GAIA_CATALOG_COLUMNS)} to the catalog to get them."
+        )
 
     return matched_sources
 

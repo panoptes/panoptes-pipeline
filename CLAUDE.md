@@ -121,8 +121,12 @@ local file named by `params.catalog.catalog_filename` -- parquet, ECSV or CSV,
 by suffix -- and `get_stars` fails loudly when it is unset rather than reaching
 for the network. The pipeline requires exactly four catalog columns (`picid`,
 `catalog_ra`, `catalog_dec`, `catalog_vmag`), so the catalog can be rebuilt
-without touching this package. `picid` is a categorical: it names a star rather
-than measuring one, so group on it with `observed=True`. A CLI comes back with improvement plan 4.2. See
+without touching this package; `catalog_gaiabp`, `catalog_gaiarp` and
+`catalog_gaiamag` are optional enrichment that buys three colour-excess columns.
+**`picid` is exactly the Gaia DR3 `source_id`** -- an alias and nothing more, so
+a catalog is a Gaia cone search with its columns renamed and no crossmatch step,
+which is what `scripts/fetch_catalog.py` does. It is also a categorical: it names
+a star rather than measuring one, so group on it with `observed=True`. A CLI comes back with improvement plan 4.2. See
 improvement plan 4.3 for why removal beat adapters.
 
 ## Running things

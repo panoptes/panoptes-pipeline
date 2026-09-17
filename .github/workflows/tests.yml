@@ -61,7 +61,7 @@ jobs:
           cache-dependency-glob: uv.lock
 
       # `uv sync` installs the project plus the `dev` group, which is what
-      # CLAUDE.md documents and what a contributor runs. Nothing else is
+      # AGENTS.md documents and what a contributor runs. Nothing else is
       # needed: the suite wants no credentials, no network and no cloud
       # project.
       - name: Install

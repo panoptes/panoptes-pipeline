@@ -40,7 +40,8 @@ Start with the design documents:
 - `plans/improvement-plan.md` — metrics, benchmark selection, fleet
   heterogeneity, and the open decisions in its section 6.
 
-`CLAUDE.md` carries the same orientation for agent sessions.
+`AGENTS.md` carries the same orientation for agent sessions; `CLAUDE.md`
+and `GEMINI.md` are symlinks to it.
 
 ## Install and test
 
@@ -87,7 +88,7 @@ is being rebuilt in the open.
   until its entry is written.
 - **Precision claims need evidence.** A change that lowers scatter while
   lowering signal transfer has suppressed signal rather than removed noise, so
-  report both. `CLAUDE.md` has the full rules under "Measuring a change".
+  report both. `AGENTS.md` has the full rules under "Measuring a change".
 
 Questions are welcome on the [PANOPTES
 forum](https://forum.projectpanoptes.org).

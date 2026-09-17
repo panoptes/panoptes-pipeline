@@ -17,7 +17,7 @@ REQUIRED_CATALOG_COLUMNS = ("picid", "catalog_ra", "catalog_dec", "catalog_vmag"
 
 #: Optional enrichment. Present, `match_sources` derives three color-excess
 #: columns for reference selection; absent, it skips them. Deliberately *not*
-#: required: CLAUDE.md promises the catalog can be rebuilt without touching this
+#: required: AGENTS.md promises the catalog can be rebuilt without touching this
 #: package, and a four-column catalog has to actually work for that to be true.
 GAIA_CATALOG_COLUMNS = ("catalog_gaiabp", "catalog_gaiarp", "catalog_gaiamag")
 

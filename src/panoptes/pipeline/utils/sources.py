@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pandas
@@ -100,7 +101,9 @@ def read_catalog(catalog_filename) -> pandas.DataFrame:
     return catalog_stars
 
 
-def get_stars_from_coords(ra: float, dec: float, radius: float = 8.0, **kwargs) -> pandas.DataFrame:
+def get_stars_from_coords(
+    ra: float, dec: float, radius: float = 8.0, **kwargs: Any
+) -> pandas.DataFrame:
     limits = dict(
         ra_max=ra + radius,
         ra_min=ra - radius,
@@ -115,7 +118,7 @@ def get_stars_from_coords(ra: float, dec: float, radius: float = 8.0, **kwargs) 
 
 
 def get_stars_from_wcs(
-    wcs0: WCS, round_to: int = 0, pad: float = 1.0, pad_size=(20, 10), **kwargs
+    wcs0: WCS, round_to: int = 0, pad: float = 1.0, pad_size=(20, 10), **kwargs: Any
 ) -> pandas.DataFrame:
     """Lookup star information from WCS footprint.
 
@@ -128,7 +131,7 @@ def get_stars_from_wcs(
             requested bounds stable between frames of the same sequence.
         pad (float): The amount of padding in degrees to add to each of the RA and Dec
             limits, default 0.5 [degrees].
-        **kwargs: Optional keywords to pass to :py:func:`get_stars`.
+        **kwargs (Any): Optional keywords to pass to :py:func:`get_stars`.
 
     """
     wcs_footprint = wcs0.calc_footprint()
@@ -145,14 +148,17 @@ def get_stars_from_wcs(
     return catalog_stars
 
 
-def get_stars(shape=None, vmag_min=7, vmag_max=14, catalog_filename=None, **kwargs):
+def get_stars(
+    shape=None, vmag_min=7, vmag_max=14, catalog_filename=None, **kwargs: Any
+) -> pandas.DataFrame:
     """Look up star information from a local copy of the PANOPTES Input Catalog.
 
-    The PIC is derived from the [TESS Input Catalog](
-    https://tess.mit.edu/science/tess-input-catalogue/) v8. It is read from a
-    local file -- parquet, ECSV or CSV, see :py:func:`read_catalog` -- and getting
-    that file onto disk is a separate fetch step, not something this function
-    does. There is no network lookup; see improvement plan 4.3.
+    `picid` is exactly the Gaia DR3 `source_id`, so the catalog is a Gaia cone
+    search with its columns renamed and there is no crossmatch step -- see
+    `scripts/fetch_catalog.py`, which builds one. It is read from a local file --
+    parquet, ECSV or CSV, see :py:func:`read_catalog` -- and getting that file
+    onto disk is a separate fetch step, not something this function does. There
+    is no network lookup; see improvement plan 4.3.
 
     The file is expected to carry the mapped column names
     (:py:data:`REQUIRED_CATALOG_COLUMNS`) rather than the raw upstream ones.
@@ -171,7 +177,7 @@ def get_stars(shape=None, vmag_min=7, vmag_max=14, catalog_filename=None, **kwar
         vmag_max (float, optional): Maximum Vmag to include, exclusive.
         catalog_filename (str|Path): Path to the catalog file: parquet, ECSV
             or CSV. Required; there is no default.
-        **kwargs: Ignored, for call-site compatibility.
+        **kwargs (Any): Ignored, for call-site compatibility.
 
     Returns:
         `pandas.DataFrame`: The catalog entries inside the requested bounds.
@@ -221,89 +227,58 @@ def get_catalog_match(
     max_separation_arcsec=None,
     ra_column="measured_ra",
     dec_column="measured_dec",
-    **kwargs,
-):
+    **kwargs: Any,
+) -> pandas.DataFrame:
     """Match the point source positions to the catalog.
 
-    The catalog is matched to the PANOPTES Input Catalog (PIC), which is derived
-    from the [TESS Input Catalog](https://tess.mit.edu/science/tess-input-catalogue/)
-    [v8](https://heasarc.gsfc.nasa.gov/docs/tess/tess-input-catalog-version-8-tic-8-is-now-available-at-mast.html).
+    `picid` in the catalog is exactly the Gaia DR3 `source_id`, so the catalog is
+    a Gaia cone search with its columns renamed and there is no crossmatch step
+    -- see `scripts/fetch_catalog.py`, which builds one.
 
-    The catalog is read from a local file. This function will match the
-    `measured_ra` and `measured_dec` columns (as output from `lookup_point_sources`)
-    to the `catalog_ra` and `catalog_dec` columns of the catalog. The actual lookup
-    is done via :py:func:`get_stars_from_wcs`.
+    The catalog is read from a local file. This function matches the `ra_column`
+    and `dec_column` positions (as output from `lookup_point_sources`) to the
+    `catalog_ra` and `catalog_dec` columns of the catalog. When `catalog_stars`
+    is not supplied the lookup is done via :py:func:`get_stars_from_wcs`.
 
-    The columns are added to `point_sources`, which is then returned to the user.
+    The matched catalog row is joined onto each source and the result returned.
+    The columns added are whatever the catalog file carries
+    (:py:data:`REQUIRED_CATALOG_COLUMNS`, plus :py:data:`GAIA_CATALOG_COLUMNS`
+    when the file has them), together with:
 
-    Columns that are added to `point_sources` include:
-
-        * picid
-        * unit_id
-        * camera_id
-        * time
-        * gaia
-        * twomass
-        * catalog_dec
-        * catalog_ra
-        * catalog_sep_arcsec
-        * catalog_measured_diff_arcsec_dec
-        * catalog_measured_diff_arcsec_ra
-        * catalog_measured_diff_x
-        * catalog_measured_diff_y
-        * catalog_vmag
-        * catalog_vmag_err
-        * catalog_x
-        * catalog_y
-        * catalog_x_int
-        * catalog_y_int
+        * catalog_sep -- separation from the matched catalog position, in arcsec
+        * catalog_wcs_x, catalog_wcs_y -- the catalog position in pixels
+        * catalog_wcs_x_int, catalog_wcs_y_int -- the same, truncated to int
 
     Note:
 
-        Note all fields are expected to have values. In particular, the `gaia`
-        and `twomass` fields are often mutually exclusive.  If `return_unmatched=True`
-        (see below) then all values related to matching will be `NA` for all `photutils`
-        related columns.
-
-    By default only the sources that are successfully matched by the catalog are returned.
-    This behavior can be changed by setting `return_unmatched=True`. This will append
-    *all* catalog entries within the Vmag range [vmag_min, vmag_max).
-
-    Warning:
-
-        Using `return_unmatched=True` can return a very large datafraame depending
-        on the chosen Vmag range and galactic coordinates. However, it should be
-        noted that limiting the Vmag range makes results less accurate.
-
-        The best policy would be to try to minimize calls to this function. The
-        resulting dataframe can be saved locally with `point_sources.to_csv(path_name)`.
+        Every source is matched to its *nearest* catalog star, so a detection
+        with no real counterpart still gets a row -- `max_separation_arcsec` is
+        what removes those. Catalog entries with no detection are not returned,
+        so the result has at most one row per source in `point_sources`.
 
     If a `max_separation_arcsec` is given then results will be filtered if their
-    match with `photutils` was larger than the number given. Typical values would
-    be in the range of 20-30 arcsecs, which corresponds to 2-3 pixels.
-
-    Returns:
-        `pandas.DataFrame`: A dataframe with the catalog information added to the
-        sources.
+    separation from the catalog was larger than the number given. Typical values
+    would be in the range of 20-30 arcsecs, which corresponds to 2-3 pixels.
 
     Args:
         point_sources (`pandas.DataFrame`): The DataFrame containing point sources
             to be matched. This usually comes from the output of `lookup_point_sources`
             but could be done manually.
-        wcs (`astropy.wcs.WCS`, optional): The WCS instance to use for the catalog lookup.
-            Either the `wcs` or the `catalog_stars` must be supplied.
+        wcs (`astropy.wcs.WCS`, optional): The WCS instance to use for the catalog lookup
+            and for the pixel positions. Either the `wcs` or the `catalog_stars`
+            must be supplied.
         catalog_stars (`pandas.DataFrame`, optional): If provided, the catalog match
             will be performed against this set of stars rather than performing a lookup.
-        ra_column (str): The column name to use for the RA coordinates, default `measured_ra`.
-        dec_column (str): The column name to use for the Dec coordinates, default `measured_dec`.
-        origin (int, optional): The origin for catalog matching, either 0 or 1 (default).
         max_separation_arcsec (float|None, optional): If not None, sources more
             than this many arcsecs from catalog will be filtered.
-        return_unmatched (bool, optional): If all results from catalog should be
-            returned, not just those with a positive match.
-        origin (int): The origin for the WCS. See `all_world2pix`. Default 1.
-        **kwargs: Extra options are passed to `get_stars_from_wcs`, which
-            passes them to `get_stars`.
+        ra_column (str): The column name to use for the RA coordinates, default `measured_ra`.
+        dec_column (str): The column name to use for the Dec coordinates, default `measured_dec`.
+        **kwargs (Any): Extra options are passed to `get_stars_from_wcs`, which
+            passes them to `get_stars`. Only used when `catalog_stars` is None.
+
+    Returns:
+        `pandas.DataFrame`: A dataframe with the catalog information added to
+            the sources.
 
     """
     assert point_sources is not None

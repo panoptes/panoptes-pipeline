@@ -99,9 +99,7 @@ def read_catalog(catalog_filename) -> pandas.DataFrame:
     return catalog_stars
 
 
-def get_stars_from_coords(
-    ra: float, dec: float, radius: float = 8.0, **kwargs: Any
-) -> pandas.DataFrame:
+def get_stars_from_coords(ra: float, dec: float, radius: float = 8.0, **kwargs: Any) -> pandas.DataFrame:
     limits = dict(
         ra_max=ra + radius,
         ra_min=ra - radius,
@@ -146,9 +144,7 @@ def get_stars_from_wcs(
     return catalog_stars
 
 
-def get_stars(
-    shape=None, vmag_min=7, vmag_max=14, catalog_filename=None, **kwargs: Any
-) -> pandas.DataFrame:
+def get_stars(shape=None, vmag_min=7, vmag_max=14, catalog_filename=None, **kwargs: Any) -> pandas.DataFrame:
     """Look up star information from a local copy of the PANOPTES Input Catalog.
 
     `picid` is exactly the Gaia DR3 `source_id`, so the catalog is a Gaia cone

@@ -202,9 +202,7 @@ def build(
     frames = []
     for raw_path in find_frames(raw_root):
         try:
-            frames.append(
-                decide(raw_path, processed_root, params, force_new=force_new, files=files)
-            )
+            frames.append(decide(raw_path, processed_root, params, force_new=force_new, files=files))
         except (ValueError, KeyError, OSError) as e:
             logger.warning(f"Skipping {raw_path}: cannot determine where it belongs ({e!r})")
 

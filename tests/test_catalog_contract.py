@@ -1,6 +1,6 @@
 """A catalog with the four documented columns has to actually work.
 
-CLAUDE.md promises the catalog can be rebuilt without touching this package,
+AGENTS.md promises the catalog can be rebuilt without touching this package,
 and `REQUIRED_CATALOG_COLUMNS` names four. `match_sources` then read three Gaia
 columns unconditionally, so a catalog built to the documented contract
 validated, matched, and died -- after solving and source detection had already

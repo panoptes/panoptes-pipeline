@@ -33,9 +33,7 @@ from tests.solver import needs_solver
 def params() -> PipelineParams:
     # The POCS test frames are 200x200, far smaller than a real frame, so the
     # background mesh has to be small enough to fit inside them.
-    return PipelineParams.model_validate(
-        {"background": {"box_size": (40, 40), "filter_size": (3, 3)}}
-    )
+    return PipelineParams.model_validate({"background": {"box_size": (40, 40), "filter_size": (3, 3)}})
 
 
 # --- calibration ----------------------------------------------------------
@@ -218,9 +216,7 @@ def test_processing_fails_loudly_without_a_solver(tmp_path, make_raw_tree, param
     raw_root = make_raw_tree(count=1)
 
     with pytest.raises(SolverMissing, match="solve-field"):
-        processing.process_frame(
-            next(worklist.find_frames(raw_root)), tmp_path / "processed", params
-        )
+        processing.process_frame(next(worklist.find_frames(raw_root)), tmp_path / "processed", params)
 
 
 def test_the_solver_check_happens_before_any_pixels_are_read(tmp_path, params, monkeypatch):
@@ -337,9 +333,7 @@ def test_frames_group_by_their_sequence(tmp_path, make_raw_tree, params):
     first = make_raw_tree(count=2, sequence_time="20220115T082108", root_name="a")
     second = make_raw_tree(count=1, sequence_time="20220115T090000", root_name="b")
 
-    frames = worklist.build(first, tmp_path / "p", params) + worklist.build(
-        second, tmp_path / "p", params
-    )
+    frames = worklist.build(first, tmp_path / "p", params) + worklist.build(second, tmp_path / "p", params)
 
     assert len(processing.group_by_sequence(frames)) == 2
 
@@ -404,9 +398,7 @@ def test_a_processed_frame_indexes(widefield, widefield_catalog, tmp_path):
     assert observations.total_exptime.iloc[0] > 0
 
 
-def test_a_failed_frame_is_recorded_so_the_next_walk_finds_it(
-    tmp_path, make_raw_tree, params, monkeypatch
-):
+def test_a_failed_frame_is_recorded_so_the_next_walk_finds_it(tmp_path, make_raw_tree, params, monkeypatch):
     """A frame that cannot be solved still leaves a document saying so.
 
     The solver is stubbed in both directions -- present, then failing -- so the
@@ -452,9 +444,7 @@ def test_a_rerun_with_nothing_to_do_needs_no_solver(tmp_path, make_raw_tree, par
     assert set(table.outcome) == {"skipped"}
 
 
-def test_a_rerun_with_work_to_do_still_demands_a_solver(
-    tmp_path, make_raw_tree, params, monkeypatch
-):
+def test_a_rerun_with_work_to_do_still_demands_a_solver(tmp_path, make_raw_tree, params, monkeypatch):
     monkeypatch.setattr(processing.shutil, "which", lambda _: None)
     raw_root = make_raw_tree(count=1)
 

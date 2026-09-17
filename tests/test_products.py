@@ -113,16 +113,12 @@ def test_an_existing_image_is_kept_unless_forced(tmp_path):
     products.write_image(tmp_path / "image.fits", np.zeros((4, 4), dtype=np.float32))
 
     with pytest.raises(FileExistsError):
-        products.write_image(
-            tmp_path / "image.fits", np.zeros((4, 4), dtype=np.float32), force_new=False
-        )
+        products.write_image(tmp_path / "image.fits", np.zeros((4, 4), dtype=np.float32), force_new=False)
 
 
 def test_only_the_document_is_required(tmp_path, raw_path_info, raw_header):
     """A caller that has not solved yet writes what it has, not nulls."""
-    written = products.write_frame(
-        tmp_path, raw_path_info, extract_metadata(raw_header, raw_path_info)
-    )
+    written = products.write_frame(tmp_path, raw_path_info, extract_metadata(raw_header, raw_path_info))
 
     assert set(written) == {"metadata"}
 
@@ -144,10 +140,7 @@ def test_the_camera_identifiers_are_in_the_image_document(raw_header, raw_path_i
 
     assert metadata["image"]["camera"]["camera_id"] == raw_path_info.camera_id
     assert metadata["image"]["camera"]["serial_number"] == str(raw_header["CAMSN"])
-    assert (
-        metadata["image"]["camera"]["serial_number"]
-        == (metadata["sequence"]["camera"]["serial_number"])
-    )
+    assert metadata["image"]["camera"]["serial_number"] == (metadata["sequence"]["camera"]["serial_number"])
 
 
 def test_an_absent_serial_is_null_not_the_string_none(raw_header, raw_path_info):

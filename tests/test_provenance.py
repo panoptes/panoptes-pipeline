@@ -84,12 +84,8 @@ def test_an_unparseable_keyword_falls_through_rather_than_raising():
 
 
 def test_defaulted_names_what_nobody_knew(bare_header, raw_header):
-    assert "saturation" in provenance.defaulted(
-        provenance.resolve_camera(bare_header, CameraSettings())
-    )
-    assert "saturation" not in provenance.defaulted(
-        provenance.resolve_camera(raw_header, CameraSettings())
-    )
+    assert "saturation" in provenance.defaulted(provenance.resolve_camera(bare_header, CameraSettings()))
+    assert "saturation" not in provenance.defaulted(provenance.resolve_camera(raw_header, CameraSettings()))
 
 
 def test_the_document_form_is_plain_json_types(raw_header):

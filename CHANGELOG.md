@@ -2,11 +2,35 @@
 
 Notable changes, newest first, in the [Keep a
 Changelog](https://keepachangelog.com/en/1.1.0/) format. The versioning policy
--- and why this project is deliberately pre-1.0 -- is in `CLAUDE.md`.
+-- and why this project is deliberately pre-1.0 -- is in `AGENTS.md`.
 
 ## Unreleased
 
 ### Added
+
+- Documentation at <https://panoptes.github.io/panoptes-pipeline/>, built with
+  [Zensical](https://zensical.org/) from the docstrings and published to GitHub
+  Pages on every push to `main`. A page under `docs/api/` is a `:::` block
+  naming a module, so improving a docstring improves the reference and there is
+  no second description of the API to keep in step. `plans/` is deliberately not
+  published.
+- `create-release.yml` publishes a `vX.Y.Z` tag to PyPI through Trusted
+  Publishing and creates the GitHub release from the **annotated tag message**,
+  which is therefore the one place release notes are written. The workflow
+  refuses a lightweight tag rather than publishing a commit subject as the
+  notes. `uv build`/`uv publish` by hand is no longer the release process.
+- `canary.yml` re-resolves the dependency tree from scratch every Monday and
+  runs the suite against it, so an upstream release that breaks this package
+  surfaces on a schedule rather than in someone's environment.
+- `CONTRIBUTING.md`, `AUTHORS.md`, `CODE_OF_CONDUCT.md` and a
+  `.pre-commit-config.yaml` carrying the same ruff settings CI enforces.
+  `pre-commit` is in the new `lint` dependency group, so `uv run pre-commit
+  install` works from a plain `uv sync`.
+- `.gitattributes` marks `CHANGELOG.md` `merge=union`, so parallel branches
+  appending under `## Unreleased` stop conflicting.
+- `plans/project-standards.md` records how all four PANOPTES repositories are
+  built, linted, tested, documented and released, and why each choice is what it
+  is.
 
 - `scripts/survey_headers.py` surveys the FITS headers of a local copy of the
   raw archive into `headers.parquet`, one row per frame. It reads headers and
@@ -76,6 +100,19 @@ Changelog](https://keepachangelog.com/en/1.1.0/) format. The versioning policy
 
 ### Changed
 
+- Lint settings are now shared with `panoptes-utils` and POCS: 110 columns and
+  `E`, `W`, `F`, `I`, `UP`. The accompanying reflow touched 24 files and changed
+  no behavior.
+- Tooling dependencies are split into `lint`, `test` and `docs` groups, with
+  `dev` including all three. `uv sync` with no arguments is unchanged.
+- `AGENTS.md` is the canonical agent instruction file; `CLAUDE.md` and
+  `GEMINI.md` are symlinks to it.
+- `tests.yml` runs lint as its own job, installs with `uv sync --locked` so a
+  stale lockfile fails CI rather than being silently re-resolved, and uploads
+  coverage to Codecov.
+- `panoptes.pipeline.utils` is a regular package rather than an implicit
+  namespace package. Imports are unaffected; static readers, including the one
+  that builds the API reference, can now see the four modules in it.
 - `scikit-image` is a declared dependency again. v0.4.0 dropped it from the
   retired `env.yaml` on the grounds that nothing imported it, which was true
   of this package's own source and missed that `photutils` imports it at

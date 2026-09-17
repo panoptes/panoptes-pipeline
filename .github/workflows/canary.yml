@@ -1,0 +1,74 @@
+# Resolve the dependency tree from scratch and run the suite against it.
+#
+# The committed `uv.lock` makes pull-request CI attributable: a red run means
+# the change under review broke something, not that a dependency shipped
+# overnight. The cost is that nothing then notices when an upstream release
+# does break us -- the pinned tree keeps passing until someone relocks, which
+# may be weeks later and far from the cause.
+#
+# This job is the other half. It ignores the lockfile, takes the newest
+# versions the constraints in `pyproject.toml` allow, and fails on this
+# schedule instead of in a user's environment. The dependency surface here is
+# wide and moving: numpy 2, pandas heading toward 3.0, astropy, photutils,
+# scikit-image, scipy, h5py and PyTables. The `groupby(observed=True)` on the
+# `picid` categorical, the FITS reading paths and the photutils segmentation
+# API have all changed under this package before.
+#
+# A failure here is not necessarily a bug in this repository: it is a question,
+# and the answer is usually either a code change or an upper bound in
+# `pyproject.toml`.
+name: Dependency canary
+
+on:
+  schedule:
+    # Mondays, 06:00 UTC. Early enough in the week that a break has somewhere
+    # to go before the weekend.
+    - cron: '0 6 * * 1'
+  # So the canary can be run on demand when a dependency release looks risky,
+  # rather than waiting for Monday.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  unlocked:
+    name: Tests against a fresh resolution
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # `hatch-vcs` derives the version from the nearest `v*` tag.
+          fetch-depth: 0
+
+      # The same system dependencies `tests.yml` installs, and for the same
+      # reasons -- see the comment there.
+      - name: Install astrometry.net and index files
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            astrometry.net astrometry-data-tycho2-10-19 libcfitsio-bin
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+
+      # No `--locked`, and `--upgrade` so the lockfile in the checkout is
+      # re-resolved rather than reused. Nothing is committed: the run is a
+      # measurement, and the repository's lockfile only changes when a human
+      # relocks deliberately.
+      - name: Resolve dependencies afresh
+        run: uv sync --upgrade --no-default-groups --group test --python ${{ matrix.python-version }}
+
+      # What actually resolved, so a failure can be read without re-running it.
+      - name: Show the resolved tree
+        run: uv pip list
+
+      # `--no-sync` is load-bearing here, not tidiness: a bare `uv run` syncs
+      # against the lockfile first, which would quietly restore the pinned tree
+      # and test exactly what this job exists to bypass.
+      - name: Test
+        run: uv run --no-sync pytest -q

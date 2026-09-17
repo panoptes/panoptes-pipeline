@@ -1,0 +1,48 @@
+# The same tools CI runs, at the same settings, so a hook cannot disagree with
+# a job. `ruff` covers linting, import sorting and formatting -- the rule set
+# and the style are pinned in `pyproject.toml`, and these hooks read it. The
+# `rev` below is kept equal to the `ruff` version in `uv.lock`, so the hook and
+# the CI lint job are the same binary.
+#
+# Install once with `uv run pre-commit install`. CI remains the actual gate: a
+# hook is a convenience, and anyone can pass `-n`.
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      # The three text-rewriting hooks, and the only three that are excluded
+      # from `tests/data/`. That directory holds real POCS frames and a parquet
+      # catalog, and each of these will happily "fix" a binary file: run once
+      # without the exclusion, all three rewrote bytes inside
+      # `solved.fits.fz` and `widefield.fits.fz` and reported it as a fix.
+      #
+      # The exclusion is per hook rather than top level. A top-level `exclude`
+      # applies to every hook in the file, which would take the binary
+      # fixtures out of `check-added-large-files` and `check-merge-conflict`
+      # too -- the two that most need to see them.
+      - id: trailing-whitespace
+        exclude: '^tests/data/'
+      - id: end-of-file-fixer
+        exclude: '^tests/data/'
+      - id: mixed-line-ending
+        args: ["--fix=lf"]
+        exclude: '^tests/data/'
+
+      # These see everything, `tests/data/` included.
+      - id: check-added-large-files
+        # The committed frames are megabytes each and deliberately there. The
+        # default 500 kB limit would reject them; this still catches a frame
+        # nobody meant to add.
+        args: ["--maxkb=8192"]
+      - id: check-merge-conflict
+      - id: check-toml
+      - id: check-yaml
+      - id: check-json
+      - id: debug-statements
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.7
+    hooks:
+      - id: ruff-check
+        args: ["--fix"]
+      - id: ruff-format

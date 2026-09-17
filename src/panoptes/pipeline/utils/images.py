@@ -50,9 +50,7 @@ def get_metadata(settings: ImageSettings, path_info: ImagePathInfo) -> dict:
         unit="deg",
         frame="icrs",
         obstime=obstime,
-        location=EarthLocation(
-            lon=header["LONG-OBS"], lat=header["LAT-OBS"], height=header["ELEV-OBS"]
-        ),
+        location=EarthLocation(lon=header["LONG-OBS"], lat=header["LAT-OBS"], height=header["ELEV-OBS"]),
     )
     hadec_coord = radec_coord.transform_to(HADec)
 
@@ -247,7 +245,7 @@ def match_sources(
 
     # Color excesses, where the catalog carries Gaia photometry. These are an
     # enrichment, not a requirement: a catalog holding only the four columns
-    # `REQUIRED_CATALOG_COLUMNS` names is valid, and CLAUDE.md promises it can
+    # `REQUIRED_CATALOG_COLUMNS` names is valid, and AGENTS.md promises it can
     # be rebuilt without touching this package. Computing them unconditionally
     # broke that promise -- such a catalog passed `read_catalog`, matched, and
     # then died on `catalog_gaiabp` after solving and detection had already run.

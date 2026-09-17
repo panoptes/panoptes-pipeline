@@ -255,9 +255,7 @@ def filter_plot(data, col, sequence_id):
     ax = fig.add_subplot()
 
     data[col].plot(ax=ax, marker=".", label="Valid")
-    data.query(f"mask_{col}==True")[col].plot(
-        ax=ax, marker="o", color="r", ls="", label=f"Filtered {col}"
-    )
+    data.query(f"mask_{col}==True")[col].plot(ax=ax, marker="o", color="r", ls="", label=f"Filtered {col}")
 
     ax.legend()
     ax.set_xlabel("Time [UTC]")

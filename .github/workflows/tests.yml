@@ -19,7 +19,35 @@ permissions:
   contents: read
 
 jobs:
+  # A pinned rule set that nothing runs is documentation, not a gate. Its own
+  # job, so a lint failure is legible as one rather than as a red test run --
+  # and so it reports in under a minute instead of waiting behind the
+  # astrometry.net install and the scientific stack.
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      # The `lint` group is ruff and pre-commit, not the test dependencies.
+      - name: Install
+        run: uv sync --locked --only-group lint
+
+      # Separate steps: "which one failed" should not need the log opened.
+      - name: Check lint
+        run: uv run --no-sync ruff check --output-format=github .
+
+      - name: Check formatting
+        run: uv run --no-sync ruff format --check .
+
   test:
+    name: Test
     runs-on: ubuntu-latest
     strategy:
       # One version failing should not hide the result for the other.
@@ -60,22 +88,42 @@ jobs:
           enable-cache: true
           cache-dependency-glob: uv.lock
 
-      # `uv sync` installs the project plus the `dev` group, which is what
-      # CLAUDE.md documents and what a contributor runs. Nothing else is
-      # needed: the suite wants no credentials, no network and no cloud
-      # project.
+      # `--locked` fails rather than re-resolving, so a dependency edit that
+      # skipped `uv lock` is caught here instead of silently testing something
+      # other than what the lockfile describes. The suite wants no credentials,
+      # no network and no cloud project.
+      #
+      # `--no-default-groups` because the default group is `dev`, which includes
+      # `docs` and `lint`: a bare `--group test` would install zensical and
+      # pre-commit in order to run the suite.
       - name: Install
-        run: uv sync --python ${{ matrix.python-version }}
-
-      - name: Lint
-        run: uv run ruff check --output-format=github .
-
-      - name: Format
-        run: uv run ruff format --check .
+        run: uv sync --locked --no-default-groups --group test --python ${{ matrix.python-version }}
 
       # Plate solving runs for real here, against a rebinned frame committed
       # under `tests/data`. The full end-to-end test still skips: it also needs
       # a catalog, which is per-field and not shipped. `-ra` is already in
       # `addopts`, so any skip prints its reason rather than passing silently.
-      - name: Test
-        run: uv run pytest
+      #
+      # `[tool.coverage.run]` already names the source, so `--cov` needs no
+      # argument. `--no-sync` keeps `uv run` from re-syncing the default groups
+      # the install step deliberately left out.
+      - name: Test with coverage
+        run: uv run --no-sync pytest --cov --cov-report=xml:coverage.xml --cov-report=term-missing
+
+      - name: Upload coverage (xml)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml-${{ matrix.python-version }}
+          path: coverage.xml
+
+      # The artifact above is for looking at a single run; this is what gives
+      # the README's coverage badge something to report. `fail_ci_if_error`
+      # stays false deliberately: a coverage upload failing is not a reason to
+      # fail a test run that passed.
+      - name: Upload coverage to Codecov
+        if: always()
+        uses: codecov/codecov-action@v7
+        with:
+          files: coverage.xml
+          fail_ci_if_error: false

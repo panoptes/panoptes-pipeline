@@ -117,14 +117,11 @@ def check_document(document: Mapping[str, Any], _path: str = "") -> None:
         for char in FORBIDDEN_IN_FIELD_NAMES:
             if char in key:
                 raise DocumentError(
-                    f"{where!r}: field names cannot contain {char!r}; "
-                    "nest the map instead of dotting the key"
+                    f"{where!r}: field names cannot contain {char!r}; nest the map instead of dotting the key"
                 )
 
         if isinstance(value, pandas.DataFrame | pandas.Series):
-            raise DocumentError(
-                f"{where!r}: bulk tables belong beside the document as parquet, not in it"
-            )
+            raise DocumentError(f"{where!r}: bulk tables belong beside the document as parquet, not in it")
 
         if isinstance(value, Mapping):
             check_document(value, _path=f"{where}.")
@@ -258,9 +255,7 @@ def write_image(
 
     if mask is not None:
         hdul.append(
-            fits.CompImageHDU(
-                np.asarray(mask, dtype=np.uint8), name="MASK", compression_type="GZIP_1"
-            )
+            fits.CompImageHDU(np.asarray(mask, dtype=np.uint8), name="MASK", compression_type="GZIP_1")
         )
 
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -319,9 +314,7 @@ def write_frame(
     # fingerprint from here. Writing it first would mean a failure part way
     # through the products left a frame that claims to be finished and is not,
     # and the next walk would skip it.
-    written["metadata"] = write_document(
-        directory / files.metadata_filename, metadata, force_new=force_new
-    )
+    written["metadata"] = write_document(directory / files.metadata_filename, metadata, force_new=force_new)
 
     logger.debug(f"Wrote {len(written)} product(s) for {path_info.id} to {directory}")
     return written

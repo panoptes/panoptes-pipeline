@@ -63,9 +63,7 @@ def test_improvement_plan_numbering_has_no_gaps(known):
 def test_named_cross_references_resolve(doc, known):
     text = (PLANS / DOC_FILES[doc]).read_text()
     broken = [
-        f"{target} {number}"
-        for target, number in NAMED_REF.findall(text)
-        if number not in known[target]
+        f"{target} {number}" for target, number in NAMED_REF.findall(text) if number not in known[target]
     ]
     assert not broken, f"{DOC_FILES[doc]} references sections that do not exist: {broken}"
 

@@ -59,7 +59,7 @@ def catalog(request, tmp_path):
 
 
 def test_no_catalog_path_fails_loudly():
-    """A fleet-wide default is what CLAUDE.md forbids; this must raise."""
+    """A fleet-wide default is what AGENTS.md forbids; this must raise."""
     with pytest.raises(ValueError, match="catalog_filename"):
         sources.get_stars(shape=None)
 

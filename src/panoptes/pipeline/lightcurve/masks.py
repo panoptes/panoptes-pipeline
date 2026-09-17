@@ -147,9 +147,7 @@ def infer_pattern(
             "rather than guessing -- a wrong choice swaps the red and blue lightcurves."
         )
     if tuple(red_offset) not in others:
-        raise ValueError(
-            f"red_offset {tuple(red_offset)} is a green position; expected one of {others}"
-        )
+        raise ValueError(f"red_offset {tuple(red_offset)} is a green position; expected one of {others}")
 
     blue_offset = [o for o in others if o != tuple(red_offset)][0]
     layout = {tuple(red_offset): RED, blue_offset: BLUE}

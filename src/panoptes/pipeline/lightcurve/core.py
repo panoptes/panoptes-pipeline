@@ -309,9 +309,7 @@ def build_comparison(refs_raw: np.ndarray, coefficients: np.ndarray) -> np.ndarr
     refs_raw = np.asarray(refs_raw, dtype=float)
     coefficients = np.asarray(coefficients, dtype=float)
     if coefficients.shape[0] != refs_raw.shape[0]:
-        raise ValueError(
-            f"Have {coefficients.shape[0]} coefficients for {refs_raw.shape[0]} references"
-        )
+        raise ValueError(f"Have {coefficients.shape[0]} coefficients for {refs_raw.shape[0]} references")
     return np.tensordot(coefficients, refs_raw, axes=(0, 0))
 
 

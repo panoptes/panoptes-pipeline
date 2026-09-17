@@ -61,14 +61,38 @@ dependencies = [
   "typer",
 ]
 
-# Tooling, not package metadata: installed by `uv sync`, never published.
+# Tooling, not package metadata: installed by `uv sync`, never published. These
+# are dependency groups rather than extras deliberately -- an extra is part of
+# what someone installing this package from PyPI can ask for, and a test runner
+# is not that. See project standards 4.1.
+#
+# Split so a job installs what it needs and no more: the lint job takes `ruff`
+# without waiting for the scientific stack, and the documentation build takes
+# its own toolchain. `uv sync` with no arguments still installs `dev`, which is
+# everything, so nothing changes for a contributor.
 [dependency-groups]
-dev = [
+lint = [
+  "pre-commit",
+  "ruff>=0.5.0",
+]
+test = [
   "pytest",
   "pytest-cov",
   "pytest-doctestplus",
   "pytest-remotedata>=0.3.1",
-  "ruff>=0.5.0",
+]
+# The runtime dependencies `mkdocstrings` needs in order to import the package
+# come from the project itself, which `uv sync` installs alongside this group.
+# Relisting them here is how a docs requirements file drifts from
+# `[project.dependencies]`.
+docs = [
+  "mkdocstrings[python]",
+  "zensical",
+]
+dev = [
+  { include-group = "lint" },
+  { include-group = "test" },
+  { include-group = "docs" },
 ]
 
 [project.urls]
@@ -93,14 +117,24 @@ packages = ["src/panoptes"]
 [tool.hatch.build.targets.sdist]
 include = ["src", "README.md", "LICENSE.txt"]
 
-# Ruff configuration (formatting + linting)
+# Ruff configuration (formatting + linting). The settings are shared with the
+# other three repositories; see project standards 3 for why each one is what it
+# is. Selecting the rule set explicitly matters: ruff's default set moves
+# between versions, so an unpinned config makes "clean" mean something
+# different on every machine.
 [tool.ruff]
-line-length = 100
+line-length = 110
 target-version = "py312"
+src = ["src"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP"]
-ignore = []
+select = [
+  "E",   # pycodestyle errors
+  "W",   # pycodestyle warnings
+  "F",   # pyflakes
+  "I",   # isort
+  "UP",  # pyupgrade
+]
 
 [tool.ruff.format]
 quote-style = "double"

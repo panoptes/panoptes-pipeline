@@ -140,9 +140,7 @@ def measure_depth(flux: np.ndarray, model: np.ndarray, threshold: float = 0.5) -
     return RecoveryResult(
         injected_depth=injected_depth,
         recovered_depth=float((out_level - in_level) / scale),
-        out_of_transit_rms=(
-            float(np.nanstd(flux[out_transit]) / scale) if out_transit.any() else np.nan
-        ),
+        out_of_transit_rms=(float(np.nanstd(flux[out_transit]) / scale) if out_transit.any() else np.nan),
         num_in_transit=int(in_transit.sum()),
     )
 

@@ -313,9 +313,7 @@ def build(
     observations.to_parquet(written["observations"], index=False)
     written["schema"].write_text(json.dumps(schema(frames, observations), indent=2, sort_keys=True))
 
-    logger.info(
-        f"Indexed {len(frames)} frame(s) in {len(observations)} sequence(s) into {index_root}"
-    )
+    logger.info(f"Indexed {len(frames)} frame(s) in {len(observations)} sequence(s) into {index_root}")
     return written
 
 

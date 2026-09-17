@@ -1,5 +1,10 @@
 # panoptes-pipeline
 
+[![Tests](https://github.com/panoptes/panoptes-pipeline/actions/workflows/tests.yml/badge.svg)](https://github.com/panoptes/panoptes-pipeline/actions/workflows/tests.yml)
+[![Docs](https://github.com/panoptes/panoptes-pipeline/actions/workflows/docs.yml/badge.svg)](https://panoptes.github.io/panoptes-pipeline/)
+[![codecov](https://codecov.io/gh/panoptes/panoptes-pipeline/branch/main/graph/badge.svg)](https://codecov.io/gh/panoptes/panoptes-pipeline)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/panoptes/panoptes-pipeline/blob/main/LICENSE.txt)
+
 Differential photometry for [Project PANOPTES](https://www.projectpanoptes.org):
 recovering exoplanet transits from DSLR wide-field images with a Bayer color
 filter array.
@@ -40,7 +45,13 @@ Start with the design documents:
 - `plans/improvement-plan.md` — metrics, benchmark selection, fleet
   heterogeneity, and the open decisions in its section 6.
 
-`CLAUDE.md` carries the same orientation for agent sessions.
+`AGENTS.md` carries the same orientation for agent sessions; `CLAUDE.md`
+and `GEMINI.md` are symlinks to it.
+
+The API reference is published at
+<https://panoptes.github.io/panoptes-pipeline/>, built from the docstrings.
+`plans/` is deliberately not part of it: those are working documents, read here
+where their status is obvious.
 
 ## Install and test
 
@@ -87,7 +98,7 @@ is being rebuilt in the open.
   until its entry is written.
 - **Precision claims need evidence.** A change that lowers scatter while
   lowering signal transfer has suppressed signal rather than removed noise, so
-  report both. `CLAUDE.md` has the full rules under "Measuring a change".
+  report both. `AGENTS.md` has the full rules under "Measuring a change".
 
 Questions are welcome on the [PANOPTES
 forum](https://forum.projectpanoptes.org).

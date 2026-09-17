@@ -121,18 +121,14 @@ def _synthetic_sky(stamp_shape, pattern, levels=(700.0, 770.0, 640.0), seed=0):
 def test_green_offsets_recovered_for_every_pattern(pattern):
     stamps = _synthetic_sky((10, 18), pattern)
     greens = masks.infer_green_offsets(stamps.reshape(40, -1), (10, 18))
-    expected = {
-        (dy, dx) for dy in (0, 1) for dx in (0, 1) if masks.PATTERNS[pattern][dy][dx] == masks.GREEN
-    }
+    expected = {(dy, dx) for dy in (0, 1) for dx in (0, 1) if masks.PATTERNS[pattern][dy][dx] == masks.GREEN}
     assert greens == expected
 
 
 @pytest.mark.parametrize("pattern", sorted(masks.PATTERNS))
 def test_pattern_round_trips_given_the_red_offset(pattern):
     stamps = _synthetic_sky((10, 18), pattern)
-    red = next(
-        (dy, dx) for dy in (0, 1) for dx in (0, 1) if masks.PATTERNS[pattern][dy][dx] == masks.RED
-    )
+    red = next((dy, dx) for dy in (0, 1) for dx in (0, 1) if masks.PATTERNS[pattern][dy][dx] == masks.RED)
     assert masks.infer_pattern(stamps.reshape(40, -1), (10, 18), red_offset=red) == pattern
 
 

@@ -42,9 +42,7 @@ def test_beta_is_about_one_for_white_noise():
 def test_beta_exceeds_one_when_noise_is_correlated():
     times, white = white_noise(num_points=2000, scatter=0.005, seed=4)
     red = white + 0.01 * np.sin(2 * np.pi * times / (90 * 60.0))
-    assert metrics.beta_factor(times, red, bin_minutes=30) > metrics.beta_factor(
-        times, white, bin_minutes=30
-    )
+    assert metrics.beta_factor(times, red, bin_minutes=30) > metrics.beta_factor(times, white, bin_minutes=30)
 
 
 def test_precision_curve_improves_with_bin_size():

@@ -62,14 +62,10 @@ def run_target(target, pool, pixel_mask, num_refs, frame_weights):
     target_median = np.median(target.sum(axis=1))
     ref_medians = np.median(refs_raw.sum(axis=2), axis=1)
     ensemble = (refs_raw * (target_median / ref_medians)[:, None, None]).mean(axis=0)
-    curves["ensemble_scaled"] = core.differential_lightcurve(
-        target, ensemble, pixel_mask=pixel_mask
-    )
+    curves["ensemble_scaled"] = core.differential_lightcurve(target, ensemble, pixel_mask=pixel_mask)
 
     for name, kwargs in (("ols", dict(method="ols")), ("ridge", dict(method="ridge", alpha=1e-4))):
-        coefficients = core.solve_coefficients(
-            target_norm, refs_norm, frame_weights=frame_weights, **kwargs
-        )
+        coefficients = core.solve_coefficients(target_norm, refs_norm, frame_weights=frame_weights, **kwargs)
         curves[name] = core.differential_lightcurve(
             target, core.build_comparison(refs_raw, coefficients), pixel_mask=pixel_mask
         )

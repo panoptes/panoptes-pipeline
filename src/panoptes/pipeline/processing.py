@@ -103,9 +103,7 @@ def calibrate(raw_data: np.ndarray, header: fits.Header, params: PipelineParams)
     background = np.ma.array(
         [np.ma.array(data=bg.background, mask=m) for bg, m in zip(backgrounds, rgb_masks)]
     )
-    rms = np.ma.array(
-        [np.ma.array(data=bg.background_rms, mask=m) for bg, m in zip(backgrounds, rgb_masks)]
-    )
+    rms = np.ma.array([np.ma.array(data=bg.background_rms, mask=m) for bg, m in zip(backgrounds, rgb_masks)])
     background = background.filled(0).sum(0)
     rms = rms.filled(0).sum(0)
 
@@ -341,8 +339,7 @@ def write_observation(
             for frame in sequence_frames
             if (
                 document := products.read_document(
-                    products.frame_directory(processed_root, frame.path_info)
-                    / files.metadata_filename
+                    products.frame_directory(processed_root, frame.path_info) / files.metadata_filename
                 )
             )
             is not None

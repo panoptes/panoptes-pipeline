@@ -289,9 +289,7 @@ def test_a_settings_change_invalidates_exactly_what_was_expected(tmp_path, make_
         process(processed, raw_path, params)
 
     before = worklist.build(raw_root, processed, params)
-    after = worklist.build(
-        raw_root, processed, PipelineParams(camera=CameraSettings(saturation=11765))
-    )
+    after = worklist.build(raw_root, processed, PipelineParams(camera=CameraSettings(saturation=11765)))
 
     assert worklist.summarize(before) == {"up to date": 3}
     assert worklist.summarize(after) == {"params changed": 3}
@@ -364,7 +362,5 @@ def test_the_recorded_document_carries_the_settings_that_made_it(raw_header, raw
 
 def test_a_recorded_document_still_passes_the_store_check(raw_header, raw_path_info, params):
     products.check_document(
-        products.record_processing(
-            extract_metadata(raw_header, raw_path_info), params, ImageStatus.MATCHED
-        )
+        products.record_processing(extract_metadata(raw_header, raw_path_info), params, ImageStatus.MATCHED)
     )

@@ -124,19 +124,13 @@ def resolve_camera(header: Header, settings: CameraSettings) -> dict[str, Resolv
         Not in the header at all, on any frame, so this is always a default
         today. It is load-bearing content for the registry.
     """
-    saturation = from_header(header, "WHTLVLN", int) or from_default(
-        settings.saturation, "camera.saturation"
-    )
+    saturation = from_header(header, "WHTLVLN", int) or from_default(settings.saturation, "camera.saturation")
 
     # NAXIS1/NAXIS2 are mandatory in a FITS file, so the default is unreachable
     # on a real frame. It exists so a truncated header degrades loudly-in-the-
     # record rather than to a zero that looks like a measurement.
-    width = from_header(header, "NAXIS1", int) or from_default(
-        settings.image_width, "camera.image_width"
-    )
-    height = from_header(header, "NAXIS2", int) or from_default(
-        settings.image_height, "camera.image_height"
-    )
+    width = from_header(header, "NAXIS1", int) or from_default(settings.image_width, "camera.image_width")
+    height = from_header(header, "NAXIS2", int) or from_default(settings.image_height, "camera.image_height")
 
     gain = from_header(header, "EGAIN", float) or from_default(
         settings.effective_gain, "camera.effective_gain"

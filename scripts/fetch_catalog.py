@@ -185,9 +185,7 @@ def main(
     rows, which is cheap insurance against silently clipping a corner.
     """
     output = output or directory / default_name(ra, dec, radius, vmag_min, vmag_max)
-    query_key = dict(
-        ra=ra, dec=dec, radius=radius, vmag_min=vmag_min, vmag_max=vmag_max, release="gaiadr3"
-    )
+    query_key = dict(ra=ra, dec=dec, radius=radius, vmag_min=vmag_min, vmag_max=vmag_max, release="gaiadr3")
 
     if output.exists() and not force and looks_usable(output, query_key):
         typer.echo(f"{output} already exists and matches; not querying. Use --force to refetch.")

@@ -50,9 +50,7 @@ def get_metadata(settings: ImageSettings, path_info: ImagePathInfo) -> dict:
         unit="deg",
         frame="icrs",
         obstime=obstime,
-        location=EarthLocation(
-            lon=header["LONG-OBS"], lat=header["LAT-OBS"], height=header["ELEV-OBS"]
-        ),
+        location=EarthLocation(lon=header["LONG-OBS"], lat=header["LAT-OBS"], height=header["ELEV-OBS"]),
     )
     hadec_coord = radec_coord.transform_to(HADec)
 

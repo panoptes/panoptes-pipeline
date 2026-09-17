@@ -286,9 +286,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("observation", type=Path, help="Path to an observation.h5")
-    parser.add_argument(
-        "--picid", type=int, default=None, help="Target PICID (default: a bright star)"
-    )
+    parser.add_argument("--picid", type=int, default=None, help="Target PICID (default: a bright star)")
     parser.add_argument("--num-refs", type=int, default=100, help="References carried into the fit")
     parser.add_argument("--channel", choices=["all", "r", "g", "b"], default="all")
     parser.add_argument(
@@ -301,9 +299,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Fit on alternate frames and score only on the frames the fit never saw",
     )
-    parser.add_argument(
-        "--inject-depth", type=float, default=0.0, help="Inject a transit of this depth"
-    )
+    parser.add_argument("--inject-depth", type=float, default=0.0, help="Inject a transit of this depth")
     parser.add_argument(
         "--inject-duration", type=float, default=1.0, help="Injected transit duration [hours]"
     )

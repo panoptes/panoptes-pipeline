@@ -36,9 +36,7 @@ def processed_tree(tmp_path, make_raw_tree, params):
         for raw_path in sorted(raw_root.rglob("*.fits")):
             header = fits.getheader(raw_path)
             path_info = ImagePathInfo.from_fits_header(header)
-            metadata = products.record_processing(
-                extract_metadata(header, path_info), params, status
-            )
+            metadata = products.record_processing(extract_metadata(header, path_info), params, status)
             metadata["image"]["sources"] = dict(num_detected=1000, photutils_fwhm_median=2.4)
             products.write_frame(processed, path_info, metadata)
 

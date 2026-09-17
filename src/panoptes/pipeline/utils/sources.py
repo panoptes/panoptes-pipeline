@@ -90,9 +90,7 @@ def read_catalog(catalog_filename) -> pandas.DataFrame:
     try:
         picid = catalog_stars["picid"].astype("int64")
     except (ValueError, TypeError) as e:
-        raise ValueError(
-            f"Catalog {path} has a `picid` column that is not integer identifiers: {e}"
-        ) from e
+        raise ValueError(f"Catalog {path} has a `picid` column that is not integer identifiers: {e}") from e
 
     # An identifier, not a quantity.
     catalog_stars["picid"] = picid.astype("category")
@@ -343,9 +341,7 @@ def get_catalog_match(
     catalog_matches = get_xy_positions(wcs, catalog_matches)
 
     # Add the matches and their separation.
-    matched_sources = point_sources.reset_index(drop=True).join(
-        catalog_matches.reset_index(drop=True)
-    )
+    matched_sources = point_sources.reset_index(drop=True).join(catalog_matches.reset_index(drop=True))
 
     # All point sources so far are matched.
     # matched_sources['status'] = 'matched'

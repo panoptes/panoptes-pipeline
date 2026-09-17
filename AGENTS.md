@@ -148,9 +148,14 @@ part raises `ModuleNotFoundError`.
 
 ```bash
 uv build                   # sdist + wheel into dist/
-uv publish                 # needs UV_PUBLISH_TOKEN
-rm -rf build dist          # clean
+uv run --group docs zensical build --clean --strict   # the docs site, into site/
+rm -rf build dist site     # clean
 ```
+
+**Do not publish by hand.** `create-release.yml` builds and publishes on a
+`vX.Y.Z` tag, authenticating to PyPI through Trusted Publishing -- there is no
+`UV_PUBLISH_TOKEN` and nothing to hold one. Releasing is tagging; see
+"Versioning and tags" below.
 
 Standalone scripts are PEP 723 and declare their own dependencies, so they run
 against a throwaway environment rather than the synced one:
@@ -228,6 +233,12 @@ Tag on `main` only, annotated, with a message saying what the release contains:
 ```bash
 git tag -a v0.3.0 -m "..." && git push origin v0.3.0
 ```
+
+Pushing that tag is the whole release: `create-release.yml` builds, publishes to
+PyPI through Trusted Publishing, and creates the GitHub release **from the tag
+message**, which is why the message has to say what the release contains. The
+workflow refuses a lightweight tag or an empty message, before it builds
+anything, rather than publishing a commit subject as the release notes.
 
 `archive/*` tags are not releases. They preserve retired branch tips and carry no
 version meaning.

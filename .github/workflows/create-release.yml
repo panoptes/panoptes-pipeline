@@ -40,10 +40,22 @@ jobs:
       # publish a commit subject as the release notes -- wrong, and plausible
       # enough to go unnoticed. Failing here costs nothing; failing after the
       # PyPI upload would leave a published version with no release.
-      - name: Require an annotated tag
+      - name: Require an annotated tag with a message
         run: |
           if [ "$(git cat-file -t "${GITHUB_REF_NAME}")" != "tag" ]; then
             echo "::error::${GITHUB_REF_NAME} is a lightweight tag. The release notes are the tag message, so the tag must be annotated: git tag -a ${GITHUB_REF_NAME} -m '...'"
+            exit 1
+          fi
+          # Extract the notes here rather than at the end. An annotated tag
+          # with an empty message would otherwise publish to PyPI and only then
+          # fail -- leaving a released version with no GitHub release, and
+          # nothing to retry, since PyPI refuses a re-upload of the same
+          # version. An annotated tag with an empty message still yields a
+          # newline, so this looks for actual content rather than a non-empty
+          # file.
+          git tag --list --format='%(contents)' "${GITHUB_REF_NAME}" > "${RUNNER_TEMP}/notes.md"
+          if ! grep -q '[^[:space:]]' "${RUNNER_TEMP}/notes.md"; then
+            echo "::error::${GITHUB_REF_NAME} has an empty tag message, and the release notes come from it."
             exit 1
           fi
 
@@ -73,23 +85,18 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          git tag --list --format='%(contents)' "${GITHUB_REF_NAME}" > notes.md
-          # An annotated tag with an empty message still yields a newline, so
-          # this looks for actual content rather than a non-empty file.
-          if ! grep -q '[^[:space:]]' notes.md; then
-            echo "::error::${GITHUB_REF_NAME} has an empty tag message, and the release notes come from it."
-            exit 1
-          fi
+          # The notes were written and checked for content before the build,
+          # and live outside the checkout so `uv build` sees a clean tree.
           # Re-running the job has to be safe: `gh release create` refuses a
           # tag that already has a release.
           if gh release view "${GITHUB_REF_NAME}" > /dev/null 2>&1; then
             gh release edit "${GITHUB_REF_NAME}" \
               --title "${GITHUB_REF_NAME}" \
-              --notes-file notes.md
+              --notes-file "${RUNNER_TEMP}/notes.md"
             gh release upload "${GITHUB_REF_NAME}" dist/* --clobber
           else
             gh release create "${GITHUB_REF_NAME}" \
               --title "${GITHUB_REF_NAME}" \
-              --notes-file notes.md \
+              --notes-file "${RUNNER_TEMP}/notes.md" \
               dist/*
           fi

@@ -207,6 +207,14 @@ This is also why there is no `edit_uri`. Nearly every page is a wrapper, so an
 edit link would open the one-line wrapper rather than the file the reader is
 actually looking at.
 
+**A link in a root file must be absolute when its target is not published.**
+`CONTRIBUTING.md` pointing at `plans/algorithm-design.md` works on GitHub and
+404s on the site, because `plans/` is not in the nav. `--strict` does not catch
+it: the build rewrites the path to a site URL and stays green, so the only
+signal is a reader hitting the 404. Repository-relative links to `plans/`,
+`LICENSE.txt`, `tests/` or anything else outside `docs/` are written as full
+`https://github.com/...` URLs.
+
 ### 5.2 Docstrings are the API reference
 
 A page in `docs/api/` is a `:::` block naming a module and nothing else. There
@@ -343,11 +351,15 @@ The workflow triggers on `v[0-9]+.[0-9]+.[0-9]+` and, in order:
 2. **Restores the annotated tag object.** `actions/checkout` fetches the commit
    SHA into the tag ref, so the checkout holds a *lightweight* tag whatever the
    remote has. Without this the next step fails on every release.
-3. **Requires the tag to be annotated.** `%(contents)` on a lightweight tag
-   reports the *commit* message instead, which would publish a commit subject as
-   the release notes -- wrong, and plausible enough to go unnoticed. Checking
-   before anything is built costs nothing; failing after the PyPI upload would
-   leave a published version with no release.
+3. **Requires the tag to be annotated, and extracts the notes there.**
+   `%(contents)` on a lightweight tag reports the *commit* message instead,
+   which would publish a commit subject as the release notes -- wrong, and
+   plausible enough to go unnoticed. Both checks -- annotated, and a message
+   with content in it -- run before the build, and the notes are written to
+   `$RUNNER_TEMP` so the build still sees a clean tree. Doing the
+   empty-message check at the end instead is the trap: the upload succeeds, the
+   release step fails, and PyPI refuses a re-upload of that version, so there
+   is nothing to retry.
 4. `uv build`, which drives whatever backend `[build-system]` declares, so the
    artifacts are the ones `uv build` produces locally.
 5. Publishes with **Trusted Publishing** -- an OIDC token minted for the
@@ -415,13 +427,22 @@ job: `ruff-check --fix` and `ruff-format`, both reading `pyproject.toml`, plus
 the cheap `pre-commit-hooks` checks for trailing whitespace, end-of-file, merge
 conflict markers and TOML/YAML/JSON syntax.
 
-**Binary fixtures are excluded from the text hooks.** `trailing-whitespace`,
-`end-of-file-fixer` and `mixed-line-ending` will happily "fix" a binary file:
-run once over `panoptes-pipeline`, all three rewrote bytes inside
-`tests/data/solved.fits.fz` and `tests/data/widefield.fits.fz` and reported it
-as a fix. `check-added-large-files` and `check-merge-conflict` still see them,
-which is what those are for. `panoptes-data` commits no binaries and so has not
-met this.
+**Binary fixtures are excluded from the text hooks, per hook.**
+`trailing-whitespace`, `end-of-file-fixer` and `mixed-line-ending` will happily
+"fix" a binary file: run once over `panoptes-pipeline`, all three rewrote bytes
+inside `tests/data/solved.fits.fz` and `tests/data/widefield.fits.fz` and
+reported it as a fix. `panoptes-data` commits no binaries and so has not met
+this.
+
+The exclusion goes on those three hooks and not at the top level. A top-level
+`exclude` applies to *every* hook in the file, which would also take the binary
+fixtures out of `check-added-large-files` and `check-merge-conflict` -- the two
+that most need to see them, and the ones the exclusion is meant to leave alone.
+
+**The `ruff-pre-commit` rev equals the `ruff` version in `uv.lock`.** Otherwise
+the hook and the CI lint job are different binaries, and a formatting change
+between two patch releases means the hook rewrites what CI then rejects, or the
+reverse. When the lockfile's ruff moves, the rev moves with it.
 
 Contributors run `pre-commit install` once. CI remains the actual gate -- a hook
 is a convenience, not an enforcement mechanism, because anyone can pass `-n`.

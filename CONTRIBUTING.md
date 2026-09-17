@@ -11,7 +11,12 @@ Demonstration of Precision Photometry with Bayer Color Filter Arrays*) is a
 building block, not a specification; where its choices and the idea diverge, the
 idea wins.
 
-[design]: plans/algorithm-design.md
+[design]: https://github.com/panoptes/panoptes-pipeline/blob/main/plans/algorithm-design.md
+
+<!-- Absolute, not `plans/algorithm-design.md`. This file is included verbatim
+into the documentation site, where `plans/` is deliberately not published, so a
+repository-relative link resolves to a page that does not exist. Zensical does
+not catch it: it rewrites the path and the build stays green. -->
 
 ## Issue reports
 

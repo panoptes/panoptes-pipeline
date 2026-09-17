@@ -46,8 +46,14 @@ jobs:
       - name: Check formatting
         run: uv run --no-sync ruff format --check .
 
+  # No `name:` on this job, deliberately. GitHub derives the check name from the
+  # job id when there is none, so this reports as `test (3.12)` and
+  # `test (3.13)` -- and those are the contexts `main`'s branch protection
+  # requires. Naming the job `Test` renames the checks, the required contexts
+  # then never appear, and every pull request sits at "expected -- waiting for
+  # status" with nothing failing and no way to merge. Renaming a job that a
+  # protection rule names is a settings change, not a cosmetic one.
   test:
-    name: Test
     runs-on: ubuntu-latest
     strategy:
       # One version failing should not hide the result for the other.

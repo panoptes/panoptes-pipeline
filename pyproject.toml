@@ -38,7 +38,11 @@ dependencies = [
   # Tabular and on-disk products.
   "h5py",
   "numexpr",
-  "pandas",
+  # Copy-on-write, which pandas 3 always has and 2.x only optionally, is what
+  # makes the shallow copy `sources.read_catalog` returns actually isolate its
+  # cached catalog. On 2.x a caller writing through `.loc` could reach into the
+  # cached frame, so the floor is part of that contract rather than a preference.
+  "pandas>=3",
   "pyarrow",
   "tables",
   # Astronomy.

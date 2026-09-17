@@ -8,6 +8,21 @@ Changelog](https://keepachangelog.com/en/1.1.0/) format. The versioning policy
 
 ### Added
 
+- `sources.read_catalog` caches the parsed catalog, keyed on the file's path,
+  modification time and size, so an all-sky catalog is read once per process
+  rather than once per frame -- `get_stars` runs per frame, and the read was the
+  dominant cost of matching against a large file. A rewritten catalog at the
+  same path is still picked up, the result is a shallow copy so callers cannot
+  corrupt the cached frame, and `read_catalog.cache_clear()` drops it.
+
+### Changed
+
+- `pandas` is now floored at `>=3`. Copy-on-write is unconditional there, which
+  is what makes the shallow copy `read_catalog` returns genuinely isolate the
+  cached catalog; on 2.x copy-on-write can be off and a caller writing through
+  `.loc` would reach the cached frame. The resolved version does not move --
+  `uv.lock` already pinned 3.0.5 -- so this declares what was already being
+  tested against.
 - Documentation at <https://panoptes.github.io/panoptes-pipeline/>, built with
   [Zensical](https://zensical.org/) from the docstrings and published to GitHub
   Pages on every push to `main`. A page under `docs/api/` is a `:::` block

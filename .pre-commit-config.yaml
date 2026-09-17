@@ -1,0 +1,39 @@
+# The same tools CI runs, at the same settings, so a hook cannot disagree with
+# a job. `ruff` covers linting, import sorting and formatting -- the rule set
+# and the style are pinned in `pyproject.toml`, and these hooks read it.
+#
+# Install once with `uv run pre-commit install`. CI remains the actual gate: a
+# hook is a convenience, and anyone can pass `-n`.
+#
+# `tests/data/` is excluded from the text hooks. It holds real POCS frames and a
+# parquet catalog, and `trailing-whitespace`, `end-of-file-fixer` and
+# `mixed-line-ending` will happily "fix" a binary file: run once without this,
+# they rewrite bytes inside `solved.fits.fz` and `widefield.fits.fz` and report
+# it as a fix. `check-added-large-files` and `check-merge-conflict` still see
+# them, which is what those are for.
+exclude: '^tests/data/'
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-added-large-files
+        # `tests/data/` holds real POCS frames, which are megabytes each and
+        # deliberately committed. The default 500 kB limit would reject them.
+        args: ["--maxkb=8192"]
+      - id: check-merge-conflict
+      - id: check-toml
+      - id: check-yaml
+      - id: check-json
+      - id: debug-statements
+      - id: mixed-line-ending
+        args: ["--fix=lf"]
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.8
+    hooks:
+      - id: ruff-check
+        args: ["--fix"]
+      - id: ruff-format

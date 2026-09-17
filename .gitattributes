@@ -1,0 +1,14 @@
+# `CHANGELOG.md` is append-only in practice: every branch adds bullets under
+# `## Unreleased`, at the same place, and `main` moves between the branch
+# starting and merging. Squash merges make it worse -- the merged commit shares
+# no ancestry with the branch's own, so git sees two unrelated edits to the
+# same lines and stops.
+#
+# The resolution is always the same: keep both sides. `merge=union` is git's
+# built-in driver for exactly that, so it does it rather than asking.
+#
+# Read the result before pushing. Union takes both sides' lines in order and
+# never reports a conflict, so the merged bullets can land in either order and
+# the blank line between them can be dropped. Wrong order and tight spacing are
+# possible; lost content is not. Both are a two-second fix once you have looked.
+CHANGELOG.md merge=union

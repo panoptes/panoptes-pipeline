@@ -43,6 +43,11 @@ Start with the design documents:
 `AGENTS.md` carries the same orientation for agent sessions; `CLAUDE.md`
 and `GEMINI.md` are symlinks to it.
 
+The API reference is published at
+<https://panoptes.github.io/panoptes-pipeline/>, built from the docstrings.
+`plans/` is deliberately not part of it: those are working documents, read here
+where their status is obvious.
+
 ## Install and test
 
 Everything goes through [`uv`](https://docs.astral.sh/uv/), against the

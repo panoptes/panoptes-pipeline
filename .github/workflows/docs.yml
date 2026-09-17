@@ -1,0 +1,87 @@
+name: Docs
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  # Publishing is otherwise only a side effect of pushing. A deploy you can
+  # trigger on demand is what you want when the site needs republishing and
+  # `main` has not moved -- after switching the Pages source, for instance.
+  workflow_dispatch:
+
+# A new push to a pull request makes the run in progress irrelevant. `main`
+# keeps its runs, since those are the ones that publish.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+# Permissions are per job, not workflow-wide. `build` runs on pull requests and
+# executes the branch's own code -- `mkdocstrings` imports the package to read
+# its docstrings -- so it gets nothing beyond reading the checkout. Only
+# `deploy`, which runs from `main` and builds nothing, can mint an OIDC token or
+# call the Pages API.
+
+jobs:
+  build:
+    name: Build docs
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # `hatch-vcs` derives the version from the nearest `v*` tag, and
+          # `mkdocstrings` imports the package, so the build needs the tags and
+          # not just the tip.
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      # The docs toolchain is the `docs` group; the runtime dependencies
+      # `mkdocstrings` imports come from the project, which `uv sync` installs
+      # with it. `--locked` fails rather than re-resolving, so a dependency edit
+      # that skipped `uv lock` is caught here too.
+      - name: Install
+        run: uv sync --locked --group docs
+
+      # `--strict` turns warnings into errors: a link to a page that does not
+      # exist, or a `:::` block naming a module that cannot be imported, fails
+      # the build rather than publishing a hole.
+      - name: Build
+        run: uv run --group docs zensical build --clean --strict
+
+      # Uploaded on pull requests too, so a reviewer can download the built
+      # site; only the deploy job below is gated on `main`.
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: site
+
+  deploy:
+    name: Publish to GitHub Pages
+    needs: build
+    if: >-
+      github.ref == 'refs/heads/main'
+      && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    # Scoped to the deploy, so a slow pull-request build never queues behind or
+    # ahead of a publication. A queued deploy should publish the newest `main`
+    # rather than wait its turn; one already in flight is left to finish.
+    concurrency:
+      group: pages-deploy
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v5

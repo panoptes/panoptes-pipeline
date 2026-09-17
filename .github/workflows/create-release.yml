@@ -1,0 +1,95 @@
+# Publishes to PyPI and creates the GitHub release for any vX.Y.Z tag.
+#
+# Authentication is PyPI Trusted Publishing, which mints a short-lived OIDC
+# token for this workflow instead of holding a long-lived API token. It needs a
+# one-time setup on PyPI -- and because `panoptes-pipeline` is not on PyPI yet,
+# it is a *pending* publisher: PyPI -> Your projects -> Publishing -> Add a
+# pending publisher, with project `panoptes-pipeline`, owner `panoptes`,
+# repository `panoptes-pipeline` and workflow `create-release.yml`. Without it
+# the first tag builds and then fails at upload.
+name: Create release
+
+on:
+  push:
+    # vX.Y.Z only. Not vX.Y.Zdev, and not the `archive/*` tags, which preserve
+    # retired branch tips and are not releases.
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+
+jobs:
+  release:
+    name: Publish to PyPI and create the release
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write   # Mint the OIDC token Trusted Publishing authenticates with.
+      contents: write   # Create the GitHub release.
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # `hatch-vcs` derives the version from the tag, so it needs history.
+          fetch-depth: 0
+
+      # `actions/checkout` fetches the commit SHA into the tag ref, so the
+      # checkout holds a lightweight tag whatever the remote has.
+      - name: Restore the annotated tag object
+        run: git fetch --force origin "refs/tags/${GITHUB_REF_NAME}:refs/tags/${GITHUB_REF_NAME}"
+
+      # Before anything is built or published: the release notes come from the
+      # tag message, and only an annotated tag has one. `%(contents)` on a
+      # lightweight tag reports the *commit* message instead, which would
+      # publish a commit subject as the release notes -- wrong, and plausible
+      # enough to go unnoticed. Failing here costs nothing; failing after the
+      # PyPI upload would leave a published version with no release.
+      - name: Require an annotated tag
+        run: |
+          if [ "$(git cat-file -t "${GITHUB_REF_NAME}")" != "tag" ]; then
+            echo "::error::${GITHUB_REF_NAME} is a lightweight tag. The release notes are the tag message, so the tag must be annotated: git tag -a ${GITHUB_REF_NAME} -m '...'"
+            exit 1
+          fi
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+
+      # `uv build` drives the `hatchling` backend `[build-system]` declares, so
+      # this is the same sdist and wheel `uv build` produces locally. `uv`
+      # resolves an interpreter matching `requires-python` on its own, so there
+      # is no separate Python to set up.
+      - name: Build
+        id: build
+        run: uv build
+
+      - name: Publish to PyPI
+        # No user/password: an explicit password disables Trusted Publishing,
+        # and with it the build attestations this action produces by default.
+        uses: pypa/gh-action-pypi-publish@release/v1
+
+      - name: Create the GitHub release
+        # The annotated tag message is the release notes, so what the tag says
+        # and what the release says cannot drift apart.
+        #
+        # Keyed on the build rather than on the job: a release needs the tag and
+        # the dists, not a successful upload.
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git tag --list --format='%(contents)' "${GITHUB_REF_NAME}" > notes.md
+          # An annotated tag with an empty message still yields a newline, so
+          # this looks for actual content rather than a non-empty file.
+          if ! grep -q '[^[:space:]]' notes.md; then
+            echo "::error::${GITHUB_REF_NAME} has an empty tag message, and the release notes come from it."
+            exit 1
+          fi
+          # Re-running the job has to be safe: `gh release create` refuses a
+          # tag that already has a release.
+          if gh release view "${GITHUB_REF_NAME}" > /dev/null 2>&1; then
+            gh release edit "${GITHUB_REF_NAME}" \
+              --title "${GITHUB_REF_NAME}" \
+              --notes-file notes.md
+            gh release upload "${GITHUB_REF_NAME}" dist/* --clobber
+          else
+            gh release create "${GITHUB_REF_NAME}" \
+              --title "${GITHUB_REF_NAME}" \
+              --notes-file notes.md \
+              dist/*
+          fi

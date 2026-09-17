@@ -324,7 +324,29 @@ the point:
 
 So every `uv run` in CI that follows an install step passes `--no-sync`.
 
-### 6.6 Things not to do
+### 6.6 A job name is part of the branch protection contract
+
+GitHub derives a check's name from the job id unless the job has a `name:`, and
+branch protection lists required checks *by that name as a string*. So adding or
+changing a `name:` on a job a protection rule requires silently renames the
+check: the required context never appears, every pull request sits at
+"expected -- waiting for status" with nothing failing, and there is no way to
+merge. `panoptes-pipeline` did this to itself -- protection required
+`test (3.12)` and `test (3.13)`, the reworked workflow reported `Test (3.12)`
+and `Test (3.13)`, and the next pull request was unmergeable with five green
+checks.
+
+Before renaming a job or a workflow, read what the branch requires:
+
+```bash
+gh api repos/<owner>/<repo>/branches/main/protection --jq '.required_status_checks.contexts'
+```
+
+Either keep the names those contexts use, or change both together. The same
+applies when `panoptes-utils` and POCS replace `pythontest.yaml`, since their
+protection rules name checks from it.
+
+### 6.7 Things not to do
 
 - **No `actions/setup-python`.** `uv` resolves an interpreter matching
   `requires-python` on its own.

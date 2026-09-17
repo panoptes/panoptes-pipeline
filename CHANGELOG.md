@@ -109,6 +109,21 @@ Changelog](https://keepachangelog.com/en/1.1.0/) format. The versioning policy
 
 ### Fixed
 
+- `sources.get_catalog_match` documents the function that exists. Its docstring
+  described a `return_unmatched` argument -- in `Args:`, a `Note:`, a `Warning:`
+  and a paragraph of prose -- and an `origin` argument twice, neither of which is
+  in the signature. Passing either went into `**kwargs` and was silently ignored,
+  so a caller asking for unmatched catalog entries got matched ones and no error.
+  The appending of unmatched entries is not implemented; the docstring now says
+  what the function returns instead of promising a switch for it.
+- `sources.get_catalog_match` and `sources.get_stars` no longer claim the catalog
+  is derived from the TESS Input Catalog v8. `picid` is exactly the Gaia DR3
+  `source_id`, so a catalog is a Gaia cone search with its columns renamed and no
+  crossmatch step -- which is what `scripts/fetch_catalog.py` builds. The listed
+  added columns were also wrong: the function adds `catalog_sep` and the four
+  `catalog_wcs_{x,y}[_int]` columns, not `catalog_sep_arcsec`, `catalog_x`,
+  `twomass` or the `catalog_measured_diff_*` family.
+
 - `process_frame` reports the reduced image it wrote. The path was returned by
   `write_image` and then dropped, so the result named every product except the
   largest one.

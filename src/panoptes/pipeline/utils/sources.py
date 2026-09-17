@@ -236,9 +236,9 @@ def get_catalog_match(
     -- see `scripts/fetch_catalog.py`, which builds one.
 
     The catalog is read from a local file. This function matches the `ra_column`
-    and `dec_column` positions (as output from `lookup_point_sources`) to the
-    `catalog_ra` and `catalog_dec` columns of the catalog. When `catalog_stars`
-    is not supplied the lookup is done via :py:func:`get_stars_from_wcs`.
+    and `dec_column` positions to the `catalog_ra` and `catalog_dec` columns of
+    the catalog. When `catalog_stars` is not supplied the lookup is done via
+    :py:func:`get_stars_from_wcs`.
 
     The matched catalog row is joined onto each source and the result returned.
     The columns added are whatever the catalog file carries
@@ -262,17 +262,21 @@ def get_catalog_match(
 
     Args:
         point_sources (`pandas.DataFrame`): The DataFrame containing point sources
-            to be matched. This usually comes from the output of `lookup_point_sources`
-            but could be done manually.
-        wcs (`astropy.wcs.WCS`, optional): The WCS instance to use for the catalog lookup
-            and for the pixel positions. Either the `wcs` or the `catalog_stars`
-            must be supplied.
+            to be matched. This usually comes from the output of
+            :py:func:`.images.detect_sources` but could be done manually.
+        wcs (`astropy.wcs.WCS`): Required, despite the `None` default. Supplying
+            `catalog_stars` skips the lookup but not the pixel positions, which
+            :py:func:`get_xy_positions` computes from this WCS for every call,
+            so omitting it raises `AttributeError` after the matching work is done.
         catalog_stars (`pandas.DataFrame`, optional): If provided, the catalog match
             will be performed against this set of stars rather than performing a lookup.
         max_separation_arcsec (float|None, optional): If not None, sources more
             than this many arcsecs from catalog will be filtered.
         ra_column (str): The column name to use for the RA coordinates, default `measured_ra`.
-        dec_column (str): The column name to use for the Dec coordinates, default `measured_dec`.
+        dec_column (str): The column name to use for the Dec coordinates, default
+            `measured_dec`. Both defaults are stale -- :py:func:`.images.detect_sources`
+            names its columns `photutils_sky_centroid_ra` and `..._dec`, which is
+            what :py:func:`.images.match_sources` passes.
         **kwargs (Any): Extra options are passed to `get_stars_from_wcs`, which
             passes them to `get_stars`. Only used when `catalog_stars` is None.
 

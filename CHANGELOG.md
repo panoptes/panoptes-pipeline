@@ -115,7 +115,12 @@ Changelog](https://keepachangelog.com/en/1.1.0/) format. The versioning policy
   in the signature. Passing either went into `**kwargs` and was silently ignored,
   so a caller asking for unmatched catalog entries got matched ones and no error.
   The appending of unmatched entries is not implemented; the docstring now says
-  what the function returns instead of promising a switch for it.
+  what the function returns instead of promising a switch for it. It also no
+  longer calls `wcs` optional -- `get_xy_positions` needs it on every call, so
+  passing `catalog_stars` without a `wcs` raises `AttributeError` after the
+  matching is done -- and no longer points at a `lookup_point_sources` that does
+  not exist, or imply the stale `measured_ra`/`measured_dec` defaults are what
+  `detect_sources` produces.
 - `sources.get_catalog_match` and `sources.get_stars` no longer claim the catalog
   is derived from the TESS Input Catalog v8. `picid` is exactly the Gaia DR3
   `source_id`, so a catalog is a Gaia cone search with its columns renamed and no

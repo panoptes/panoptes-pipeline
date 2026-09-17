@@ -8,6 +8,7 @@ Working documents for the PANOPTES algorithm rebuild.
 | [conformance-audit.md](conformance-audit.md) | conformance audit | How far the code has drifted from the published algorithm, and every defect found |
 | [improvement-plan.md](improvement-plan.md) | improvement plan | The plan for reaching 0.5% precision, with metrics, sequencing and open action items |
 | [data-contract.md](data-contract.md) | data contract | What the pipeline reads and produces, where it is stored, and how POCS, `panoptes-utils`, `panoptes-pipeline` and `panoptes-data` agree on the vocabulary |
+| [project-standards.md](project-standards.md) | project standards | How all four repositories are built, linted, tested, documented and released, and why each choice was made |
 
 The published paper is a building block, not a specification. Start with the
 algorithm design; the audit and plan describe the existing implementation and

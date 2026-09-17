@@ -109,8 +109,11 @@ def read_catalog(catalog_filename) -> pandas.DataFrame:
     once per frame. Call ``read_catalog.cache_clear()`` to drop it.
 
     What comes back is a shallow copy, so a caller that adds or replaces a
-    column cannot corrupt the cached catalog for everything after it. Under
-    copy-on-write that costs nothing until something is actually written.
+    column cannot corrupt the cached catalog for everything after it. That is
+    copy-on-write doing the work, and it costs nothing until something is
+    actually written -- which is why `pyproject.toml` floors pandas at 3, where
+    copy-on-write is unconditional. On 2.x it can be off, and a caller writing
+    through `.loc` would reach the cached frame through the shared blocks.
 
     `picid` comes back as a `category`. It identifies a star rather than
     measuring anything, and nothing downstream should be doing arithmetic on it.

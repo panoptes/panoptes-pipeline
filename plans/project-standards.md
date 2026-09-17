@@ -221,6 +221,13 @@ keep in step with the first.
 `paths = ["src"]` points griffe at the working tree, so the reference describes
 this checkout rather than whichever copy of the package happens to be installed.
 
+**Every package directory needs an `__init__.py`**, even where Python does not
+require one. An implicit namespace package nested inside a regular package
+imports perfectly well at runtime, and griffe -- a static reader -- cannot
+follow it. `panoptes-pipeline`'s `utils` subpackage was in exactly that state,
+and the reference would have omitted four modules without an error. Both
+repositories that have built this site have hit it.
+
 ### 5.3 Working documents are not published
 
 `plans/` is not in the nav. These are living documents full of provisional
@@ -295,7 +302,21 @@ measurement, and the lockfile changes only when a human relocks deliberately.
 A failure here is a question, not necessarily a bug. The answer is either a code
 change or an upper bound in `pyproject.toml`.
 
-### 6.5 Things not to do
+### 6.5 `uv run` syncs unless told not to
+
+A step that runs `uv run pytest` after an install step re-syncs first, against
+the lockfile and the default groups. That silently undoes whatever the install
+step chose, and the two places it matters are both places where the choice was
+the point:
+
+- After `uv sync --no-default-groups --group test`, a bare `uv run` pulls the
+  default `dev` group back in.
+- In the canary, after `uv sync --upgrade`, a bare `uv run` **restores the
+  pinned tree** and tests it -- a canary that cannot fail.
+
+So every `uv run` in CI that follows an install step passes `--no-sync`.
+
+### 6.6 Things not to do
 
 - **No `actions/setup-python`.** `uv` resolves an interpreter matching
   `requires-python` on its own.
@@ -394,6 +415,14 @@ job: `ruff-check --fix` and `ruff-format`, both reading `pyproject.toml`, plus
 the cheap `pre-commit-hooks` checks for trailing whitespace, end-of-file, merge
 conflict markers and TOML/YAML/JSON syntax.
 
+**Binary fixtures are excluded from the text hooks.** `trailing-whitespace`,
+`end-of-file-fixer` and `mixed-line-ending` will happily "fix" a binary file:
+run once over `panoptes-pipeline`, all three rewrote bytes inside
+`tests/data/solved.fits.fz` and `tests/data/widefield.fits.fz` and reported it
+as a fix. `check-added-large-files` and `check-merge-conflict` still see them,
+which is what those are for. `panoptes-data` commits no binaries and so has not
+met this.
+
 Contributors run `pre-commit install` once. CI remains the actual gate -- a hook
 is a convenience, not an enforcement mechanism, because anyone can pass `-n`.
 
@@ -451,11 +480,21 @@ whichever repository is in front of the reader.
 
 ## 10. Where each repository stands
 
-Conformance is tracked in the issues, not here; this section says only what the
-starting point was, so the migration issues have something to point at.
+Conformance is tracked in the issues, not here. This section says only where
+each repository started, so the migration issues have something to point at, and
+where the sections above came from.
 
-At the time of writing, `panoptes-data` implements sections 2 and 4 through 8
-and is the reference for them. This repository implements 2, 4 and 9 and had no
-documentation site. `panoptes-utils` and POCS are the reference for section 3,
-and both use `setuptools-scm`, mkdocs-material with `gh-deploy`, and
-changelog-scraped release notes.
+**This repository** now implements all of them. The three sections it
+contributed back, each from a failure met while migrating, are 5.2 (a package
+directory without `__init__.py` is invisible to griffe), 6.5 (`uv run` re-syncs
+and silently undoes the install step) and 8.2 (the whitespace hooks corrupt
+binary fixtures).
+
+**`panoptes-data`** is the reference for 2, 4, and 5 through 8, which it arrived
+at over a run of small fixes. It should pick up 3 (it lints at 100 columns
+without `W`), the 6.5 `--no-sync` fix -- its canary has the bug described there
+-- and the 6.1 matrix, since it tests only 3.12 while claiming `>=3.12`.
+
+**`panoptes-utils` and POCS** are the reference for 3, which is why 3 is what it
+is. Both started on `setuptools-scm`, mkdocs-material with `gh-deploy`, and
+changelog-scraped release notes, so 2, 5, 6 and 7 are the work in each.

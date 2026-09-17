@@ -1,5 +1,10 @@
 # panoptes-pipeline
 
+[![Tests](https://github.com/panoptes/panoptes-pipeline/actions/workflows/tests.yml/badge.svg)](https://github.com/panoptes/panoptes-pipeline/actions/workflows/tests.yml)
+[![Docs](https://github.com/panoptes/panoptes-pipeline/actions/workflows/docs.yml/badge.svg)](https://panoptes.github.io/panoptes-pipeline/)
+[![codecov](https://codecov.io/gh/panoptes/panoptes-pipeline/branch/main/graph/badge.svg)](https://codecov.io/gh/panoptes/panoptes-pipeline)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE.txt)
+
 Differential photometry for [Project PANOPTES](https://www.projectpanoptes.org):
 recovering exoplanet transits from DSLR wide-field images with a Bayer color
 filter array.

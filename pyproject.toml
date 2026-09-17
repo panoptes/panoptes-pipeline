@@ -93,14 +93,24 @@ packages = ["src/panoptes"]
 [tool.hatch.build.targets.sdist]
 include = ["src", "README.md", "LICENSE.txt"]
 
-# Ruff configuration (formatting + linting)
+# Ruff configuration (formatting + linting). The settings are shared with the
+# other three repositories; see project standards 3 for why each one is what it
+# is. Selecting the rule set explicitly matters: ruff's default set moves
+# between versions, so an unpinned config makes "clean" mean something
+# different on every machine.
 [tool.ruff]
-line-length = 100
+line-length = 110
 target-version = "py312"
+src = ["src"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP"]
-ignore = []
+select = [
+  "E",   # pycodestyle errors
+  "W",   # pycodestyle warnings
+  "F",   # pyflakes
+  "I",   # isort
+  "UP",  # pyupgrade
+]
 
 [tool.ruff.format]
 quote-style = "double"

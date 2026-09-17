@@ -394,8 +394,10 @@ writing it at merge time prevents.
   uv run ruff format .
   ```
 
-  - Line length 100, double quotes, spaces, LF. Rule set is `E`, `F`, `I`, `UP`:
-    pycodestyle errors, pyflakes, import sorting, and pyupgrade.
+  - Line length 110, double quotes, spaces, LF. Rule set is `E`, `W`, `F`, `I`,
+    `UP`: pycodestyle errors and warnings, pyflakes, import sorting, and
+    pyupgrade. These are shared with the other three repositories -- see
+    project standards 3 -- so a change here is a change to all four.
   - `UP` means modern typing is enforced, not optional: `tuple` not `Tuple`,
     `X | None` not `Optional[X]`. Do not import from `typing` what the builtin
     already provides.

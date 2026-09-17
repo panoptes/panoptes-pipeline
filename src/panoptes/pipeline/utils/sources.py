@@ -1,3 +1,4 @@
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -36,32 +37,31 @@ PARQUET_SUFFIXES = (".parquet", ".pq")
 ECSV_SUFFIXES = (".ecsv",)
 TEXT_SUFFIXES = (".csv", ".tsv")
 
+#: How many catalogs :py:func:`read_catalog` keeps parsed in memory.
+#:
+#: The cost this avoids is real: nothing calls the reader once. `get_stars` runs
+#: per frame, so an all-sky parquet was re-read and re-typed for every frame in
+#: a sequence. Two entries, not more, because a cached catalog is a large
+#: DataFrame -- one working catalog plus its predecessor, so switching between
+#: two fields does not thrash, and a long-lived process cannot accumulate every
+#: file it has ever been handed.
+CATALOG_CACHE_SIZE = 2
 
-def read_catalog(catalog_filename) -> pandas.DataFrame:
-    """Read a catalog file, choosing the reader from its suffix.
 
-    `picid` comes back as a `category`. It identifies a star rather than
-    measuring anything, and nothing downstream should be doing arithmetic on it.
-    One thing to know when consuming it: `groupby` over a categorical iterates
-    every category by default, so pass `observed=True` when grouping on it.
+@lru_cache(maxsize=CATALOG_CACHE_SIZE)
+def _parse_catalog(path: Path, mtime_ns: int, size: int) -> pandas.DataFrame:
+    """Parse and validate one catalog file, memoized on its identity.
 
-    Args:
-        catalog_filename (str|Path): Path to a `.parquet`/`.pq`, `.ecsv` or
-            `.csv`/`.tsv` file, optionally compressed (`.ecsv.gz`).
+    `mtime_ns` and `size` are not used; they are in the signature because they
+    are part of the cache key. A catalog rewritten in place -- refetched with
+    `--force`, or replaced by a longer cone -- is a different file at the same
+    path, and keying on the path alone would serve the old rows for the rest of
+    the process. Neither stamp alone is enough: a filesystem with coarse mtime
+    can miss a fast rewrite, and a same-length rewrite leaves the size equal.
 
-    Returns:
-        `pandas.DataFrame`: The catalog, with `picid` as a categorical.
-
-    Raises:
-        FileNotFoundError: If the path does not exist.
-        ValueError: If the suffix is not a recognized format, a required column
-            is missing, or `picid` cannot be read as an integer identifier.
-
+    `lru_cache` does not memoize exceptions, so an unreadable or malformed
+    catalog raises on every call rather than once.
     """
-    path = Path(catalog_filename)
-    if not path.exists():
-        raise FileNotFoundError(f"Catalog file does not exist: {path}")
-
     suffixes = [s.lower() for s in path.suffixes]
 
     if any(s in suffixes for s in PARQUET_SUFFIXES):
@@ -97,6 +97,55 @@ def read_catalog(catalog_filename) -> pandas.DataFrame:
     catalog_stars["picid"] = picid.astype("category")
 
     return catalog_stars
+
+
+def read_catalog(catalog_filename) -> pandas.DataFrame:
+    """Read a catalog file, choosing the reader from its suffix.
+
+    The parsed catalog is cached (:py:data:`CATALOG_CACHE_SIZE`), keyed on the
+    file's path, modification time and size, so re-reading the same unchanged
+    file is free and a rewritten one is picked up. The cache lives in the
+    calling process: a pool of frame workers reads the catalog once each, not
+    once per frame. Call ``read_catalog.cache_clear()`` to drop it.
+
+    What comes back is a shallow copy, so a caller that adds or replaces a
+    column cannot corrupt the cached catalog for everything after it. Under
+    copy-on-write that costs nothing until something is actually written.
+
+    `picid` comes back as a `category`. It identifies a star rather than
+    measuring anything, and nothing downstream should be doing arithmetic on it.
+    One thing to know when consuming it: `groupby` over a categorical iterates
+    every category by default, so pass `observed=True` when grouping on it.
+
+    Args:
+        catalog_filename (str|Path): Path to a `.parquet`/`.pq`, `.ecsv` or
+            `.csv`/`.tsv` file, optionally compressed (`.ecsv.gz`).
+
+    Returns:
+        `pandas.DataFrame`: The catalog, with `picid` as a categorical.
+
+    Raises:
+        FileNotFoundError: If the path does not exist.
+        ValueError: If the suffix is not a recognized format, a required column
+            is missing, or `picid` cannot be read as an integer identifier.
+
+    """
+    path = Path(catalog_filename)
+    if not path.exists():
+        raise FileNotFoundError(f"Catalog file does not exist: {path}")
+
+    # `resolve` so two spellings of one file -- relative and absolute, or
+    # through a symlink -- are one cache entry rather than two copies.
+    path = path.resolve()
+    stat = path.stat()
+
+    return _parse_catalog(path, stat.st_mtime_ns, stat.st_size).copy(deep=False)
+
+
+#: The cache is an implementation detail of `read_catalog`, but clearing it is
+#: not: a test, or a caller that rewrites a catalog through a path the stamps
+#: cannot distinguish, needs a way to start over.
+read_catalog.cache_clear = _parse_catalog.cache_clear
 
 
 def get_stars_from_coords(ra: float, dec: float, radius: float = 8.0, **kwargs: Any) -> pandas.DataFrame:

@@ -147,3 +147,71 @@ def test_index_is_reset_so_positional_matching_is_safe(catalog):
     shape = dict(ra_min=15.0, ra_max=30.0, dec_min=0.0, dec_max=10.0)
     result = sources.get_stars(shape=shape, catalog_filename=catalog, vmag_min=0, vmag_max=30)
     assert list(result.index) == list(range(len(result)))
+
+
+def test_the_same_catalog_is_parsed_once(tmp_path, monkeypatch):
+    """`get_stars` runs per frame, so parsing per call is parsing per frame."""
+    path = write_catalog(tmp_path / "pic.parquet")
+    sources.read_catalog.cache_clear()
+
+    parses = []
+    real_read_parquet = pandas.read_parquet
+
+    def counting_read_parquet(*args, **kwargs):
+        parses.append(args[0])
+        return real_read_parquet(*args, **kwargs)
+
+    monkeypatch.setattr(pandas, "read_parquet", counting_read_parquet)
+
+    first = sources.read_catalog(path)
+    second = sources.read_catalog(path)
+
+    assert len(parses) == 1
+    pandas.testing.assert_frame_equal(first, second)
+
+
+def test_a_rewritten_catalog_is_read_again(tmp_path):
+    """A refetched cone at the same path is a different catalog, not a cache hit."""
+    path = write_catalog(tmp_path / "pic.parquet")
+    sources.read_catalog.cache_clear()
+
+    assert len(sources.read_catalog(path)) == len(ROWS)
+
+    write_catalog(path, rows=ROWS[:2])
+
+    assert len(sources.read_catalog(path)) == 2
+
+
+def test_mutating_the_result_leaves_the_cached_catalog_alone(tmp_path):
+    """One caller adding a column must not hand that column to the next."""
+    path = write_catalog(tmp_path / "pic.parquet")
+    sources.read_catalog.cache_clear()
+
+    first = sources.read_catalog(path)
+    first["scratch"] = 1
+    first.loc[0, "catalog_vmag"] = -99.0
+
+    second = sources.read_catalog(path)
+
+    assert "scratch" not in second.columns
+    assert second.loc[0, "catalog_vmag"] == ROWS[0][3]
+
+
+def test_one_file_two_spellings_is_one_cache_entry(tmp_path, monkeypatch):
+    """A relative and an absolute path name the same catalog; read it once."""
+    path = write_catalog(tmp_path / "pic.parquet")
+    sources.read_catalog.cache_clear()
+
+    parses = []
+    real_read_parquet = pandas.read_parquet
+    monkeypatch.setattr(
+        pandas,
+        "read_parquet",
+        lambda *args, **kwargs: (parses.append(args[0]), real_read_parquet(*args, **kwargs))[1],
+    )
+
+    monkeypatch.chdir(tmp_path)
+    sources.read_catalog(path)
+    sources.read_catalog("pic.parquet")
+
+    assert len(parses) == 1

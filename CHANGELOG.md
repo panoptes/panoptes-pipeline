@@ -8,6 +8,12 @@ Changelog](https://keepachangelog.com/en/1.1.0/) format. The versioning policy
 
 ### Added
 
+- `sources.read_catalog` caches the parsed catalog, keyed on the file's path,
+  modification time and size, so an all-sky catalog is read once per process
+  rather than once per frame -- `get_stars` runs per frame, and the read was the
+  dominant cost of matching against a large file. A rewritten catalog at the
+  same path is still picked up, the result is a shallow copy so callers cannot
+  corrupt the cached frame, and `read_catalog.cache_clear()` drops it.
 - Documentation at <https://panoptes.github.io/panoptes-pipeline/>, built with
   [Zensical](https://zensical.org/) from the docstrings and published to GitHub
   Pages on every push to `main`. A page under `docs/api/` is a `:::` block

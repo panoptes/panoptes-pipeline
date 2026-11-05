@@ -83,7 +83,11 @@ to measure binned RMS or beta. It is a fixture, not a benchmark.
 What to select, in priority order. Each entry earns its place by answering a
 question nothing else can.
 
-**A. The paper's own sequence.** PAN012, 2018-08-24, HD 339461, 122 x 35 s.
+**A. The paper's own sequence.** PAN012, 2018-08-24, field HD 189733 (the
+header's `FIELD` and the solved center agree; HD 339461 was a misnaming),
+124 x 35 s on disk. Note that HD 189733 itself hard-clips at 13583 ADU in
+33 of the 124 frames, so this is a reference-pool benchmark, not a target
+reproduction.
 The only dataset with a published number to reproduce (2-4% unbinned, ~1%
 binned). Without it there is no way to separate a better algorithm from a
 better night.

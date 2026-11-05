@@ -90,14 +90,27 @@ From a 2025-11 frame written by `POCSv0.8.0.dev220`, 44 header cards total:
 
 Three consequences:
 
-- **Saturation is free on historical data.** `WHTLVLN`/`WHTLVLS` give the
-  white level per frame, offline, with no registry and no prior processing.
-  Measured values are 11435/11892 on this PAN007 camera and 11765/12277 on the
-  paper's PAN012 camera, against `saturation: float = 15872.0` hardcoded for
-  the whole fleet. Both cameras sit roughly 25% below the threshold, so the
-  fleet-wide default currently fails to mask saturated pixels on both. That is
-  the silent-corruption mode improvement plan 1.4 names, confirmed on real
-  data.
+- **The header carries Canon's white points, not the clip.** `WHTLVLN` and
+  `WHTLVLS` are the `NormalWhiteLevel` and `SpecularWhiteLevel` maker-note
+  tags, copied verbatim by `panoptes-utils` `cr2.py`: 11435/11892 on this
+  PAN007 camera, 11765/12277 on the paper's PAN012 camera. The sensor clips
+  higher. On PAN012 the raw histogram piles up at exactly 13583 ADU in every
+  frame and every Bayer phase, which is the paper's Table 2 bias plus
+  saturation (2048 + 11535) to the ADU; `WHTLVLN` sits 13% below that and
+  `WHTLVLS` 10%. So saturation is **measured** from the pixel histogram (the
+  recurring top value across frames) or taken from the registry, and the
+  header values are recorded as what they are. Masking at `WHTLVLN` is
+  conservative, and stays until linearity between it and the clip is measured.
+  The fleet-wide `15872.0` the pipeline used to carry is 14% above the real
+  clip on this body, so it masked nothing -- the silent-corruption mode
+  improvement plan 1.4 names, confirmed on real data.
+- **All of it is raw ADU with the black level still in.** POCS converts with
+  `dcraw -D -4`, so pixels, both white points and the clip include black.
+  Headroom is clip minus black, and black depends on the body: 2048 on the
+  EOS 100D (paper Table 2), 512 or 1024 on other Canon models. Black is not
+  in the header today, though the CR2 carries it as `PerChannelBlackLevel`;
+  POCS should write it (panoptes/POCS#1479). For legacy frames it has to be
+  established camera by camera, into the registry.
 - **Gain, read noise and black level are not in the header at all.** They are
   the entire load-bearing content of a camera registry (6).
 - **`IMAGEW`/`IMAGEH` do not exist**, so `int(header.get("IMAGEW", 0))` yields
@@ -412,7 +425,10 @@ The tier reached is recorded with the value (3.4).
 ### 6.2 The registry is small
 
 Given 2.1, the registry only ever has to hold what no header carries: gain,
-read noise and black level. Three numbers per camera uid, across 37 cameras.
+read noise, black level and the measured clip. Four numbers per camera uid,
+across 37 cameras. For legacy frames black has to be determined camera by
+camera, since no header carries it and the archive holds no bias frames; the
+paper's Table 2 seeds the EOS 100D entry (black 2048, clip 13583, gain 1.50).
 
 It lives in the same tree as everything else, at
 `units/{unit_id}/cameras/{uid}.json` -- the same shape a document store would

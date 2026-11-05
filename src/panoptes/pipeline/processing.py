@@ -19,6 +19,7 @@ import shutil
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pandas
@@ -143,12 +144,21 @@ def process_frame(
     force_new: bool = True,
     files: FileSettings | None = None,
     solve_timeout: int = 30,
+    solve_options: dict[str, Any] | None = None,
 ) -> dict[str, Path]:
     """Process one raw frame and write its document and products.
 
     Bias, background, plate solve, source detection, catalogue match, then the
     artifacts. Plate solving belongs at this single-frame stage, which is why
     it is here rather than in the observation-level function.
+
+    `solve_options` are extra `solve-field` flags, passed through untouched as
+    `{"--config": "/path/to/astrometry.cfg"}` and the like. They exist because
+    the solver's index files are a property of the machine, not of the
+    pipeline: a host whose `/etc/astrometry.cfg` does not name them needs
+    `--config`, and there is no environment variable to set instead. Nothing
+    here is fingerprinted, because none of it changes what a solved frame
+    looks like -- only whether the solver can find its indices.
 
     A frame that fails is still recorded, with `ImageStatus.ERROR`, so the next
     work-list walk reports `prior error` rather than `missing` and the failure
@@ -186,7 +196,9 @@ def process_frame(
             fits.PrimaryHDU(
                 np.ma.filled(calibrated.reduced, np.nan).astype(np.float32), header=header
             ).writeto(scratch_path)
-            wcs = plate_solve(settings=settings, filename=scratch_path, timeout=solve_timeout)
+            wcs = plate_solve(
+                settings=settings, filename=scratch_path, timeout=solve_timeout, **(solve_options or {})
+            )
 
         header.update(wcs.to_header(relax=True))
         reduced_path = products.write_image(
@@ -265,6 +277,7 @@ def process_observation(
     force_new: bool = False,
     files: FileSettings | None = None,
     solve_timeout: int = 30,
+    solve_options: dict[str, Any] | None = None,
 ) -> pandas.DataFrame:
     """Walk, process what needs processing, then write the sequence document.
 
@@ -299,6 +312,7 @@ def process_observation(
                 force_new=True,
                 files=files,
                 solve_timeout=solve_timeout,
+                solve_options=solve_options,
             )
             outcomes[frame.path_info.image_id] = ImageStatus.MATCHED.name
         except Exception as error:

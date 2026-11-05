@@ -68,9 +68,18 @@ def read_stamps(path: Path) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
     numbers in the plans can be reproduced against the files they came from.
     """
     if path.is_dir():
-        from panoptes.pipeline import stamps as stamps_module
+        # Read the two files directly rather than through `panoptes.pipeline.stamps`:
+        # that module imports astropy and panoptes-utils, and this script runs in
+        # its own small environment on purpose. The layout is the one `stamps.write`
+        # produces -- the metadata key is `stamps.METADATA_KEY`.
+        import json
 
-        return stamps_module.read(path)
+        import pyarrow.parquet as parquet
+
+        stamps = pd.read_parquet(path / "stamps.parquet")
+        table = parquet.read_table(path / "positions.parquet")
+        attrs = json.loads((table.schema.metadata or {}).get(b"panoptes_stamps", b"{}"))
+        return stamps, table.to_pandas(), attrs
 
     with pd.HDFStore(path, "r") as store:
         stamps = store["stamps"]

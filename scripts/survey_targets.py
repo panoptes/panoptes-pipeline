@@ -38,7 +38,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from benchmark_lightcurve import load_observation  # noqa: E402
+from benchmark_lightcurve import background_subtracted, load_observation  # noqa: E402
 
 from panoptes.pipeline.lightcurve import core, masks, metrics  # noqa: E402
 
@@ -83,6 +83,10 @@ def run(args: argparse.Namespace) -> int:
     if args.sky_subtract:
         cube = core.subtract_stamp_sky(cube, core.central_sky_mask(stamp_shape), rgb_flat)
         print("  sky pedestal removed (stopgap, see conformance audit 5.0)")
+        if background_subtracted(args.observation):
+            print("  NOTE: these stamps were already background-subtracted; the stopgap is not needed here")
+    elif background_subtracted(args.observation):
+        print("  stamps cut from background-subtracted frames; no pedestal correction applied")
     else:
         print("  WARNING: stamps carry an un-subtracted sky pedestal; results are diluted")
 

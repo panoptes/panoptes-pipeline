@@ -82,6 +82,17 @@ def read_stamps(path: Path) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
     return stamps, positions, attrs
 
 
+def background_subtracted(path: Path) -> bool:
+    """True when the stamps were cut from reduced frames and carry no sky pedestal.
+
+    A sequence directory is this pipeline's product: `process_frame` subtracts
+    the per-color background before `stamps.build` cuts anything. A legacy
+    ``observation.h5`` was cut from raw pixels (conformance audit 5.0) and
+    still needs the `--sky-subtract` stopgap.
+    """
+    return path.is_dir()
+
+
 def load_observation(path: Path) -> tuple[np.ndarray, np.ndarray, np.ndarray, tuple[int, int]]:
     """Read stamps into a dense ``(num_sources, num_frames, num_pixels)`` cube.
 
@@ -189,6 +200,10 @@ def run(args: argparse.Namespace) -> int:
         sky = core.central_sky_mask(stamp_shape)
         cube = core.subtract_stamp_sky(cube, sky, rgb_flat)
         print("  sky pedestal removed per frame and color (stopgap, see conformance audit 5.0)")
+        if background_subtracted(args.observation):
+            print("  NOTE: these stamps were already background-subtracted; the stopgap is not needed here")
+    elif background_subtracted(args.observation):
+        print("  stamps cut from background-subtracted frames; no pedestal correction applied")
     else:
         print(
             "  WARNING: stamps used as stored. ProcessFITS.ipynb writes RAW data to\n"

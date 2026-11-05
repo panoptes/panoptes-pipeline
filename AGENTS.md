@@ -166,6 +166,7 @@ against a throwaway environment rather than the synced one:
 uv run scripts/benchmark_lightcurve.py processed/baseline/PAN012/358d0f/20180824T035917 --channel r --held-out
 uv run scripts/survey_targets.py processed/baseline/PAN012/358d0f/20180824T035917
 uv run scripts/fetch_catalog.py 86.49 8.72   # radius defaults to 10 deg
+uv run scripts/measure_gain.py raw/PAN012/358d0f/20180824T035917 --output gain/PAN012_358d0f
 ```
 
 The benchmark scripts take a processed sequence directory -- the one holding
@@ -181,6 +182,16 @@ actually looks. Solve one frame first, then fetch.
 `solve-field` needs index files, and `/etc/astrometry.cfg` on a given host may
 not name them. Pass `solve_options={"--config": "/path/to/astrometry.cfg"}` to
 `process_frame` or `process_observation`; there is no environment variable.
+
+`measure_gain.py` takes *raw* sequence directories -- one camera, one ISO,
+several sequences allowed -- and measures gain, black level and the raw clip by
+photon transfer on the sky, for the camera registry (#135, #99). Read its
+docstring before trusting a number from it: on science frames the gain is
+measured per Bayer phase with one intercept per sequence, and anything that
+adds variance between two frames (cloud, drift over unresolved stars) biases
+it low, so the per-pair spread it prints per sequence is the quality flag. Use
+a photometric night with the widest sky range available; a dark sky gives no
+lever arm. A body with a 512 black needs `--black 512` for the read noise.
 
 `fetch_catalog.py` is how you get a catalog at all: `catalog_filename` names a
 local file and there is no network lookup, so without it the pipeline reaches

@@ -181,7 +181,7 @@ is needed is recoverable from the data:
 | pixel scale | the WCS, per frame, free |
 | image dimensions | the array shape (already done) |
 | saturation / white level | `WHTLVLN`/`WHTLVLS` in the header, where POCS still wrote them; otherwise the pixel histogram -- there is a hard cutoff; take the recurring top value across many frames, per camera and ISO |
-| gain, read noise | photon transfer: variance against mean across frame pairs. Ten years of multi-frame sequences makes this straightforward per camera and ISO |
+| gain, read noise | photon transfer: variance against mean across frame pairs -- `scripts/measure_gain.py`. Ten years of multi-frame sequences makes this available per camera and ISO, but on science frames it is a lower bound: drift over unresolved stars and cloud only add variance. A flat-field photon transfer settles it |
 | PSF FWHM | already measured per frame by photutils |
 | Bayer phase | `MEASRGGB` is parsed out of the header in `extract_metadata`, but current POCS no longer writes it (data contract 2.2), so `masks.infer_pattern` is the durable answer |
 | black level | header where present, otherwise measured once per camera and stored as data |

@@ -427,8 +427,17 @@ The tier reached is recorded with the value (3.4).
 Given 2.1, the registry only ever has to hold what no header carries: gain,
 read noise, black level and the measured clip. Four numbers per camera uid,
 across 37 cameras. For legacy frames black has to be determined camera by
-camera, since no header carries it and the archive holds no bias frames; the
-paper's Table 2 seeds the EOS 100D entry (black 2048, clip 13583, gain 1.50).
+camera, since no header carries it and the archive holds no bias frames.
+`scripts/measure_gain.py` measures all four from a camera's own science frames;
+on the paper's camera (PAN012 `358d0f`, an EOS 100D) it gives black 2048, clip
+13583 and a gain of **2.3--2.4 e-/ADU per Bayer phase**, not Table 2's 1.50.
+The 1.50 is the POCS class constant (6.3), originally from PAN001, and both
+PAN001 cameras measure 2.1--2.4 as well; no camera measured so far is below 2.
+A newer body on PAN007 (`d37295`) has black 512, clips at the full 16383, and
+measures 2.25--2.30. Science-frame photon transfer is a lower bound on the
+gain -- cloud, and pointing drift over unresolved stars, only ever add
+variance -- so a flat-field photon transfer (#99) is what turns these into
+registry values.
 
 It lives in the same tree as everything else, at
 `units/{unit_id}/cameras/{uid}.json` -- the same shape a document store would

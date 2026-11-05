@@ -24,6 +24,17 @@ Changelog](https://keepachangelog.com/en/1.1.0/) format. The versioning policy
   per the data contract. `scripts/benchmark_lightcurve.py` and
   `scripts/survey_targets.py` read that directory directly; a legacy
   `observation.h5` still loads.
+- `scripts/measure_gain.py` measures a camera's gain, black level and raw clip
+  from its own science frames by photon transfer on the sky: variance of
+  consecutive-frame differences against level, per Bayer phase, in star-masked
+  sigma-clipped blocks, with one intercept per sequence so sequences from
+  different nights can be combined for lever arm. It reports the per-pair gain
+  distribution per sequence -- a wide spread is cloud, not the camera -- and
+  the per-pair gain against the pointing drift read from the WCS, because
+  unresolved stars under drift are the systematic this measurement cannot
+  remove. Output is `gain.json`, the block and pair tables, and `gain.png`
+  titled with unit and camera. This is improvement plan 1.4's "measure, do not
+  configure" for the registry in #135.
 - `process_frame` and `process_observation` take `solve_options`, extra
   `solve-field` flags passed through untouched. `{"--config": path}` is the
   reason it exists: a host whose `/etc/astrometry.cfg` names no index files

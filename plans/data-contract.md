@@ -428,16 +428,39 @@ Given 2.1, the registry only ever has to hold what no header carries: gain,
 read noise, black level and the measured clip. Four numbers per camera uid,
 across 37 cameras. For legacy frames black has to be determined camera by
 camera, since no header carries it and the archive holds no bias frames.
-`scripts/measure_gain.py` measures all four from a camera's own science frames;
-on the paper's camera (PAN012 `358d0f`, an EOS 100D) it gives black 2048, clip
-13583 and a gain of **2.3--2.4 e-/ADU per Bayer phase**, not Table 2's 1.50.
-The 1.50 is the POCS class constant (6.3), originally from PAN001, and both
-PAN001 cameras measure 2.1--2.4 as well; no camera measured so far is below 2.
-A newer body on PAN007 (`d37295`) has black 512, clips at the full 16383, and
-measures 2.25--2.30. Science-frame photon transfer is a lower bound on the
-gain -- cloud, and pointing drift over unresolved stars, only ever add
-variance -- so a flat-field photon transfer (#99) is what turns these into
-registry values.
+`scripts/measure_gain.py` measures all four from a camera's own science frames.
+Run across every camera with usable archive data -- 28 cameras on 11 units,
+`plans/figures/gain_fleet.png` and `gain_fleet.csv` -- it finds no camera at
+Table 2's 1.50 at a real ISO 100. The 1.50 is the POCS class constant (6.3),
+originally from PAN001, and PAN001's own cameras measure 2.1--2.4. Three sensor
+families show up, and the number is a property of the family, not the unit:
+
+- **5208x3476 (EOS 100D class; PAN001, 006, 008, 010, 012)**: black 2048, clip
+  13583, gain 2.1--2.5 per Bayer phase across ten cameras, with clean
+  sequences giving 2.3--2.6.
+- **6020x4016 (24 MP class; PAN019, 022, 023, 025)**: black 2048, clip 13583,
+  gain 1.9--2.3 on the fourteen cameras whose raw clips at 13583.
+- **6024x4020 (PAN007, POCS 0.8, 2024--25)**: black 512, clip 16383, gain
+  2.1--2.4.
+
+**The raw clip tells you the real ISO; the `ISO` keyword does not.** Every
+header says ISO 100, but the four PAN019 cameras clip at the ADC rail of 16383
+rather than 13583 and measure 1.1--1.6 -- the same body (`438751`) gives
+2.33--2.35 on the one night it clipped at 13583 and 1.3--1.6 once it moved to
+16383 in October 2022. A Canon body saturates the sensor before the ADC only at
+base ISO, so a 16383 clip means the camera was not at ISO 100 whatever the
+header says: the keyword echoes the configured value, not what the camera
+reported. The registry has to be keyed on the measured clip as well as the
+camera uid, and the camera-specific keywords POCS writes should come from the
+camera (panoptes/POCS#1479).
+
+Science-frame photon transfer is a lower bound on the gain -- cloud, twilight,
+and pointing drift over unresolved stars only ever add variance -- and the
+shared fit and the per-pair fit on a clean sequence disagree by up to 10% on
+the same camera, so a flat-field photon transfer (#99) is what turns these
+into registry values. Until then: 2.3 +/- 0.2 for the 100D class, 2.1 +/- 0.2
+for the 24 MP class at a 13583 clip, 2.3 +/- 0.1 for PAN007, and nothing for
+a 16383-clip frame on a 2048-black body until its ISO is known.
 
 It lives in the same tree as everything else, at
 `units/{unit_id}/cameras/{uid}.json` -- the same shape a document store would

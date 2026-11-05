@@ -192,6 +192,9 @@ adds variance between two frames (cloud, drift over unresolved stars) biases
 it low, so the per-pair spread it prints per sequence is the quality flag. Use
 a photometric night with the widest sky range available; a dark sky gives no
 lever arm. A body with a 512 black needs `--black 512` for the read noise.
+The raw clip it reports is the real ISO check: a 2048-black Canon body clips
+at 13583 at base ISO and at the 16383 rail otherwise, whatever the `ISO`
+keyword says.
 
 `fetch_catalog.py` is how you get a catalog at all: `catalog_filename` names a
 local file and there is no network lookup, so without it the pipeline reaches

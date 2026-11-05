@@ -327,8 +327,9 @@ def fit_pairs(table: pd.DataFrame, drift: pd.Series, min_range: float) -> dict:
         slope, (intercept,), _ = fit_line(group.level.to_numpy(), group.variance.to_numpy(), iterations=2)
         d = drift.get(pair_id, np.nan)
         rows.append((sequence, pair_id, float(hi - lo), float(d), 1 / slope, -intercept / slope))
-    pairs = pd.DataFrame(
-        rows, columns=["sequence", "pair_id", "level_range", "drift", "gain", "black_intercept"]
+    numeric = ["level_range", "drift", "gain", "black_intercept"]
+    pairs = pd.DataFrame(rows, columns=["sequence", "pair_id", *numeric]).astype(
+        dict.fromkeys(numeric, float)
     )
     out: dict = {"pairs": pairs, "num_pairs": int(len(pairs))}
     if len(pairs) == 0:

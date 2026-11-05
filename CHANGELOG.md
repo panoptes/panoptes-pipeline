@@ -204,6 +204,9 @@ Changelog](https://keepachangelog.com/en/1.1.0/) format. The versioning policy
 
 ### Fixed
 
+- `measure_gain.py` no longer crashes when plotting a camera whose per-pair
+  fit finds no pair with enough sky range in some Bayer phase.
+
 - `sources.get_catalog_match` documents the function that exists. Its docstring
   described a `return_unmatched` argument -- in `Args:`, a `Note:`, a `Warning:`
   and a paragraph of prose -- and an `origin` argument twice, neither of which is

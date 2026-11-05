@@ -11,11 +11,17 @@ Changelog](https://keepachangelog.com/en/1.1.0/) format. The versioning policy
 - `panoptes.pipeline.stamps` cuts the observation-level stamp cube from a
   processed sequence: one position per star for the whole sequence, snapped to
   the superpixel grid so every stamp shares a Bayer phase, sized as a multiple
-  of the sequence's median FWHM (`StampSettings`, fingerprinted with the rest
-  of the params). It writes `stamps.parquet` and `positions.parquet` beside
-  `observation.json` -- parquet rather than HDF5, per the data contract -- and
-  drops whole any star with a masked pixel in any frame rather than carrying a
-  NaN into the cube. `scripts/benchmark_lightcurve.py` and
+  of the sequence's median FWHM. `StampSettings` holds those choices and is
+  deliberately outside `PipelineParams`, so changing a stamp size does not
+  make every frame look stale; the cube records the settings it was cut with
+  and the fingerprint the frames were reduced under, and refuses to mix frames
+  from two. A star gets a stamp when it was matched in 90% of the frames --
+  measured on the paper's own sequence, no star was matched in all 124 and a
+  100% cut admitted nothing -- and the stamp is then cut from every frame.
+  Any star with a masked pixel in any frame is dropped whole rather than
+  carrying a NaN into the cube. Output is `stamps.parquet` and
+  `positions.parquet` beside `observation.json` -- parquet rather than HDF5,
+  per the data contract. `scripts/benchmark_lightcurve.py` and
   `scripts/survey_targets.py` read that directory directly; a legacy
   `observation.h5` still loads.
 - `process_frame` and `process_observation` take `solve_options`, extra

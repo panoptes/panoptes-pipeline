@@ -34,6 +34,15 @@ class BackgroundSettings(BaseModel):
 
 
 class StampSettings(BaseModel):
+    """How the observation-level stamp cube is cut.
+
+    Deliberately **not** part of `PipelineParams`, so it is not in the per-frame
+    fingerprint: a stamp size changes the cube and nothing else, and folding it
+    into the frame fingerprint would make every frame look stale -- a full
+    re-solve of the sequence -- for a change that touches no frame. The cube
+    records these settings, and the frames' fingerprint, in its own metadata.
+    """
+
     #: Stamp width and height as a multiple of the sequence's median FWHM, in
     #: pixels, rounded up to a whole number of superpixels. The one algorithm
     #: parameter about the detector grid is that the result must be even, so
@@ -45,9 +54,14 @@ class StampSettings(BaseModel):
     #: star for the color masks to mean anything.
     min_size: int = 6
     #: A source must be matched in at least this fraction of the usable frames
-    #: to get a stamp. 1.0 is the conservative default: every stamp shares one
-    #: time axis, so a source missing from any frame is a hole in the cube.
-    min_frame_fraction: float = 1.0
+    #: to get a stamp. Its stamp is then cut from *every* frame -- the position
+    #: is a property of the sequence, and the pixels are there whether or not
+    #: detection found the star that frame -- so this is a quality cut, not a
+    #: completeness requirement. 1.0 is unusable on real data: over the 124
+    #: frames of PAN012 2018-08-24 no star at all was matched in every frame,
+    #: 9 were in 98% and 2,047 in 90%, because a handful of cloudy frames
+    #: matched a few hundred stars instead of three thousand.
+    min_frame_fraction: float = 0.9
 
 
 class CatalogSettings(BaseModel):
@@ -65,7 +79,6 @@ class PipelineParams(BaseSettings):
     camera: CameraSettings = CameraSettings()
     catalog: CatalogSettings = CatalogSettings()
     background: BackgroundSettings = BackgroundSettings()
-    stamps: StampSettings = StampSettings()
 
     @property
     def fingerprint(self) -> str:

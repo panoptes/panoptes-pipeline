@@ -38,7 +38,7 @@ from loguru import logger
 from panoptes.utils.images import bayer
 
 from panoptes.pipeline import products
-from panoptes.pipeline.settings import FileSettings, PipelineParams
+from panoptes.pipeline.settings import FileSettings, StampSettings
 from panoptes.pipeline.status import ImageStatus
 from panoptes.pipeline.utils.observations import make_stamps
 
@@ -72,6 +72,7 @@ class UsableFrame:
     fwhm: float
     image_width: int
     image_height: int
+    params_fingerprint: str
 
 
 def usable_frames(sequence_dir: Path | str, files: FileSettings | None = None) -> list[UsableFrame]:
@@ -99,6 +100,7 @@ def usable_frames(sequence_dir: Path | str, files: FileSettings | None = None) -
                 fwhm=float(image["sources"]["photutils_fwhm_median"]),
                 image_width=int(calibration["image_width"]["value"]),
                 image_height=int(calibration["image_height"]["value"]),
+                params_fingerprint=str(image.get("params_fingerprint", "")),
             )
         )
     return sorted(frames, key=lambda frame: frame.time)
@@ -116,7 +118,7 @@ def collect_sources(frames: list[UsableFrame], files: FileSettings | None = None
     return sources.set_index(["picid", "time"]).sort_index()
 
 
-def stamp_size(fwhm: float, params: PipelineParams) -> int:
+def stamp_size(fwhm: float, settings: StampSettings) -> int:
     """Stamp side in pixels: a multiple of the FWHM, rounded up to whole superpixels.
 
     Even by construction, so `bayer.get_stamp_slice` can place a complete
@@ -124,14 +126,14 @@ def stamp_size(fwhm: float, params: PipelineParams) -> int:
     same Bayer phase. See improvement plan 1.4 for why the only pixel unit
     here is the detector grid.
     """
-    size = max(math.ceil(params.stamps.fwhm_multiple * fwhm), params.stamps.min_size)
+    size = max(math.ceil(settings.fwhm_multiple * fwhm), settings.min_size)
     return size + (size % 2)
 
 
-def complete_sources(sources: pandas.DataFrame, num_frames: int, params: PipelineParams) -> pandas.Index:
+def complete_sources(sources: pandas.DataFrame, num_frames: int, settings: StampSettings) -> pandas.Index:
     """The `picid`s matched in at least `min_frame_fraction` of `num_frames`."""
     counts = sources.groupby(level="picid", observed=True).size()
-    needed = math.ceil(params.stamps.min_frame_fraction * num_frames)
+    needed = math.ceil(settings.min_frame_fraction * num_frames)
     return counts.index[counts >= needed]
 
 
@@ -270,9 +272,13 @@ def read(
     return stamps, table.to_pandas(), metadata
 
 
+class MixedFingerprints(RuntimeError):
+    """The usable frames were not all produced with the same params."""
+
+
 def build(
     sequence_dir: Path | str,
-    params: PipelineParams | None = None,
+    settings: StampSettings | None = None,
     *,
     files: FileSettings | None = None,
     force_new: bool = True,
@@ -280,9 +286,11 @@ def build(
     """Cut the stamp cube for one processed sequence and write it.
 
     `sequence_dir` is the directory holding `observation.json` and one
-    subdirectory per frame, as `process_observation` leaves it.
+    subdirectory per frame, as `process_observation` leaves it. Every usable
+    frame has to carry the same params fingerprint: a cube mixing frames
+    reduced under two settings would be a product of neither.
     """
-    params = params or PipelineParams()
+    settings = settings or StampSettings()
     files = files or FileSettings()
     sequence_dir = Path(sequence_dir)
 
@@ -290,15 +298,21 @@ def build(
     if not frames:
         raise NoUsableFrames(f"no frame under {sequence_dir} reached {ImageStatus.MATCHED.name}")
 
+    fingerprints = sorted({frame.params_fingerprint for frame in frames})
+    if len(fingerprints) != 1:
+        raise MixedFingerprints(
+            f"frames under {sequence_dir} carry {len(fingerprints)} fingerprints: {fingerprints}"
+        )
+
     sources = collect_sources(frames, files)
-    picids = complete_sources(sources, len(frames), params)
+    picids = complete_sources(sources, len(frames), settings)
     if len(picids) == 0:
         raise NoCompleteSources(
-            f"no source was matched in {params.stamps.min_frame_fraction:.0%} of {len(frames)} frames"
+            f"no source was matched in {settings.min_frame_fraction:.0%} of {len(frames)} frames"
         )
 
     fwhm = float(np.median([frame.fwhm for frame in frames]))
-    size = stamp_size(fwhm, params)
+    size = stamp_size(fwhm, settings)
     positions = stamp_positions(sources, picids, size, frames[0].image_width, frames[0].image_height)
     logger.info(
         f"{sequence_dir.name}: {len(positions)} sources x {len(frames)} frames, "
@@ -318,14 +332,15 @@ def build(
         num_candidates=int(len(picids)),
         num_masked_dropped=len(masked),
         position_columns=list(POSITION_COLUMNS),
-        params_fingerprint=params.fingerprint,
-        stamps=params.stamps.model_dump(),
+        frames_fingerprint=fingerprints[0],
+        stamps=settings.model_dump(),
     )
     return write(sequence_dir, stamps, positions, metadata, files=files, force_new=force_new)
 
 
 __all__ = [
     "METADATA_KEY",
+    "MixedFingerprints",
     "NoCompleteSources",
     "NoUsableFrames",
     "UsableFrame",

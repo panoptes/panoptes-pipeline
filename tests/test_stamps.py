@@ -17,7 +17,7 @@ import pytest
 from astropy.io import fits
 
 from panoptes.pipeline import products, stamps
-from panoptes.pipeline.settings import FileSettings, PipelineParams, StampSettings
+from panoptes.pipeline.settings import FileSettings, StampSettings
 from panoptes.pipeline.status import ImageStatus
 from panoptes.pipeline.utils.observations import make_stamps
 from tests.synthetic import gaussian_psf
@@ -45,7 +45,9 @@ def frame_time(index: int) -> datetime:
     return datetime(2018, 8, 24, 0, 1, 18, tzinfo=UTC) + timedelta(seconds=35 * index)
 
 
-def write_frame(sequence_dir: Path, index: int, *, status=ImageStatus.MATCHED, rng) -> Path:
+def write_frame(
+    sequence_dir: Path, index: int, *, status=ImageStatus.MATCHED, rng, fingerprint: str = "abc123def456"
+) -> Path:
     """One frame's products: reduced image, matched sources and document."""
     time = frame_time(index)
     directory = sequence_dir / time.strftime("%Y%m%dT%H%M%S")
@@ -69,6 +71,7 @@ def write_frame(sequence_dir: Path, index: int, *, status=ImageStatus.MATCHED, r
         dict(
             image=dict(
                 status=status.name,
+                params_fingerprint=fingerprint,
                 image_time=time,
                 sources=dict(photutils_fwhm_median=FWHM),
                 calibration=dict(
@@ -92,15 +95,21 @@ def sequence(tmp_path) -> Path:
 
 
 @pytest.fixture
-def params() -> PipelineParams:
-    return PipelineParams()
+def params() -> StampSettings:
+    # Every frame is in the fixture, so the cut has to demand all of them.
+    return StampSettings(min_frame_fraction=1.0)
 
 
 def test_stamp_size_is_even_and_in_fwhm_units(params):
     assert stamps.stamp_size(2.5, params) == 10  # 4 x 2.5 = 10, already even
     assert stamps.stamp_size(2.6, params) == 12  # ceil(10.4) = 11 -> rounded up to even
-    assert stamps.stamp_size(0.5, params) == params.stamps.min_size  # never below the floor
-    assert stamps.stamp_size(1.3, PipelineParams(stamps=StampSettings(min_size=5))) == 6
+    assert stamps.stamp_size(0.5, params) == params.min_size  # never below the floor
+    assert stamps.stamp_size(1.3, StampSettings(min_size=5)) == 6
+
+
+def test_the_default_fraction_admits_a_star_missed_in_a_few_cloudy_frames():
+    """1.0 was measured to admit nothing on real data; 0.9 is the default for that reason."""
+    assert StampSettings().min_frame_fraction == 0.9
 
 
 def test_an_error_frame_is_not_usable(sequence):
@@ -120,7 +129,8 @@ def test_build_writes_a_cube_with_one_time_axis(sequence, params):
     assert cube.index.names == ["picid", "time"]
     assert metadata["num_frames"] == 4
     assert metadata["stamp_width"] == metadata["stamp_height"] == stamps.stamp_size(FWHM, params)
-    assert metadata["params_fingerprint"] == params.fingerprint
+    assert metadata["frames_fingerprint"] == "abc123def456"
+    assert metadata["stamps"] == params.model_dump()
 
     picids = cube.index.get_level_values("picid").unique()
     assert set(picids) == {1001, 1002}
@@ -171,7 +181,7 @@ def test_a_source_missing_from_one_frame_gets_no_stamp(sequence, params):
 
 
 def test_a_lower_frame_fraction_admits_the_incomplete_source(sequence):
-    params = PipelineParams(stamps=StampSettings(min_frame_fraction=0.75))
+    params = StampSettings(min_frame_fraction=0.75)
     stamps.build(sequence, params)
     cube, _, _ = stamps.read(sequence)
     assert INCOMPLETE in cube.index.get_level_values("picid")
@@ -196,6 +206,13 @@ def test_an_edge_source_is_dropped_before_extraction(sequence, params):
     cube, positions, _ = stamps.read(sequence)
     assert EDGE not in positions.index
     assert EDGE not in cube.index.get_level_values("picid")
+
+
+def test_frames_from_two_parameter_sets_do_not_mix(sequence, params):
+    """A cube over frames reduced under different params is a product of neither."""
+    write_frame(sequence, 5, rng=np.random.default_rng(3), fingerprint="fedcba987654")
+    with pytest.raises(stamps.MixedFingerprints, match="2 fingerprints"):
+        stamps.build(sequence, params)
 
 
 def test_no_usable_frame_is_an_error(tmp_path, params):

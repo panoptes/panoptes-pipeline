@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import json
 import math
+import time
 from pathlib import Path
 
 import typer
@@ -231,14 +232,28 @@ def main(
         "FROM gaiadr3.gaia_source"
     )
 
+    def fetch(query: str):
+        """Run one query, retrying a transient failure.
+
+        A ten-degree cone is twenty jobs over a few minutes, long enough for
+        the archive to return a 500 or a DNS lookup to fail once; without a
+        retry one such hiccup discards every band already fetched.
+        """
+        for attempt in range(1, 4):
+            try:
+                return Gaia.launch_job_async(query).get_results()
+            except Exception as error:
+                if attempt == 3:
+                    raise
+                typer.echo(f"  attempt {attempt} failed ({error!r}); retrying in {15 * attempt}s")
+                time.sleep(15 * attempt)
+
     typer.echo(f"Querying Gaia DR3 around ({ra}, {dec}) within {radius} deg ...")
-    expected = int(
-        Gaia.launch_job_async(f"SELECT COUNT(*) AS n FROM gaiadr3.gaia_source {where}").get_results()["n"][0]
-    )
+    expected = int(fetch(f"SELECT COUNT(*) AS n FROM gaiadr3.gaia_source {where}")["n"][0])
     typer.echo(f"The cone holds {expected} sources.")
 
     if band <= 0:
-        pieces = [Gaia.launch_job_async(f"{select} {where}").get_results().to_pandas()]
+        pieces = [fetch(f"{select} {where}").to_pandas()]
     else:
         pieces = []
         # Half-open bands, `>= low AND < high`, so a star on a boundary is
@@ -247,8 +262,7 @@ def main(
         edges[-1] = max(edges[-1], dec + radius)
         for low, high in zip(edges[:-1], edges[1:]):
             closing = "<=" if high == edges[-1] else "<"
-            piece = Gaia.launch_job_async(f"{select} {where} AND dec >= {low} AND dec {closing} {high}")
-            piece = piece.get_results().to_pandas()
+            piece = fetch(f"{select} {where} AND dec >= {low} AND dec {closing} {high}").to_pandas()
             typer.echo(f"  dec [{low:.2f}, {high:.2f}): {len(piece)} sources")
             pieces.append(piece)
 

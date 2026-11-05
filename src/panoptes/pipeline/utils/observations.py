@@ -1,46 +1,70 @@
+import numpy as np
 import pandas
-import pandas as pd
 from loguru import logger
 from numpy import typing as npt
 
 
 def make_stamps(
     stamp_positions: pandas.DataFrame,
-    data: npt.DTypeLike,
+    data: npt.ArrayLike,
 ) -> pandas.DataFrame:
-    """Make stamps from the data."""
+    """Cut one stamp per row of `stamp_positions` out of `data`.
+
+    Returns a frame indexed on `picid` with one `pixel_NNN` column per pixel,
+    row-major over ``data[stamp_y_min:stamp_y_max, stamp_x_min:stamp_x_max]``,
+    so the flat axis unpacks as ``(height, width)``.
+
+    Every stamp in a cube has to be the same size, so the size is taken from
+    the median extent of the positions and any row whose slice would come out
+    a different size -- which only happens at the frame edge -- is dropped with
+    a warning rather than padded. Padding would put pixels in the cube that
+    were never observed.
+
+    This is one gather over the whole frame rather than a slice per source.
+    The per-source loop it replaces built and concatenated a one-row DataFrame
+    per star, which at a few thousand stars per frame was most of the cost of
+    extracting an observation.
+    """
     if len(stamp_positions) == 0:
-        return pd.DataFrame()
+        return pandas.DataFrame()
+
+    data = np.asarray(data)
+    height, width = data.shape
 
     stamp_width = int(stamp_positions.stamp_x_max.median() - stamp_positions.stamp_x_min.median())
     stamp_height = int(stamp_positions.stamp_y_max.median() - stamp_positions.stamp_y_min.median())
-
-    total_stamp_size = int(stamp_width * stamp_height)
+    total_stamp_size = stamp_width * stamp_height
     logger.debug(
         f"Making stamps of {total_stamp_size=} for {len(stamp_positions)} sources from data {data.shape}"
     )
 
-    stamps = []
-    for picid, row in stamp_positions.iterrows():
-        # Get the stamp data.
-        row_slice = slice(int(row.stamp_y_min), int(row.stamp_y_max))
-        col_slice = slice(int(row.stamp_x_min), int(row.stamp_x_max))
-        psc0 = data[row_slice, col_slice].reshape(-1)
+    y_min = stamp_positions.stamp_y_min.to_numpy(dtype=int)
+    x_min = stamp_positions.stamp_x_min.to_numpy(dtype=int)
+    y_max = stamp_positions.stamp_y_max.to_numpy(dtype=int)
+    x_max = stamp_positions.stamp_x_max.to_numpy(dtype=int)
 
-        # Make sure stamp is correct size (errors at edges).
-        if psc0.shape == (total_stamp_size,):
-            stamp = pd.DataFrame(psc0).T
-            stamp.columns = [f"pixel_{i:03d}" for i in range(total_stamp_size)]
-            stamp["picid"] = picid
-            stamp.set_index(["picid"], inplace=True)
-            stamps.append(stamp)
-        else:
-            print(f"Bad stamp size for {picid=} {psc0.shape=} {total_stamp_size=}")
+    # A slice is the right size only if it is the nominal size *and* lies
+    # inside the frame; numpy would silently clip the latter.
+    usable = (
+        (y_max - y_min == stamp_height)
+        & (x_max - x_min == stamp_width)
+        & (y_min >= 0)
+        & (x_min >= 0)
+        & (y_max <= height)
+        & (x_max <= width)
+    )
+    if not usable.all():
+        bad = stamp_positions.index[~usable].tolist()
+        logger.warning(f"Dropping {len(bad)} stamp(s) that do not fit the frame: {bad[:10]}")
 
-    # Make one dataframe.
-    if len(stamps) > 0:
-        psc_data = pd.concat(stamps).sort_index()
-    else:
-        psc_data = pd.DataFrame()
+    y_min, x_min = y_min[usable], x_min[usable]
+    rows = y_min[:, None, None] + np.arange(stamp_height)[None, :, None]
+    cols = x_min[:, None, None] + np.arange(stamp_width)[None, None, :]
+    stamps = data[rows, cols].reshape(len(y_min), total_stamp_size)
 
-    return psc_data
+    psc_data = pandas.DataFrame(
+        stamps,
+        index=stamp_positions.index[usable].rename("picid"),
+        columns=[f"pixel_{i:03d}" for i in range(total_stamp_size)],
+    )
+    return psc_data.sort_index()

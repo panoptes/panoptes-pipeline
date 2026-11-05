@@ -8,6 +8,32 @@ Changelog](https://keepachangelog.com/en/1.1.0/) format. The versioning policy
 
 ### Added
 
+- `panoptes.pipeline.stamps` cuts the observation-level stamp cube from a
+  processed sequence: one position per star for the whole sequence, snapped to
+  the superpixel grid so every stamp shares a Bayer phase, sized as a multiple
+  of the sequence's median FWHM (`StampSettings`, fingerprinted with the rest
+  of the params). It writes `stamps.parquet` and `positions.parquet` beside
+  `observation.json` -- parquet rather than HDF5, per the data contract -- and
+  drops whole any star with a masked pixel in any frame rather than carrying a
+  NaN into the cube. `scripts/benchmark_lightcurve.py` and
+  `scripts/survey_targets.py` read that directory directly; a legacy
+  `observation.h5` still loads.
+- `process_frame` and `process_observation` take `solve_options`, extra
+  `solve-field` flags passed through untouched. `{"--config": path}` is the
+  reason it exists: a host whose `/etc/astrometry.cfg` names no index files
+  had no way to run the pipeline at all.
+- `scripts/fetch_catalog.py` fetches the cone in declination bands and checks
+  the total against a `COUNT(*)`. The Gaia archive silently caps an anonymous
+  asynchronous job at 50,000 rows whatever `ROW_LIMIT` says, and a real field
+  near the galactic plane holds three times that.
+
+### Changed
+
+- `make_stamps` gathers every stamp from a frame in one indexing operation
+  instead of concatenating a one-row DataFrame per star. Same output; a few
+  thousand stars per frame no longer dominate the extraction time. A stamp
+  that would leave the frame is dropped with a warning, as before.
+
 - `sources.read_catalog` caches the parsed catalog, keyed on the file's path,
   modification time and size, so an all-sky catalog is read once per process
   rather than once per frame -- `get_stars` runs per frame, and the read was the

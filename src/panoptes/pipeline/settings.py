@@ -33,6 +33,23 @@ class BackgroundSettings(BaseModel):
     filter_size: tuple[int, int] = (3, 3)
 
 
+class StampSettings(BaseModel):
+    #: Stamp width and height as a multiple of the sequence's median FWHM, in
+    #: pixels, rounded up to a whole number of superpixels. The one algorithm
+    #: parameter about the detector grid is that the result must be even, so
+    #: every stamp carries the same Bayer phase; everything else is in FWHM
+    #: units, per improvement plan 1.4.
+    fwhm_multiple: float = 4.0
+    #: Never cut a stamp smaller than this many pixels on a side, however sharp
+    #: the sequence: a stamp has to hold a complete superpixel border around the
+    #: star for the color masks to mean anything.
+    min_size: int = 6
+    #: A source must be matched in at least this fraction of the usable frames
+    #: to get a stamp. 1.0 is the conservative default: every stamp shares one
+    #: time axis, so a source missing from any frame is a hole in the cube.
+    min_frame_fraction: float = 1.0
+
+
 class CatalogSettings(BaseModel):
     vmag_limits: tuple[float, float] = (6, 13)
     max_separation_arcsec: int = 25  # ~8-10 arcsec/pixel
@@ -48,6 +65,7 @@ class PipelineParams(BaseSettings):
     camera: CameraSettings = CameraSettings()
     catalog: CatalogSettings = CatalogSettings()
     background: BackgroundSettings = BackgroundSettings()
+    stamps: StampSettings = StampSettings()
 
     @property
     def fingerprint(self) -> str:
@@ -85,6 +103,12 @@ class FileSettings(BaseModel):
     reduced_filename: Path = "image.fits"
     metadata_filename: Path = "metadata.json"
     sources_filename: Path = "sources.parquet"
+    #: Observation-level products, written beside `observation.json`: the stamp
+    #: cube and the positions it was cut at. Parquet, not HDF5 -- data contract
+    #: 3.5. The two are separate files because they have different consumers:
+    #: a benchmark reads both, a drift diagnostic reads only the positions.
+    stamps_filename: Path = "stamps.parquet"
+    positions_filename: Path = "positions.parquet"
 
 
 class ImageSettings(BaseSettings):

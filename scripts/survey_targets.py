@@ -4,6 +4,7 @@
 #   "numpy",
 #   "pandas",
 #   "scipy",
+#   "pyarrow",
 #   "scikit-learn",
 #   "tables",
 # ]
@@ -23,7 +24,7 @@ is not optional.
 
 Usage::
 
-    uv run scripts/survey_targets.py notebooks/PAN007_.../observation.h5
+    uv run scripts/survey_targets.py processed/baseline/PAN012/358d0f/20180824T035917
     uv run scripts/survey_targets.py OBS.h5 --channel all --num-targets 200
 """
 
@@ -161,7 +162,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("observation", type=Path, help="Path to an observation.h5")
+    parser.add_argument(
+        "observation", type=Path, help="A processed sequence directory, or a legacy observation.h5"
+    )
     parser.add_argument("--channel", choices=["all", "r", "g", "b"], default="r")
     parser.add_argument("--num-targets", type=int, default=80)
     parser.add_argument("--num-refs", type=int, default=100)

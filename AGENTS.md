@@ -108,9 +108,11 @@ in arcsec. See improvement plan 1.4.
   parquet), `products.py` (the per-frame document and product writer),
   `provenance.py` (where a calibration value came from), `worklist.py` (which
   frames need processing, and why), `status.py` (the pipeline's own stages),
-  `processing.py` (calibration and the two entry points), `index.py` (the
-  parquet query surface, built by walking the documents), plus `settings.py`,
-  `utils/observations.py` and `utils/plot.py`.
+  `processing.py` (calibration and the two entry points), `stamps.py` (the
+  observation-level stamp cube, cut from the per-frame products into
+  `stamps.parquet` and `positions.parquet` beside `observation.json`),
+  `index.py` (the parquet query surface, built by walking the documents), plus
+  `settings.py`, `utils/observations.py` and `utils/plot.py`.
 - `plans/`, `scripts/`, `tests/`. `tests/data/` holds real POCS frames copied
   from that repository; see its README for what each one exercises.
 
@@ -161,10 +163,24 @@ Standalone scripts are PEP 723 and declare their own dependencies, so they run
 against a throwaway environment rather than the synced one:
 
 ```bash
-uv run scripts/benchmark_lightcurve.py OBS.h5 --channel r --sky-subtract --held-out
-uv run scripts/survey_targets.py OBS.h5 --sky-subtract
+uv run scripts/benchmark_lightcurve.py processed/baseline/PAN012/358d0f/20180824T035917 --channel r --held-out
+uv run scripts/survey_targets.py processed/baseline/PAN012/358d0f/20180824T035917
 uv run scripts/fetch_catalog.py 86.49 8.72   # radius defaults to 10 deg
 ```
+
+The benchmark scripts take a processed sequence directory -- the one holding
+`stamps.parquet`, as `stamps.build` writes it -- or a legacy `observation.h5`.
+`--sky-subtract` is for the legacy files only: stamps cut by this pipeline come
+from background-subtracted frames and need no stopgap.
+
+Center the catalog on the **solved** field center, not the mount coordinates
+in the header: `RA-MNT`/`DEC-MNT` are where the mount was told to point, and
+on the sequences checked so far they are a degree or more from where the frame
+actually looks. Solve one frame first, then fetch.
+
+`solve-field` needs index files, and `/etc/astrometry.cfg` on a given host may
+not name them. Pass `solve_options={"--config": "/path/to/astrometry.cfg"}` to
+`process_frame` or `process_observation`; there is no environment variable.
 
 `fetch_catalog.py` is how you get a catalog at all: `catalog_filename` names a
 local file and there is no network lookup, so without it the pipeline reaches

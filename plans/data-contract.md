@@ -429,17 +429,18 @@ read noise, black level and the measured clip. Four numbers per camera uid,
 across 37 cameras. For legacy frames black has to be determined camera by
 camera, since no header carries it and the archive holds no bias frames.
 `scripts/measure_gain.py` measures all four from a camera's own science frames.
-Run across every camera with usable archive data -- 28 cameras on 11 units,
+Run across every camera with usable archive data -- 34 cameras on 14 units,
 `plans/figures/gain_units.png` and `gain_units.csv` -- it finds no camera at
 Table 2's 1.50 at a real ISO 100. The 1.50 is the POCS class constant (6.3),
 originally from PAN001, and PAN001's own cameras measure 2.1--2.4. Three sensor
 families show up, and the number is a property of the family, not the unit:
 
-- **5208x3476 (EOS 100D class; PAN001, 006, 008, 010, 012)**: black 2048, clip
-  13583, gain 2.1--2.5 per Bayer channel across ten cameras, with clean
-  sequences giving 2.3--2.6.
-- **6020x4016 (24 MP class; PAN019, 022, 023, 025)**: black 2048, clip 13583,
-  gain 1.9--2.3 on the fourteen cameras whose raw clips at 13583.
+- **5208x3476 (EOS 100D class; PAN001, 006, 008, 010, 012, 015)**: black 2048,
+  clip 13583, gain 2.1--2.5 per Bayer channel across twelve cameras, with
+  clean sequences giving 2.3--2.6.
+- **6020x4016 (24 MP class; PAN018, 019, 022, 023, 025, 026)**: black 2048,
+  clip 13583, gain 1.9--2.3 on the eighteen cameras whose raw clips at 13583
+  (PAN018 from one dark sequence per camera, so a weak number).
 - **6024x4020 (PAN007, POCS 0.8, 2024--25)**: black 512, clip 16383, gain
   2.1--2.4.
 

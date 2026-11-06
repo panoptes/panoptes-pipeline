@@ -443,24 +443,36 @@ families show up, and the number is a property of the family, not the unit:
 - **6024x4020 (PAN007, POCS 0.8, 2024--25)**: black 512, clip 16383, gain
   2.1--2.4.
 
-**The raw clip tells you the real ISO; the `ISO` keyword does not.** Every
-header says ISO 100, but the four PAN019 cameras clip at the ADC rail of 16383
-rather than 13583 and measure 1.1--1.6 -- the same body (`438751`) gives
-2.33--2.35 on the one night it clipped at 13583 and 1.3--1.6 once it moved to
-16383 in October 2022. A Canon body saturates the sensor before the ADC only at
-base ISO, so a 16383 clip means the camera was not at ISO 100 whatever the
-header says: the keyword echoes the configured value, not what the camera
-reported. The registry has to be keyed on the measured clip as well as the
-camera uid, and the camera-specific keywords POCS writes should come from the
-camera (panoptes/POCS#1479).
+**PAN019's raw values are digitally scaled by 1.61, and no header says so.**
+The four PAN019 cameras clip at the ADC rail of 16383 rather than 13583 and
+measure 1.1--1.6, 0.6x the rest of their family. Their sky histograms have a
+comb: 38% of the raw codes above black are empty, the populated fraction
+implies a scale of 1.61 on every frame of every PAN019 camera, and the black
+stays at 2048, so the scaling is applied to (raw - black) before the 14-bit
+container clips it. The same body (`438751`) is the control: for 29 sequences
+from February to June 2022 it clipped at 13583, had no comb, collected 0.6x
+the sky ADU of its sibling cameras on the same sequences, and measured
+2.33--2.35 per phase; before and after that window it matches its siblings
+and measures 1.3--1.6. The `ISO` keyword comes from the CR2's EXIF (the
+camera reports 100 throughout), POCS sends `iso=100` on every exposure, and
+`WHTLVLN` is the same 11765 in both states, so the camera's own firmware
+believes it is at base ISO. The scaling is a body-side state that was
+toggled by hand twice on one camera; which setting, is a question for whoever
+has PAN019's hardware. The consequence for the pipeline: these frames carry
+the photon statistics of ISO 100 with a 1.61x coarser quantization (five of
+every eight codes), saturate at the 16383 rail rather than at 13583, and need
+a gain of 2.0-2.3/1.61. The registry has to be keyed on the measured clip,
+and the populated-code fraction of the raw histogram is the test for a
+scaled frame; the camera-specific keywords POCS writes should include enough
+to catch this (panoptes/POCS#1479).
 
 Science-frame photon transfer is a lower bound on the gain -- cloud, twilight,
 and pointing drift over unresolved stars only ever add variance -- and the
 shared fit and the per-pair fit on a clean sequence disagree by up to 10% on
 the same camera, so a flat-field photon transfer (#99) is what turns these
 into registry values. Until then: 2.3 +/- 0.2 for the 100D class, 2.1 +/- 0.2
-for the 24 MP class at a 13583 clip, 2.3 +/- 0.1 for PAN007, and nothing for
-a 16383-clip frame on a 2048-black body until its ISO is known.
+for the 24 MP class at a 13583 clip, 2.3 +/- 0.1 for PAN007, and the 24 MP
+value divided by the measured scale for a PAN019 frame with a comb.
 
 It lives in the same tree as everything else, at
 `units/{unit_id}/cameras/{uid}.json` -- the same shape a document store would

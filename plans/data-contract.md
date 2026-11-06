@@ -90,14 +90,27 @@ From a 2025-11 frame written by `POCSv0.8.0.dev220`, 44 header cards total:
 
 Three consequences:
 
-- **Saturation is free on historical data.** `WHTLVLN`/`WHTLVLS` give the
-  white level per frame, offline, with no registry and no prior processing.
-  Measured values are 11435/11892 on this PAN007 camera and 11765/12277 on the
-  paper's PAN012 camera, against `saturation: float = 15872.0` hardcoded for
-  the whole fleet. Both cameras sit roughly 25% below the threshold, so the
-  fleet-wide default currently fails to mask saturated pixels on both. That is
-  the silent-corruption mode improvement plan 1.4 names, confirmed on real
-  data.
+- **The header carries Canon's white points, not the clip.** `WHTLVLN` and
+  `WHTLVLS` are the `NormalWhiteLevel` and `SpecularWhiteLevel` maker-note
+  tags, copied verbatim by `panoptes-utils` `cr2.py`: 11435/11892 on this
+  PAN007 camera, 11765/12277 on the paper's PAN012 camera. The sensor clips
+  higher. On PAN012 the raw histogram piles up at exactly 13583 ADU in every
+  frame and every Bayer phase, which is the paper's Table 2 bias plus
+  saturation (2048 + 11535) to the ADU; `WHTLVLN` sits 13% below that and
+  `WHTLVLS` 10%. So saturation is **measured** from the pixel histogram (the
+  recurring top value across frames) or taken from the registry, and the
+  header values are recorded as what they are. Masking at `WHTLVLN` is
+  conservative, and stays until linearity between it and the clip is measured.
+  The fleet-wide `15872.0` the pipeline used to carry is 14% above the real
+  clip on this body, so it masked nothing -- the silent-corruption mode
+  improvement plan 1.4 names, confirmed on real data.
+- **All of it is raw ADU with the black level still in.** POCS converts with
+  `dcraw -D -4`, so pixels, both white points and the clip include black.
+  Headroom is clip minus black, and black depends on the body: 2048 on the
+  EOS 100D (paper Table 2), 512 or 1024 on other Canon models. Black is not
+  in the header today, though the CR2 carries it as `PerChannelBlackLevel`;
+  POCS should write it (panoptes/POCS#1479). For legacy frames it has to be
+  established camera by camera, into the registry.
 - **Gain, read noise and black level are not in the header at all.** They are
   the entire load-bearing content of a camera registry (6).
 - **`IMAGEW`/`IMAGEH` do not exist**, so `int(header.get("IMAGEW", 0))` yields
@@ -412,7 +425,55 @@ The tier reached is recorded with the value (3.4).
 ### 6.2 The registry is small
 
 Given 2.1, the registry only ever has to hold what no header carries: gain,
-read noise and black level. Three numbers per camera uid, across 37 cameras.
+read noise, black level and the measured clip. Four numbers per camera uid,
+across 37 cameras. For legacy frames black has to be determined camera by
+camera, since no header carries it and the archive holds no bias frames.
+`scripts/measure_gain.py` measures all four from a camera's own science frames.
+Run across every camera with usable archive data -- 34 cameras on 14 units,
+`plans/figures/gain_units.png` and `gain_units.csv` -- it finds no camera at
+Table 2's 1.50 at a real ISO 100. The 1.50 is the POCS class constant (6.3),
+originally from PAN001, and PAN001's own cameras measure 2.1--2.4. Three sensor
+families show up, and the number is a property of the family, not the unit:
+
+- **5208x3476 (EOS 100D class; PAN001, 006, 008, 010, 012, 015)**: black 2048,
+  clip 13583, gain 2.1--2.5 per Bayer channel across twelve cameras, with
+  clean sequences giving 2.3--2.6.
+- **6020x4016 (24 MP class; PAN018, 019, 022, 023, 025, 026)**: black 2048,
+  clip 13583, gain 1.9--2.3 on the eighteen cameras whose raw clips at 13583
+  (PAN018 from one dark sequence per camera, so a weak number).
+- **6024x4020 (PAN007, POCS 0.8, 2024--25)**: black 512, clip 16383, gain
+  2.1--2.4.
+
+**PAN019's raw values are digitally scaled by 1.61, and no header says so.**
+The four PAN019 cameras clip at the ADC rail of 16383 rather than 13583 and
+measure 1.1--1.6, 0.6x the rest of their family. Their sky histograms have a
+comb: 38% of the raw codes above black are empty in every channel, the populated fraction
+implies a scale of 1.61 on every frame of every PAN019 camera, and the black
+stays at 2048, so the scaling is applied to (raw - black) before the 14-bit
+container clips it. The same body (`438751`) is the control: for 29 sequences
+from February to June 2022 it clipped at 13583, had no comb, collected 0.6x
+the sky ADU of its sibling cameras on the same sequences, and measured
+2.33--2.35 per channel; before and after that window it matches its siblings
+and measures 1.3--1.6. The `ISO` keyword comes from the CR2's EXIF (the
+camera reports 100 throughout), POCS sends `iso=100` on every exposure, and
+`WHTLVLN` is the same 11765 in both states, so the camera's own firmware
+believes it is at base ISO. The scaling is a body-side state that was
+toggled by hand twice on one camera; which setting, is a question for whoever
+has PAN019's hardware. The consequence for the pipeline: these frames carry
+the photon statistics of ISO 100 with a 1.61x coarser quantization (five of
+every eight codes), saturate at the 16383 rail rather than at 13583, and need
+a gain of 2.0-2.3/1.61. The registry has to be keyed on the measured clip,
+and the populated-code fraction of the raw histogram is the test for a
+scaled frame; the camera-specific keywords POCS writes should include enough
+to catch this (panoptes/POCS#1479).
+
+Science-frame photon transfer is a lower bound on the gain -- cloud, twilight,
+and pointing drift over unresolved stars only ever add variance -- and the
+shared fit and the per-pair fit on a clean sequence disagree by up to 10% on
+the same camera, so a flat-field photon transfer (#99) is what turns these
+into registry values. Until then: 2.3 +/- 0.2 for the 100D class, 2.1 +/- 0.2
+for the 24 MP class at a 13583 clip, 2.3 +/- 0.1 for PAN007, and the 24 MP
+value divided by the measured scale for a PAN019 frame with a comb.
 
 It lives in the same tree as everything else, at
 `units/{unit_id}/cameras/{uid}.json` -- the same shape a document store would

@@ -18,6 +18,10 @@ Reference: Gee et al., *On-sky Demonstration of Precision Photometry with Bayer
 Color Filter Arrays*. Paper section numbers are cited directly, e.g. "paper
 section 3.2.3".
 
+`figures/` holds the plots that measurements cited here and in issues were
+read from -- `scripts/measure_gain.py` output, named by unit and camera -- so
+the evidence stays with the reasoning.
+
 ## Conventions
 
 - Cite a section as short name plus number: "conformance audit 5.3",

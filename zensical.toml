@@ -25,6 +25,7 @@ nav = [
       { "detection" = "api/lightcurve/detection.md" },
     ] },
     { "processing" = "api/processing.md" },
+    { "stamps" = "api/stamps.md" },
     { "products" = "api/products.md" },
     { "provenance" = "api/provenance.md" },
     { "worklist" = "api/worklist.md" },

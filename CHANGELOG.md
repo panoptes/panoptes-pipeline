@@ -8,14 +8,70 @@ Changelog](https://keepachangelog.com/en/1.1.0/) format. The versioning policy
 
 ### Added
 
+- `panoptes.pipeline.stamps` cuts the observation-level stamp cube from a
+  processed sequence: one position per star for the whole sequence, snapped to
+  the superpixel grid so every stamp shares a Bayer phase, sized as a multiple
+  of the sequence's median FWHM. `StampSettings` holds those choices and is
+  deliberately outside `PipelineParams`, so changing a stamp size does not
+  make every frame look stale; the cube records the settings it was cut with
+  and the fingerprint the frames were reduced under, and refuses to mix frames
+  from two. A star gets a stamp when it was matched in 90% of the frames --
+  measured on the paper's own sequence, no star was matched in all 124 and a
+  100% cut admitted nothing -- and the stamp is then cut from every frame.
+  Any star with a masked pixel in any frame is dropped whole rather than
+  carrying a NaN into the cube. Output is `stamps.parquet` and
+  `positions.parquet` beside `observation.json` -- parquet rather than HDF5,
+  per the data contract. `scripts/benchmark_lightcurve.py` and
+  `scripts/survey_targets.py` read that directory directly; a legacy
+  `observation.h5` still loads.
+- `scripts/measure_gain.py` measures a camera's gain, black level and raw clip
+  from its own science frames by photon transfer on the sky: variance of
+  consecutive-frame differences against level, per Bayer channel, in star-masked
+  sigma-clipped blocks, with one intercept per sequence so sequences from
+  different nights can be combined for lever arm. It reports the per-pair gain
+  distribution per sequence -- a wide spread is cloud, not the camera -- and
+  the per-pair gain against the pointing drift read from the WCS, because
+  unresolved stars under drift are the systematic this measurement cannot
+  remove. It also reads the digital scale of the raw values off the comb of
+  empty codes a scaled raw leaves in the sky histogram (1.61 on PAN019, with
+  the EXIF still reading ISO 100), since that changes gain and clip alike.
+  Output is `gain.json`, the block and pair tables, and `gain.png`
+  titled with unit and camera. This is improvement plan 1.4's "measure, do not
+  configure" for the registry in #135.
+- `process_frame` and `process_observation` take `solve_options`, extra
+  `solve-field` flags passed through untouched. `{"--config": path}` is the
+  reason it exists: a host whose `/etc/astrometry.cfg` names no index files
+  had no way to run the pipeline at all.
+- `scripts/fetch_catalog.py` fetches the cone in declination bands and checks
+  the total against a `COUNT(*)`. The Gaia archive silently caps an anonymous
+  asynchronous job at 50,000 rows whatever `ROW_LIMIT` says, and a real field
+  near the galactic plane holds three times that.
+
+### Changed
+
+- `process_frame` and `process_observation` accept only host-local
+  `solve_options` (`--config`); a flag that can change the solution is
+  refused with `ValueError`, because solve options are not fingerprinted and
+  a changed WCS would leave stale products looking current. Solver settings
+  belong in `PipelineParams`.
+- `scripts/measure_gain.py` requires `--black`; the 2048 default would have
+  given a PAN007 body (black 512) a wrong read noise and scale window while
+  looking like a result.
+- `stamps.build` raises `MissingFingerprint` when a usable frame's document
+  records no `params_fingerprint`, rather than treating blank fingerprints as
+  shared.
+
+- `make_stamps` gathers every stamp from a frame in one indexing operation
+  instead of concatenating a one-row DataFrame per star. Same output; a few
+  thousand stars per frame no longer dominate the extraction time. A stamp
+  that would leave the frame is dropped with a warning, as before.
+
 - `sources.read_catalog` caches the parsed catalog, keyed on the file's path,
   modification time and size, so an all-sky catalog is read once per process
   rather than once per frame -- `get_stars` runs per frame, and the read was the
   dominant cost of matching against a large file. A rewritten catalog at the
   same path is still picked up, the result is a shallow copy so callers cannot
   corrupt the cached frame, and `read_catalog.cache_clear()` drops it.
-
-### Changed
 
 - `pandas` is now floored at `>=3`. Copy-on-write is unconditional there, which
   is what makes the shallow copy `read_catalog` returns genuinely isolate the
@@ -113,8 +169,6 @@ Changelog](https://keepachangelog.com/en/1.1.0/) format. The versioning policy
   sequence. Calibration is `calibrate`; the sequence document is written once
   at the end of a batch, by the only writer that exists at that point.
 
-### Changed
-
 - Lint settings are now shared with `panoptes-utils` and POCS: 110 columns and
   `E`, `W`, `F`, `I`, `UP`. The accompanying reflow touched 24 files and changed
   no behavior.
@@ -159,7 +213,30 @@ Changelog](https://keepachangelog.com/en/1.1.0/) format. The versioning policy
 - `panoptes-utils` floor raised to `0.3.1`, which introduced `ImagePathInfo`;
   it is now imported from `panoptes.utils.images.fits`.
 
+### Removed
+
+- `panoptes-data` is no longer a dependency: nothing imported it once
+  `ImagePathInfo` moved to `panoptes-utils`, and it is downstream of this
+  pipeline. The `<0.2` pin goes with it, along with 21 transitive packages
+  including `ipython` and `ipywidgets`.
+
 ### Fixed
+
+- `measure_gain.py` no longer crashes when plotting a camera whose per-pair
+  fit finds no pair with enough sky range in some Bayer channel.
+- `measure_gain.py` reports the clip as `None` when no frame saturated,
+  rather than the tallest hot pixel above `WHTLVLN`; reads the clip and the
+  raw scale per sequence and warns when a run mixes clip states, since the
+  pooled histogram reports whichever state piled higher; survives a channel
+  with no surviving blocks, in the fit and in the plot's y-limit; and reads
+  `.fz` frames from extension 1 explicitly.
+- `stamps.build` raises `NoCompleteSources` when every complete source's
+  stamp crosses the frame edge, instead of writing a cube with no pixel
+  columns that `read` cannot load.
+- `fetch_catalog.py --limit` caps every query and skips the completeness
+  check, which could never pass under a cap; the help text says so. A capped
+  catalog records its cap in the query metadata, so it never satisfies a
+  later uncapped request.
 
 - `sources.get_catalog_match` documents the function that exists. Its docstring
   described a `return_unmatched` argument -- in `Args:`, a `Note:`, a `Warning:`
@@ -218,13 +295,6 @@ Changelog](https://keepachangelog.com/en/1.1.0/) format. The versioning policy
   built a 0-d mask when there was none. It was unreachable only because the
   fleet-wide saturation default was too high to mask anything; resolving
   saturation from the header makes real masks appear.
-
-### Removed
-
-- `panoptes-data` is no longer a dependency: nothing imported it once
-  `ImagePathInfo` moved to `panoptes-utils`, and it is downstream of this
-  pipeline. The `<0.2` pin goes with it, along with 21 transitive packages
-  including `ipython` and `ipywidgets`.
 
 ## v0.4.0 -- 2026-09-12
 

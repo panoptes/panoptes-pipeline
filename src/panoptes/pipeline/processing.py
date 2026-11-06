@@ -19,6 +19,7 @@ import shutil
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pandas
@@ -135,6 +136,22 @@ def require_solver() -> None:
         )
 
 
+#: `solve-field` flags that say where the solver finds its indices and nothing
+#: about the solution. Anything else changes the WCS and belongs in
+#: `PipelineParams`, where it fingerprints.
+HOST_SOLVE_OPTIONS = frozenset({"--config"})
+
+
+def check_solve_options(solve_options: dict[str, Any] | None) -> None:
+    """Refuse a solve option that could change the solution without changing the fingerprint."""
+    unknown = sorted(set(solve_options or {}) - HOST_SOLVE_OPTIONS)
+    if unknown:
+        raise ValueError(
+            f"solve_options {unknown} can change the solution and are not fingerprinted; "
+            f"only {sorted(HOST_SOLVE_OPTIONS)} pass through. Put solver settings in PipelineParams."
+        )
+
+
 def process_frame(
     raw_path: Path | str,
     processed_root: Path | str,
@@ -143,12 +160,24 @@ def process_frame(
     force_new: bool = True,
     files: FileSettings | None = None,
     solve_timeout: int = 30,
+    solve_options: dict[str, Any] | None = None,
 ) -> dict[str, Path]:
     """Process one raw frame and write its document and products.
 
     Bias, background, plate solve, source detection, catalogue match, then the
     artifacts. Plate solving belongs at this single-frame stage, which is why
     it is here rather than in the observation-level function.
+
+    `solve_options` are `solve-field` flags passed through untouched, and only
+    the host-local ones in `HOST_SOLVE_OPTIONS` are accepted: `--config`
+    exists because the solver's index files are a property of the machine,
+    not of the pipeline, and a host whose `/etc/astrometry.cfg` does not name
+    them has no environment variable to set instead. Nothing here is
+    fingerprinted, which is exactly why the set is closed: a flag that can
+    change the solution -- a scale bound, a downsample, a verification
+    setting -- would change the WCS and every product after it while the
+    work list still read the old frames as current. Those belong in
+    `PipelineParams`, where they fingerprint.
 
     A frame that fails is still recorded, with `ImageStatus.ERROR`, so the next
     work-list walk reports `prior error` rather than `missing` and the failure
@@ -157,6 +186,7 @@ def process_frame(
     raw_path = Path(raw_path)
     params = params or PipelineParams()
     files = files or FileSettings()
+    check_solve_options(solve_options)
 
     require_solver()
 
@@ -186,7 +216,9 @@ def process_frame(
             fits.PrimaryHDU(
                 np.ma.filled(calibrated.reduced, np.nan).astype(np.float32), header=header
             ).writeto(scratch_path)
-            wcs = plate_solve(settings=settings, filename=scratch_path, timeout=solve_timeout)
+            wcs = plate_solve(
+                settings=settings, filename=scratch_path, timeout=solve_timeout, **(solve_options or {})
+            )
 
         header.update(wcs.to_header(relax=True))
         reduced_path = products.write_image(
@@ -265,6 +297,7 @@ def process_observation(
     force_new: bool = False,
     files: FileSettings | None = None,
     solve_timeout: int = 30,
+    solve_options: dict[str, Any] | None = None,
 ) -> pandas.DataFrame:
     """Walk, process what needs processing, then write the sequence document.
 
@@ -299,6 +332,7 @@ def process_observation(
                 force_new=True,
                 files=files,
                 solve_timeout=solve_timeout,
+                solve_options=solve_options,
             )
             outcomes[frame.path_info.image_id] = ImageStatus.MATCHED.name
         except Exception as error:

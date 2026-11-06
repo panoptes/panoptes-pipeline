@@ -169,6 +169,24 @@ heterogeneous fleet by design; these belong in per-unit configuration. Wrong
 bias propagates directly into Eq. 1, because normalization of a
 bias-contaminated stamp is not the same as normalization of a clean one.
 
+Table 2's bias and saturation are verified against raw data; its gain is not,
+and is wrong. Photon transfer on the sky (`scripts/measure_gain.py`, per Bayer
+channel, star-masked, consecutive-frame differences) gives **2.32--2.41 e-/ADU**
+on `PAN012_358d0f_20180824T035917`, and an independent re-measurement of the
+same frames gave 2.35 ± 0.10; the two PAN001 cameras give 2.1--2.4 and a
+PAN007 body 2.25--2.30. Every photon-noise floor computed at 1.50 is 24%
+too high, the square root of the gain ratio. On `PAN012_358d0f_20180824T035917` the
+raw histogram of every frame piles up at exactly **13583 ADU** in all four
+Bayer channels, with no roll-off below it and only isolated hot pixels above:
+2048 + 11535 = 13583, the paper's bias plus its saturation. The header's
+`WHTLVLN` (11765) and `WHTLVLS` (12277) are Canon's `NormalWhiteLevel` and
+`SpecularWhiteLevel` maker-note tags copied verbatim by `panoptes-utils`; they
+are rendering white points, 13% and 10% below the clip, not the saturation
+level. LibRaw treats `SpecularWhiteLevel` as its linear maximum and ignores
+`NormalWhiteLevel`. Whether the sensor is linear between 11765 and 13583 is
+unmeasured. Black is not in the header at all, and `dcraw -D -4` leaves it in
+the pixels, so every raw value, both white levels and the clip all carry it.
+
 ## 5. Defects
 
 Ordered by impact on photometric precision.

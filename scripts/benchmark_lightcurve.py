@@ -4,6 +4,7 @@
 #   "numpy",
 #   "pandas",
 #   "scipy",
+#   "pyarrow",
 #   "scikit-learn",
 #   "tables",
 # ]
@@ -14,12 +15,13 @@ This is the harness improvement plan 1 is built on: it runs several algorithm
 variants over the same target and prints one table of precision metrics, so a
 proposed change either moves the numbers or it does not.
 
-It reads the ``observation.h5`` produced by ``ProcessObservation.ipynb`` and
-needs no network, no Firestore and no BigQuery.
+It reads a processed sequence directory -- the one holding ``stamps.parquet``
+and ``positions.parquet``, as `panoptes.pipeline.stamps.build` writes them --
+or a legacy ``observation.h5``. Needs no network, no Firestore and no BigQuery.
 
 Usage::
 
-    uv run scripts/benchmark_lightcurve.py notebooks/PAN007_.../observation.h5
+    uv run scripts/benchmark_lightcurve.py processed/baseline/PAN012/358d0f/20180824T035917
     uv run scripts/benchmark_lightcurve.py OBS.h5 --picid 12632720
     uv run scripts/benchmark_lightcurve.py OBS.h5 --inject-depth 0.01
 """
@@ -58,12 +60,27 @@ VARIANTS = {
 }
 
 
-def load_observation(path: Path) -> tuple[np.ndarray, np.ndarray, np.ndarray, tuple[int, int]]:
-    """Read stamps into a dense ``(num_sources, num_frames, num_pixels)`` cube.
+def read_stamps(path: Path) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
+    """``(stamps, positions, attrs)`` from a sequence directory or a legacy HDF5 file.
 
-    Sources that are missing from any frame are dropped, so every PSC shares a
-    single common time axis.
+    A directory is what `panoptes.pipeline.stamps.build` writes; the ``.h5`` is
+    what the deleted ``ProcessObservation.ipynb`` wrote, kept readable so the
+    numbers in the plans can be reproduced against the files they came from.
     """
+    if path.is_dir():
+        # Read the two files directly rather than through `panoptes.pipeline.stamps`:
+        # that module imports astropy and panoptes-utils, and this script runs in
+        # its own small environment on purpose. The layout is the one `stamps.write`
+        # produces -- the metadata key is `stamps.METADATA_KEY`.
+        import json
+
+        import pyarrow.parquet as parquet
+
+        stamps = pd.read_parquet(path / "stamps.parquet")
+        table = parquet.read_table(path / "positions.parquet")
+        attrs = json.loads((table.schema.metadata or {}).get(b"panoptes_stamps", b"{}"))
+        return stamps, table.to_pandas(), attrs
+
     with pd.HDFStore(path, "r") as store:
         stamps = store["stamps"]
         try:
@@ -71,6 +88,27 @@ def load_observation(path: Path) -> tuple[np.ndarray, np.ndarray, np.ndarray, tu
         except (AttributeError, KeyError):
             attrs = {}
         positions = store["positions"]
+    return stamps, positions, attrs
+
+
+def background_subtracted(path: Path) -> bool:
+    """True when the stamps were cut from reduced frames and carry no sky pedestal.
+
+    A sequence directory is this pipeline's product: `process_frame` subtracts
+    the per-color background before `stamps.build` cuts anything. A legacy
+    ``observation.h5`` was cut from raw pixels (conformance audit 5.0) and
+    still needs the `--sky-subtract` stopgap.
+    """
+    return path.is_dir()
+
+
+def load_observation(path: Path) -> tuple[np.ndarray, np.ndarray, np.ndarray, tuple[int, int]]:
+    """Read stamps into a dense ``(num_sources, num_frames, num_pixels)`` cube.
+
+    Sources that are missing from any frame are dropped, so every PSC shares a
+    single common time axis.
+    """
+    stamps, positions, attrs = read_stamps(path)
 
     pixel_cols = [c for c in stamps.columns if c.startswith("pixel_")]
     num_pixels = len(pixel_cols)
@@ -171,6 +209,10 @@ def run(args: argparse.Namespace) -> int:
         sky = core.central_sky_mask(stamp_shape)
         cube = core.subtract_stamp_sky(cube, sky, rgb_flat)
         print("  sky pedestal removed per frame and color (stopgap, see conformance audit 5.0)")
+        if background_subtracted(args.observation):
+            print("  NOTE: these stamps were already background-subtracted; the stopgap is not needed here")
+    elif background_subtracted(args.observation):
+        print("  stamps cut from background-subtracted frames; no pedestal correction applied")
     else:
         print(
             "  WARNING: stamps used as stored. ProcessFITS.ipynb writes RAW data to\n"
@@ -285,7 +327,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("observation", type=Path, help="Path to an observation.h5")
+    parser.add_argument(
+        "observation", type=Path, help="A processed sequence directory, or a legacy observation.h5"
+    )
     parser.add_argument("--picid", type=int, default=None, help="Target PICID (default: a bright star)")
     parser.add_argument("--num-refs", type=int, default=100, help="References carried into the fit")
     parser.add_argument("--channel", choices=["all", "r", "g", "b"], default="all")

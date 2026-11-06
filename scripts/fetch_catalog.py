@@ -36,6 +36,8 @@ side of the same problem.
 from __future__ import annotations
 
 import json
+import math
+import time
 from pathlib import Path
 
 import typer
@@ -166,7 +168,14 @@ def main(
         Path("."), "-d", "--directory", help="Directory for the default filename."
     ),
     force: bool = typer.Option(False, "--force", help="Re-query even if the file is present."),
-    limit: int = typer.Option(-1, help="Row cap; -1 for no cap."),
+    limit: int = typer.Option(
+        -1, help="Row cap on every query; -1 for no cap. A cap disables the completeness check."
+    ),
+    band: float = typer.Option(
+        1.0,
+        "--band",
+        help="Height in degrees of the declination bands the cone is fetched in. 0 fetches it whole.",
+    ),
 ) -> None:
     """Fetch a Gaia DR3 cone and write it as a pipeline catalog.
 
@@ -183,9 +192,22 @@ def main(
     away, and a 9 degree cone centered there would have needed 9.235 to reach the
     far corner. 10 degrees leaves roughly a degree of slack for about 23% more
     rows, which is cheap insurance against silently clipping a corner.
+
+    The cone is fetched in declination bands and the pieces concatenated, then
+    the total is checked against a `COUNT(*)` of the same cone. The archive
+    returns at most 50,000 rows per anonymous asynchronous job whatever
+    `ROW_LIMIT` says, and does so silently: a 10 degree cone to G=13 near the
+    galactic plane holds about 150,000 stars, and the first fetch of one came
+    back with exactly 50,000 and no warning. One-degree bands keep each piece
+    well under the cap at any galactic latitude the fleet points at.
     """
     output = output or directory / default_name(ra, dec, radius, vmag_min, vmag_max)
     query_key = dict(ra=ra, dec=dec, radius=radius, vmag_min=vmag_min, vmag_max=vmag_max, release="gaiadr3")
+    if limit > 0:
+        # A capped catalog is a different product: without this a truncated file
+        # would satisfy a later uncapped request. Uncapped keys are unchanged, so
+        # catalogs already on disk still match.
+        query_key["limit"] = limit
 
     if output.exists() and not force and looks_usable(output, query_key):
         typer.echo(f"{output} already exists and matches; not querying. Use --force to refetch.")
@@ -205,23 +227,67 @@ def main(
     # what `get_stars` applies (`inclusive="left"`). ADQL `BETWEEN` includes
     # both ends, which would fetch sources at exactly `vmag_max` that the
     # pipeline then discards.
-    query = f"""
-        SELECT source_id, ra, dec,
-               phot_g_mean_mag, phot_bp_mean_mag, phot_rp_mean_mag
-        FROM gaiadr3.gaia_source
+    where = f"""
         WHERE 1 = CONTAINS(POINT({ra}, {dec}), CIRCLE(ra, dec, {radius}))
           AND phot_g_mean_mag >= {vmag_min}
           AND phot_g_mean_mag < {vmag_max}
           AND phot_bp_mean_mag IS NOT NULL
           AND phot_rp_mean_mag IS NOT NULL
     """
-    typer.echo(f"Querying Gaia DR3 around ({ra}, {dec}) within {radius} deg ...")
-    table = Gaia.launch_job_async(query).get_results()
-    typer.echo(f"Got {len(table)} sources.")
-
-    frame = table.to_pandas().rename(
-        columns={k: v for k, v in COLUMN_MAP.items() if k != "phot_g_mean_mag_dup"}
+    select = (
+        "SELECT source_id, ra, dec, phot_g_mean_mag, phot_bp_mean_mag, phot_rp_mean_mag "
+        "FROM gaiadr3.gaia_source"
     )
+
+    def fetch(query: str):
+        """Run one query, retrying a transient failure.
+
+        A ten-degree cone is twenty jobs over a few minutes, long enough for
+        the archive to return a 500 or a DNS lookup to fail once; without a
+        retry one such hiccup discards every band already fetched.
+        """
+        for attempt in range(1, 4):
+            try:
+                return Gaia.launch_job_async(query).get_results()
+            except Exception as error:
+                if attempt == 3:
+                    raise
+                typer.echo(f"  attempt {attempt} failed ({error!r}); retrying in {15 * attempt}s")
+                time.sleep(15 * attempt)
+
+    typer.echo(f"Querying Gaia DR3 around ({ra}, {dec}) within {radius} deg ...")
+    expected = int(fetch(f"SELECT COUNT(*) AS n FROM gaiadr3.gaia_source {where}")["n"][0])
+    typer.echo(f"The cone holds {expected} sources.")
+
+    if band <= 0:
+        pieces = [fetch(f"{select} {where}").to_pandas()]
+    else:
+        pieces = []
+        # Half-open bands, `>= low AND < high`, so a star on a boundary is
+        # fetched exactly once. The last band is closed to catch dec == top.
+        edges = [dec - radius + i * band for i in range(int(math.ceil(2 * radius / band)) + 1)]
+        edges[-1] = max(edges[-1], dec + radius)
+        for low, high in zip(edges[:-1], edges[1:]):
+            closing = "<=" if high == edges[-1] else "<"
+            piece = fetch(f"{select} {where} AND dec >= {low} AND dec {closing} {high}").to_pandas()
+            typer.echo(f"  dec [{low:.2f}, {high:.2f}): {len(piece)} sources")
+            pieces.append(piece)
+
+    import pandas
+
+    table = pandas.concat(pieces, ignore_index=True).drop_duplicates("source_id")
+    typer.echo(f"Got {len(table)} sources.")
+    if limit > 0:
+        # Every query is capped, so a short count is the cap at work, not a
+        # truncated band; there is nothing to check against.
+        typer.echo(f"--limit {limit} caps every query; the completeness check is skipped.")
+    elif len(table) != expected:
+        raise SystemExit(
+            f"fetched {len(table)} sources but the cone holds {expected}; "
+            "a piece was truncated. Use a smaller --band."
+        )
+
+    frame = table.rename(columns={k: v for k, v in COLUMN_MAP.items() if k != "phot_g_mean_mag_dup"})
     # `catalog_gaiamag` is Gaia G, the same quantity `catalog_vmag` carries. It
     # is duplicated rather than aliased because the two are used for different
     # things -- brightness selection and color excess -- and a later change to

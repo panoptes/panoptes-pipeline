@@ -4,6 +4,7 @@
 #   "numpy",
 #   "pandas",
 #   "scipy",
+#   "pyarrow",
 #   "scikit-learn",
 #   "tables",
 # ]
@@ -23,7 +24,7 @@ is not optional.
 
 Usage::
 
-    uv run scripts/survey_targets.py notebooks/PAN007_.../observation.h5
+    uv run scripts/survey_targets.py processed/baseline/PAN012/358d0f/20180824T035917
     uv run scripts/survey_targets.py OBS.h5 --channel all --num-targets 200
 """
 
@@ -37,7 +38,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from benchmark_lightcurve import load_observation  # noqa: E402
+from benchmark_lightcurve import background_subtracted, load_observation  # noqa: E402
 
 from panoptes.pipeline.lightcurve import core, masks, metrics  # noqa: E402
 
@@ -82,6 +83,10 @@ def run(args: argparse.Namespace) -> int:
     if args.sky_subtract:
         cube = core.subtract_stamp_sky(cube, core.central_sky_mask(stamp_shape), rgb_flat)
         print("  sky pedestal removed (stopgap, see conformance audit 5.0)")
+        if background_subtracted(args.observation):
+            print("  NOTE: these stamps were already background-subtracted; the stopgap is not needed here")
+    elif background_subtracted(args.observation):
+        print("  stamps cut from background-subtracted frames; no pedestal correction applied")
     else:
         print("  WARNING: stamps carry an un-subtracted sky pedestal; results are diluted")
 
@@ -161,7 +166,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("observation", type=Path, help="Path to an observation.h5")
+    parser.add_argument(
+        "observation", type=Path, help="A processed sequence directory, or a legacy observation.h5"
+    )
     parser.add_argument("--channel", choices=["all", "r", "g", "b"], default="r")
     parser.add_argument("--num-targets", type=int, default=80)
     parser.add_argument("--num-refs", type=int, default=100)

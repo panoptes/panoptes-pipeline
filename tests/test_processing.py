@@ -471,3 +471,42 @@ def test_the_document_is_written_after_the_products(tmp_path, raw_path_info, raw
 
     document = products.frame_directory(tmp_path, raw_path_info) / "metadata.json"
     assert not document.exists()
+
+
+def test_solve_options_reach_the_solver(tmp_path, make_raw_tree, params, monkeypatch):
+    """`solve_options` are the only way to point `solve-field` at index files
+    `/etc/astrometry.cfg` does not name, so they have to arrive at the solver
+    call untouched. The stub records what it was handed and then stops the
+    frame, because nothing after the solve is under test here.
+    """
+    seen = {}
+
+    def record(settings, filename=None, timeout=30, **kwargs):
+        seen.update(kwargs)
+        raise RuntimeError("stop after the solve")
+
+    monkeypatch.setattr(processing.shutil, "which", lambda _: "/usr/bin/solve-field")
+    monkeypatch.setattr(processing, "plate_solve", record)
+
+    raw_root = make_raw_tree(count=1)
+    raw_path = next(worklist.find_frames(raw_root))
+
+    with pytest.raises(RuntimeError, match="stop after the solve"):
+        processing.process_frame(
+            raw_path, tmp_path / "processed", params, solve_options={"--config": "/opt/astrometry.cfg"}
+        )
+
+    assert seen == {"--config": "/opt/astrometry.cfg"}
+
+
+def test_a_solve_option_that_can_change_the_solution_is_refused(tmp_path, make_raw_tree, params, monkeypatch):
+    """Only host-local flags pass through: anything that can change the WCS is
+    not in the fingerprint, so letting it through would leave stale products
+    looking current."""
+    monkeypatch.setattr(processing.shutil, "which", lambda _: "/usr/bin/solve-field")
+    monkeypatch.setattr(processing, "plate_solve", lambda *a, **k: pytest.fail("must not reach the solver"))
+    raw_path = next(worklist.find_frames(make_raw_tree(count=1)))
+    with pytest.raises(ValueError, match="--scale-low"):
+        processing.process_frame(
+            raw_path, tmp_path / "processed", params, solve_options={"--scale-low": 1, "--config": "/x"}
+        )

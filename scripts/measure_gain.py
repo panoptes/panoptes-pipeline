@@ -57,9 +57,10 @@ Usage
 -----
 ::
 
-    uv run scripts/measure_gain.py images/PAN012/358d0f/20180824T035917 --output gain/PAN012_358d0f
+    uv run scripts/measure_gain.py images/PAN012/358d0f/20180824T035917 \\
+        --output gain/PAN012_358d0f --black 2048
     uv run scripts/measure_gain.py raw/PAN001/ee04d1/20190527T103457 raw/PAN001/ee04d1/20180913T054325 \\
-        --output gain/PAN001_ee04d1
+        --output gain/PAN001_ee04d1 --black 2048
 
 Several sequences from the *same camera and ISO* can be given at once -- they
 widen the range of sky levels the line is fitted over, and the fit is better for
@@ -783,7 +784,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--output", required=True, help="Directory for the tables, gain.json and gain.png")
     parser.add_argument("--block", type=int, default=64, help="Block side in pixels of one Bayer channel")
     parser.add_argument("--pair-step", type=int, default=1, help="Frames between the two of a pair")
-    parser.add_argument("--black", type=float, default=2048.0, help="Black level assumed for the read noise")
+    parser.add_argument(
+        "--black",
+        type=float,
+        required=True,
+        help="The body's black level, for the read noise and the scale window: 2048 on the EOS 100D "
+        "class and the 24 MP bodies, 512 on PAN007's. No default: a wrong black looks like a result.",
+    )
     parser.add_argument("--white-level", type=int, default=11765, help="Fallback when WHTLVLN is absent")
     parser.add_argument("--clip-margin", type=int, default=1000, help="Drop pixels within this of WHTLVLN")
     parser.add_argument("--min-fraction", type=float, default=0.5, help="Drop blocks with less usable")

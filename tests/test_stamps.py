@@ -277,3 +277,14 @@ def test_every_source_at_the_edge_is_an_error_not_an_empty_cube(sequence, params
     with pytest.raises(stamps.NoCompleteSources, match="edge"):
         stamps.build(sequence, params)
     assert not (sequence / "stamps.parquet").exists()
+
+
+def test_a_frame_without_a_fingerprint_is_refused(tmp_path, params):
+    """A missing fingerprint is not a shared one: the guard against mixing
+    parameter sets has nothing to compare, so the cube would carry no evidence."""
+    sequence_dir = tmp_path / "PAN012" / "358d0f" / "20180824T035917"
+    rng = np.random.default_rng(5)
+    for index in range(4):
+        write_frame(sequence_dir, index, rng=rng, fingerprint="")
+    with pytest.raises(stamps.MissingFingerprint, match="params_fingerprint"):
+        stamps.build(sequence_dir, params)

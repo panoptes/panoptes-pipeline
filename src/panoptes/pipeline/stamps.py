@@ -93,6 +93,12 @@ def usable_frames(sequence_dir: Path | str, files: FileSettings | None = None) -
         if image.get("status") != ImageStatus.MATCHED.name:
             continue
         calibration = image.get("calibration", {})
+        fingerprint = image.get("params_fingerprint")
+        if not fingerprint:
+            # A missing fingerprint is not a shared one. The guard in `build`
+            # compares fingerprints across frames, and a blank would compare
+            # equal to every other blank and vouch for nothing.
+            raise MissingFingerprint(f"{path} records no params_fingerprint; reprocess the frame")
         frames.append(
             UsableFrame(
                 directory=path.parent,
@@ -100,7 +106,7 @@ def usable_frames(sequence_dir: Path | str, files: FileSettings | None = None) -
                 fwhm=float(image["sources"]["photutils_fwhm_median"]),
                 image_width=int(calibration["image_width"]["value"]),
                 image_height=int(calibration["image_height"]["value"]),
-                params_fingerprint=str(image.get("params_fingerprint", "")),
+                params_fingerprint=str(fingerprint),
             )
         )
     return sorted(frames, key=lambda frame: frame.time)
@@ -276,6 +282,10 @@ class MixedFingerprints(RuntimeError):
     """The usable frames were not all produced with the same params."""
 
 
+class MissingFingerprint(RuntimeError):
+    """A usable frame's document records no `params_fingerprint`, so nothing can vouch for it."""
+
+
 def build(
     sequence_dir: Path | str,
     settings: StampSettings | None = None,
@@ -346,6 +356,7 @@ def build(
 __all__ = [
     "METADATA_KEY",
     "MixedFingerprints",
+    "MissingFingerprint",
     "NoCompleteSources",
     "NoUsableFrames",
     "UsableFrame",

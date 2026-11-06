@@ -166,7 +166,7 @@ against a throwaway environment rather than the synced one:
 uv run scripts/benchmark_lightcurve.py processed/baseline/PAN012/358d0f/20180824T035917 --channel r --held-out
 uv run scripts/survey_targets.py processed/baseline/PAN012/358d0f/20180824T035917
 uv run scripts/fetch_catalog.py 86.49 8.72   # radius defaults to 10 deg
-uv run scripts/measure_gain.py raw/PAN012/358d0f/20180824T035917 --output gain/PAN012_358d0f
+uv run scripts/measure_gain.py raw/PAN012/358d0f/20180824T035917 --output gain/PAN012_358d0f --black 2048
 ```
 
 The benchmark scripts take a processed sequence directory -- the one holding
@@ -191,7 +191,8 @@ measured per Bayer channel with one intercept per sequence, and anything that
 adds variance between two frames (cloud, drift over unresolved stars) biases
 it low, so the per-pair spread it prints per sequence is the quality flag. Use
 a photometric night with the widest sky range available; a dark sky gives no
-lever arm. A body with a 512 black needs `--black 512` for the read noise.
+lever arm. `--black` is required, 2048 or 512 by body, because a defaulted
+black would look like a measurement.
 A 2048-black Canon body clips at 13583 at base ISO; a 16383 clip on one
 means the raw values were scaled before the container clipped them (PAN019,
 by 1.61, with a comb of empty codes to prove it; data contract 6.2), and no

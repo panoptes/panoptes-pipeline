@@ -49,6 +49,18 @@ Changelog](https://keepachangelog.com/en/1.1.0/) format. The versioning policy
 
 ### Changed
 
+- `process_frame` and `process_observation` accept only host-local
+  `solve_options` (`--config`); a flag that can change the solution is
+  refused with `ValueError`, because solve options are not fingerprinted and
+  a changed WCS would leave stale products looking current. Solver settings
+  belong in `PipelineParams`.
+- `scripts/measure_gain.py` requires `--black`; the 2048 default would have
+  given a PAN007 body (black 512) a wrong read noise and scale window while
+  looking like a result.
+- `stamps.build` raises `MissingFingerprint` when a usable frame's document
+  records no `params_fingerprint`, rather than treating blank fingerprints as
+  shared.
+
 - `make_stamps` gathers every stamp from a frame in one indexing operation
   instead of concatenating a one-row DataFrame per star. Same output; a few
   thousand stars per frame no longer dominate the extraction time. A stamp

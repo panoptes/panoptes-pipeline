@@ -497,3 +497,16 @@ def test_solve_options_reach_the_solver(tmp_path, make_raw_tree, params, monkeyp
         )
 
     assert seen == {"--config": "/opt/astrometry.cfg"}
+
+
+def test_a_solve_option_that_can_change_the_solution_is_refused(tmp_path, make_raw_tree, params, monkeypatch):
+    """Only host-local flags pass through: anything that can change the WCS is
+    not in the fingerprint, so letting it through would leave stale products
+    looking current."""
+    monkeypatch.setattr(processing.shutil, "which", lambda _: "/usr/bin/solve-field")
+    monkeypatch.setattr(processing, "plate_solve", lambda *a, **k: pytest.fail("must not reach the solver"))
+    raw_path = next(worklist.find_frames(make_raw_tree(count=1)))
+    with pytest.raises(ValueError, match="--scale-low"):
+        processing.process_frame(
+            raw_path, tmp_path / "processed", params, solve_options={"--scale-low": 1, "--config": "/x"}
+        )

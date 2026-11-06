@@ -136,6 +136,22 @@ def require_solver() -> None:
         )
 
 
+#: `solve-field` flags that say where the solver finds its indices and nothing
+#: about the solution. Anything else changes the WCS and belongs in
+#: `PipelineParams`, where it fingerprints.
+HOST_SOLVE_OPTIONS = frozenset({"--config"})
+
+
+def check_solve_options(solve_options: dict[str, Any] | None) -> None:
+    """Refuse a solve option that could change the solution without changing the fingerprint."""
+    unknown = sorted(set(solve_options or {}) - HOST_SOLVE_OPTIONS)
+    if unknown:
+        raise ValueError(
+            f"solve_options {unknown} can change the solution and are not fingerprinted; "
+            f"only {sorted(HOST_SOLVE_OPTIONS)} pass through. Put solver settings in PipelineParams."
+        )
+
+
 def process_frame(
     raw_path: Path | str,
     processed_root: Path | str,
@@ -152,13 +168,16 @@ def process_frame(
     artifacts. Plate solving belongs at this single-frame stage, which is why
     it is here rather than in the observation-level function.
 
-    `solve_options` are extra `solve-field` flags, passed through untouched as
-    `{"--config": "/path/to/astrometry.cfg"}` and the like. They exist because
-    the solver's index files are a property of the machine, not of the
-    pipeline: a host whose `/etc/astrometry.cfg` does not name them needs
-    `--config`, and there is no environment variable to set instead. Nothing
-    here is fingerprinted, because none of it changes what a solved frame
-    looks like -- only whether the solver can find its indices.
+    `solve_options` are `solve-field` flags passed through untouched, and only
+    the host-local ones in `HOST_SOLVE_OPTIONS` are accepted: `--config`
+    exists because the solver's index files are a property of the machine,
+    not of the pipeline, and a host whose `/etc/astrometry.cfg` does not name
+    them has no environment variable to set instead. Nothing here is
+    fingerprinted, which is exactly why the set is closed: a flag that can
+    change the solution -- a scale bound, a downsample, a verification
+    setting -- would change the WCS and every product after it while the
+    work list still read the old frames as current. Those belong in
+    `PipelineParams`, where they fingerprint.
 
     A frame that fails is still recorded, with `ImageStatus.ERROR`, so the next
     work-list walk reports `prior error` rather than `missing` and the failure
@@ -167,6 +186,7 @@ def process_frame(
     raw_path = Path(raw_path)
     params = params or PipelineParams()
     files = files or FileSettings()
+    check_solve_options(solve_options)
 
     require_solver()
 

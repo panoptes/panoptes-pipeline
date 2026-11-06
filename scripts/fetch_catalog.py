@@ -203,6 +203,11 @@ def main(
     """
     output = output or directory / default_name(ra, dec, radius, vmag_min, vmag_max)
     query_key = dict(ra=ra, dec=dec, radius=radius, vmag_min=vmag_min, vmag_max=vmag_max, release="gaiadr3")
+    if limit > 0:
+        # A capped catalog is a different product: without this a truncated file
+        # would satisfy a later uncapped request. Uncapped keys are unchanged, so
+        # catalogs already on disk still match.
+        query_key["limit"] = limit
 
     if output.exists() and not force and looks_usable(output, query_key):
         typer.echo(f"{output} already exists and matches; not querying. Use --force to refetch.")

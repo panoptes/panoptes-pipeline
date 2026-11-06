@@ -106,3 +106,11 @@ def test_fit_group_with_no_blocks_reports_nan_not_a_crash():
     empty = pd.DataFrame(columns=["sequence", "pair_id", "level", "variance"])
     fit = measure_gain.fit_group(empty, black=2048)
     assert fit["num_blocks"] == 0 and np.isnan(fit["gain"])
+
+
+def test_the_plot_ceiling_skips_a_channel_with_no_fit():
+    fitted = {"level_max": 4000.0, "gain": 2.0, "intercepts": {"a": -900.0}}
+    empty = measure_gain.fit_group(pd.DataFrame(columns=["sequence", "pair_id", "level", "variance"]), 2048)
+    assert measure_gain.variance_ceiling([fitted, empty], np.array([5.0])) == 1100.0
+    assert measure_gain.variance_ceiling([empty], np.array([5.0, np.nan])) == 5.0
+    assert measure_gain.variance_ceiling([empty], np.array([])) == 1.0

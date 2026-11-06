@@ -441,6 +441,16 @@ def find_scale(histogram: np.ndarray, black: float, clip: int, smooth: int = 15)
     return {"scale": 1 / populated, "populated_fraction": populated, "codes": int(sampled.sum())}
 
 
+def variance_ceiling(fits: list[dict], variance: np.ndarray) -> float:
+    """The top of the fitted lines, for the plot's y-limit; the data's own top when no channel fitted."""
+    tops = [f["level_max"] / f["gain"] + max(f["intercepts"].values()) for f in fits if f["intercepts"]]
+    tops = [t for t in tops if np.isfinite(t)]
+    if tops:
+        return float(max(tops))
+    finite = variance[np.isfinite(variance)]
+    return float(finite.max()) if len(finite) else 1.0
+
+
 def plot(
     table: pd.DataFrame, fits: dict, pairs: dict, clip: dict, histogram: np.ndarray, title: str, path: Path
 ):
@@ -499,10 +509,7 @@ def plot(
     ax.grid(alpha=0.3)
     # Scale to the fitted lines: a bin of blocks the fit rejected -- twilight,
     # a passing cloud -- can sit at fifty times the Poisson variance.
-    top = max(
-        (fits[name]["level_max"] / fits[name]["gain"] + max(fits[name]["intercepts"].values()))
-        for name in colors
-    )
+    top = variance_ceiling([fits[name] for name in colors], table.variance.to_numpy())
     ax.set_ylim(0, 1.25 * top)
     ax_res.set_ylim(-0.08 * top, 0.08 * top)
     ax_res.axhline(0, color="k")

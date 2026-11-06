@@ -395,7 +395,9 @@ def find_scale(histogram: np.ndarray, black: float, clip: int, smooth: int = 15)
 
     A raw scaled by s above black populates one code in s: against a running
     mean over `smooth` codes, a code holding under 30% of its neighbourhood is
-    empty. The populated fraction is measured where the sky puts the counts --
+    empty. Give it one Bayer phase: each phase's empty codes sit at different
+    positions, so a whole frame's comb is partly filled in and reads low.
+    The populated fraction is measured where the sky puts the counts --
     between black and the 95th percentile of all pixels, below the clip -- and
     only where the neighbourhood is well sampled, so a sparse tail cannot read
     as a comb. An untouched raw returns 1.00.
@@ -625,15 +627,20 @@ def run(args: argparse.Namespace) -> int:
     clip = find_clip(histogram, white_level)
     clip.update(find_scale(histogram, args.black, clip["clip"]))
     # The scale is a per-frame state, so a mixed set reads between values: one
-    # mid-sequence frame per sequence says which sequences carry it.
+    # mid-sequence frame per sequence says which sequences carry it. Read on
+    # one Bayer phase: the empty codes of the four phases sit at different
+    # positions, so the comb of a whole frame is partly filled in.
     scale_by_sequence = {}
     for sequence in dict.fromkeys(f.sequence for f in frames):
         seq_frames = [f for f in frames if f.sequence == sequence]
         data = read_data(seq_frames[len(seq_frames) // 2].path)
         if data is not None:
-            frame_hist = np.bincount(data.ravel(), minlength=ADC_LEVELS)
-            scale_by_sequence[sequence] = find_scale(frame_hist, args.black, clip["clip"])["scale"]
+            phase_hist = np.bincount(data[0::2, 0::2].ravel(), minlength=ADC_LEVELS)
+            scale_by_sequence[sequence] = find_scale(phase_hist, args.black, clip["clip"])["scale"]
     clip["scale_by_sequence"] = scale_by_sequence
+    clip["scale_all_phases"] = clip["scale"]
+    if scale_by_sequence:
+        clip["scale"] = float(np.nanmedian(list(scale_by_sequence.values())))
     pair_tables = [p["pairs"].assign(phase=name) for name, p in pairs.items() if len(p["pairs"])]
     if pair_tables:
         pd.concat(pair_tables, ignore_index=True).to_csv(output / "pairs.csv", index=False)
@@ -656,8 +663,8 @@ def run(args: argparse.Namespace) -> int:
 
     print(
         f"\nclip {clip['clip']} ADU ({clip['pixels_at_clip']} px at it, {clip['pixels_above_clip']} above); "
-        f"WHTLVLN {white_level}; raw scale {clip['scale']:.2f} "
-        f"({1 - clip['populated_fraction']:.0%} of sky codes empty over {clip['codes']} codes)"
+        f"WHTLVLN {white_level}; raw scale {clip['scale']:.2f} (median over sequences; "
+        f"{1 - clip['populated_fraction']:.0%} of sky codes empty over {clip['codes']} codes, all phases)"
     )
     print("raw scale per sequence: " + ", ".join(f"{k} {v:.2f}" for k, v in scale_by_sequence.items()))
     print(

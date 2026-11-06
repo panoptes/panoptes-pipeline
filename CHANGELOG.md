@@ -4,7 +4,7 @@ Notable changes, newest first, in the [Keep a
 Changelog](https://keepachangelog.com/en/1.1.0/) format. The versioning policy
 -- and why this project is deliberately pre-1.0 -- is in `AGENTS.md`.
 
-## Unreleased
+## v0.5.0 -- 2026-11-06
 
 ### Added
 

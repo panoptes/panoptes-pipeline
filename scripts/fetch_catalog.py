@@ -168,7 +168,9 @@ def main(
         Path("."), "-d", "--directory", help="Directory for the default filename."
     ),
     force: bool = typer.Option(False, "--force", help="Re-query even if the file is present."),
-    limit: int = typer.Option(-1, help="Row cap; -1 for no cap."),
+    limit: int = typer.Option(
+        -1, help="Row cap on every query; -1 for no cap. A cap disables the completeness check."
+    ),
     band: float = typer.Option(
         1.0,
         "--band",
@@ -270,7 +272,11 @@ def main(
 
     table = pandas.concat(pieces, ignore_index=True).drop_duplicates("source_id")
     typer.echo(f"Got {len(table)} sources.")
-    if len(table) != expected:
+    if limit > 0:
+        # Every query is capped, so a short count is the cap at work, not a
+        # truncated band; there is nothing to check against.
+        typer.echo(f"--limit {limit} caps every query; the completeness check is skipped.")
+    elif len(table) != expected:
         raise SystemExit(
             f"fetched {len(table)} sources but the cone holds {expected}; "
             "a piece was truncated. Use a smaller --band."

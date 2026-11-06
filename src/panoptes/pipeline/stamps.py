@@ -314,6 +314,11 @@ def build(
     fwhm = float(np.median([frame.fwhm for frame in frames]))
     size = stamp_size(fwhm, settings)
     positions = stamp_positions(sources, picids, size, frames[0].image_width, frames[0].image_height)
+    if len(positions) == 0:
+        raise NoCompleteSources(
+            f"every one of the {len(picids)} complete sources has a {size}x{size} stamp crossing the "
+            "frame edge; a cube with no positions is not a product"
+        )
     logger.info(
         f"{sequence_dir.name}: {len(positions)} sources x {len(frames)} frames, "
         f"{size}x{size} stamps from a median FWHM of {fwhm:.2f} px"

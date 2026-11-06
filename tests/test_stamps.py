@@ -268,3 +268,12 @@ def test_the_benchmark_loader_reads_the_sequence_directory(sequence, params):
     assert cube.shape == (2, 4, size * size)
     assert list(picids) == [1001, 1002]
     assert len(frames) == 4
+
+
+def test_every_source_at_the_edge_is_an_error_not_an_empty_cube(sequence, params, monkeypatch):
+    """`complete_sources` only counts matches; a cube with no positions is not a product."""
+    original = stamps.stamp_positions
+    monkeypatch.setattr(stamps, "stamp_positions", lambda *a, **k: original(*a, **k).iloc[0:0])
+    with pytest.raises(stamps.NoCompleteSources, match="edge"):
+        stamps.build(sequence, params)
+    assert not (sequence / "stamps.parquet").exists()

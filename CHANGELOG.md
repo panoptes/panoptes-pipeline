@@ -209,6 +209,17 @@ Changelog](https://keepachangelog.com/en/1.1.0/) format. The versioning policy
 
 - `measure_gain.py` no longer crashes when plotting a camera whose per-pair
   fit finds no pair with enough sky range in some Bayer channel.
+- `measure_gain.py` reports the clip as `None` when no frame saturated,
+  rather than the tallest hot pixel above `WHTLVLN`; reads the clip and the
+  raw scale per sequence and warns when a run mixes clip states, since the
+  pooled histogram reports whichever state piled higher; survives a channel
+  with no surviving blocks; and reads `.fz` frames from extension 1
+  explicitly.
+- `stamps.build` raises `NoCompleteSources` when every complete source's
+  stamp crosses the frame edge, instead of writing a cube with no pixel
+  columns that `read` cannot load.
+- `fetch_catalog.py --limit` caps every query and skips the completeness
+  check, which could never pass under a cap; the help text says so.
 
 - `sources.get_catalog_match` documents the function that exists. Its docstring
   described a `return_unmatched` argument -- in `Args:`, a `Note:`, a `Warning:`

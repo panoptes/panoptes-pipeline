@@ -87,3 +87,22 @@ def test_find_scale_reads_the_comb_of_a_scaled_raw():
 
     empty = measure_gain.find_scale(np.zeros(measure_gain.ADC_LEVELS, dtype=int), black=2048, clip=13583)
     assert np.isnan(empty["scale"])
+
+
+def test_find_clip_needs_a_pile_not_just_a_maximum():
+    rng = np.random.default_rng(2)
+    histogram = np.zeros(measure_gain.ADC_LEVELS, dtype=int)
+    histogram[11765:13700] = rng.integers(0, 12, size=13700 - 11765)  # hot pixels, no pile
+    histogram[13211] = 40  # one unlucky bin
+    clip = measure_gain.find_clip(histogram, white_level=11765)
+    assert clip["clip"] is None
+    assert clip["pixels_at_clip"] == 0
+
+    histogram[13583] = 200_000
+    assert measure_gain.find_clip(histogram, white_level=11765)["clip"] == 13583
+
+
+def test_fit_group_with_no_blocks_reports_nan_not_a_crash():
+    empty = pd.DataFrame(columns=["sequence", "pair_id", "level", "variance"])
+    fit = measure_gain.fit_group(empty, black=2048)
+    assert fit["num_blocks"] == 0 and np.isnan(fit["gain"])

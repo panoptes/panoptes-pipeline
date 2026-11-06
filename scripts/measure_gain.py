@@ -138,7 +138,8 @@ def read_data(path: str) -> np.ndarray | None:
     from astropy.io import fits
 
     try:
-        return np.asarray(fits.getdata(path), dtype=np.uint16)
+        extension = 1 if str(path).endswith(".fz") else 0
+        return np.asarray(fits.getdata(path, extension), dtype=np.uint16)
     except Exception as err:  # noqa: BLE001 -- cfitsio raises its own hierarchy
         print(f"unreadable frame {path}: {err}", file=sys.stderr)
         return None
@@ -283,6 +284,21 @@ def fit_group(table: pd.DataFrame, black: float, seed: int = 1) -> dict:
     same two frames, so they are not independent draws and resampling them
     would understate the error by the square root of the blocks per pair.
     """
+    if len(table) == 0:
+        nan = float("nan")
+        return {
+            "num_blocks": 0,
+            "num_rejected": 0,
+            "level_min": nan,
+            "level_max": nan,
+            "gain": nan,
+            "gain_err": nan,
+            "intercepts": {},
+            "black_intercept": {},
+            "read_noise_adu": {},
+            "read_noise_e": {},
+            "single_line": {"gain": nan, "black_intercept": nan, "num_blocks": 0},
+        }
     level, variance = table.level.to_numpy(), table.variance.to_numpy()
     sequences = table.sequence.to_numpy()
     slope, intercepts, keep = fit_line(level, variance, sequences)
@@ -373,18 +389,26 @@ def fit_pairs(table: pd.DataFrame, drift: pd.Series, min_range: float) -> dict:
     return out
 
 
-def find_clip(histogram: np.ndarray, white_level: int) -> dict:
+def find_clip(histogram: np.ndarray, white_level: int, min_pile: int = 100, contrast: float = 20.0) -> dict:
     """The pile-up above the header white level, where every saturated pixel lands.
 
     The pile is counted with its two neighbours: on some frames the saturated
     value comes out one ADU higher than on others -- 13584 beside 13583 on the
     same camera -- which is a rounding of the raw conversion, not headroom.
+
+    A maximum is not a pile. The tallest bin has to hold at least `min_pile`
+    pixels and `contrast` times the median bin above the white level, or no
+    frame saturated and the clip is None rather than a hot pixel's value.
     """
     above = histogram[white_level:]
     clip = int(white_level + np.argmax(above))
+    pile = int(histogram[clip - 1 : clip + 2].sum())
+    floor = float(np.median(above))
+    if pile < min_pile or pile < contrast * max(floor, 1.0):
+        return {"clip": None, "pixels_at_clip": 0, "pixels_above_clip": 0, "white_level": int(white_level)}
     return {
         "clip": clip,
-        "pixels_at_clip": int(histogram[clip - 1 : clip + 2].sum()),
+        "pixels_at_clip": pile,
         "pixels_above_clip": int(histogram[clip + 2 :].sum()),
         "white_level": int(white_level),
     }
@@ -516,12 +540,26 @@ def plot(
     ax_pairs.set_ylabel("per-pair gain, per channel [e-/ADU]")
     ax_pairs.grid(alpha=0.3)
 
-    c = clip["clip"]
+    c = clip["clip"] or ADC_LEVELS - 1
     values = np.arange(max(c - 180, clip["white_level"] - 20), min(c + 120, ADC_LEVELS))
     ax_hist.semilogy(values, np.maximum(histogram[values], 0.5), drawstyle="steps-mid", color="k")
-    ax_hist.axvline(c, color="r", ls=":")
-    clip_label = f" clip = {c}\n ({clip['pixels_at_clip']} px)"
-    ax_hist.text(c, histogram[c] * 0.5, clip_label, color="r", fontsize=8, va="top")
+    if clip["clip"]:
+        ax_hist.axvline(c, color="r", ls=":")
+        clip_label = f" clip = {c}\n ({clip['pixels_at_clip']} px)"
+        if clip.get("mixed_clip_states"):
+            clip_label += "\n mixed states, see clip_by_sequence"
+        ax_hist.text(c, histogram[c] * 0.5, clip_label, color="r", fontsize=8, va="top")
+    else:
+        ax_hist.text(
+            0.98,
+            0.95,
+            "no saturation pile",
+            transform=ax_hist.transAxes,
+            color="r",
+            fontsize=8,
+            ha="right",
+            va="top",
+        )
     if values[0] <= clip["white_level"]:
         ax_hist.axvline(clip["white_level"], color="gray", ls=":")
         ax_hist.text(clip["white_level"], 1, " WHTLVLN", color="gray", fontsize=8, rotation=90, va="bottom")
@@ -626,22 +664,35 @@ def run(args: argparse.Namespace) -> int:
     pairs = {name: fit_pairs(table[table.channel == name], drift_series, args.min_range) for name in CHANNELS}
     pairs["all channels"] = fit_pairs(table, drift_series, args.min_range)
     clip = find_clip(histogram, white_level)
-    clip.update(find_scale(histogram, args.black, clip["clip"]))
-    # The scale is a per-frame state, so a mixed set reads between values: one
-    # mid-sequence frame per sequence says which sequences carry it. Read on
-    # one Bayer channel: the empty codes of the four channels sit at different
-    # positions, so the comb of a whole frame is partly filled in.
-    scale_by_sequence = {}
+    clip.update(find_scale(histogram, args.black, clip["clip"] or ADC_LEVELS))
+    # Clip and scale are per-frame states, and a pooled histogram of a mixed
+    # set reports whichever state has the bigger pile: one mid-sequence frame
+    # per sequence says which state each sequence is in. The scale is read on
+    # one Bayer channel, because the empty codes of the four channels sit at
+    # different positions and the comb of a whole frame is partly filled in.
+    clip_by_sequence, scale_by_sequence = {}, {}
     for sequence in dict.fromkeys(f.sequence for f in frames):
         seq_frames = [f for f in frames if f.sequence == sequence]
         data = read_data(seq_frames[len(seq_frames) // 2].path)
-        if data is not None:
-            channel_hist = np.bincount(data[0::2, 0::2].ravel(), minlength=ADC_LEVELS)
-            scale_by_sequence[sequence] = find_scale(channel_hist, args.black, clip["clip"])["scale"]
+        if data is None:
+            continue
+        frame_clip = find_clip(np.bincount(data.ravel(), minlength=ADC_LEVELS), white_level)["clip"]
+        clip_by_sequence[sequence] = frame_clip
+        channel_hist = np.bincount(data[0::2, 0::2].ravel(), minlength=ADC_LEVELS)
+        scale_by_sequence[sequence] = find_scale(channel_hist, args.black, frame_clip or ADC_LEVELS)["scale"]
+    clip["clip_by_sequence"] = clip_by_sequence
     clip["scale_by_sequence"] = scale_by_sequence
     clip["scale_all_channels"] = clip["scale"]
     if scale_by_sequence:
         clip["scale"] = float(np.nanmedian(list(scale_by_sequence.values())))
+    states = sorted({c for c in clip_by_sequence.values() if c is not None})
+    clip["mixed_clip_states"] = len(states) > 1
+    if clip["mixed_clip_states"]:
+        print(
+            f"WARNING: the sequences clip at {states}; the pooled clip {clip['clip']} is whichever state "
+            "piled higher. Read clip_by_sequence, and measure the states separately for the registry.",
+            file=sys.stderr,
+        )
     pair_tables = [p["pairs"].assign(channel=name) for name, p in pairs.items() if len(p["pairs"])]
     if pair_tables:
         pd.concat(pair_tables, ignore_index=True).to_csv(output / "pairs.csv", index=False)
@@ -663,11 +714,22 @@ def run(args: argparse.Namespace) -> int:
     (output / "gain.json").write_text(json.dumps(summary, indent=2))
 
     print(
-        f"\nclip {clip['clip']} ADU ({clip['pixels_at_clip']} px at it, {clip['pixels_above_clip']} above); "
-        f"WHTLVLN {white_level}; raw scale {clip['scale']:.2f} (median over sequences; "
+        (
+            f"\nclip {clip['clip']} ADU ({clip['pixels_at_clip']} px at it, "
+            f"{clip['pixels_above_clip']} above)"
+            if clip["clip"]
+            else "\nclip: none (no frame saturated: no pile above WHTLVLN)"
+        )
+        + f"; WHTLVLN {white_level}; raw scale {clip['scale']:.2f} (median over sequences; "
         f"{1 - clip['populated_fraction']:.0%} of sky codes empty over {clip['codes']} codes, all channels)"
     )
-    print("raw scale per sequence: " + ", ".join(f"{k} {v:.2f}" for k, v in scale_by_sequence.items()))
+    print(
+        "per sequence: "
+        + ", ".join(
+            f"{k} clip {clip_by_sequence.get(k) or 'none'} scale {v:.2f}"
+            for k, v in scale_by_sequence.items()
+        )
+    )
     print(
         f"{'set':<12}{'blocks':>8}{'level':>14}{'gain':>8}{'±':>7}{'1-line':>8}{'black(int)':>11}{'RN e-':>7}"
         f"{'pairs':>7}{'median':>8}{'p10-p90':>14}{'g(drift→0)':>12}{'r':>6}"

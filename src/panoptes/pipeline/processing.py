@@ -64,7 +64,12 @@ class Calibrated:
     calibration: dict[str, Resolved]
 
 
-def calibrate(raw_data: np.ndarray, header: fits.Header, params: PipelineParams) -> Calibrated:
+def calibrate(
+    raw_data: np.ndarray,
+    header: fits.Header,
+    params: PipelineParams,
+    camera: tuple[str, str] | None = None,
+) -> Calibrated:
     """Bias, saturation mask and RGB background, in that order.
 
     **Saturation is masked in the raw domain, before the bias is removed.**
@@ -78,8 +83,11 @@ def calibrate(raw_data: np.ndarray, header: fits.Header, params: PipelineParams)
     The background is computed per Bayer color, because the colors sit on
     different pedestals; that is why `get_rgb_background` exists rather than a
     single `Background2D`.
+
+    `camera` is ``(unit_id, camera_uid)``, the camera registry key; without it
+    the identity is read from the header. See `provenance.resolve_camera`.
     """
-    calibration = provenance.resolve_camera(header, params.camera)
+    calibration = provenance.resolve_camera(header, params.camera, camera=camera)
     saturation = calibration["saturation"].value
     zero_bias = calibration["zero_bias"].value
 
@@ -203,7 +211,7 @@ def process_frame(
     image_path = directory / files.reduced_filename
 
     try:
-        calibrated = calibrate(raw_data, header, params)
+        calibrated = calibrate(raw_data, header, params, camera=(path_info.unit_id, path_info.camera_id))
         settings = ImageSettings(params=params, files=files, output_dir=directory)
 
         # Solve a scratch copy rather than the product. `solve-field` takes a

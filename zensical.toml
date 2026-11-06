@@ -28,6 +28,7 @@ nav = [
     { "stamps" = "api/stamps.md" },
     { "products" = "api/products.md" },
     { "provenance" = "api/provenance.md" },
+    { "registry" = "api/registry.md" },
     { "worklist" = "api/worklist.md" },
     { "status" = "api/status.md" },
     { "index" = "api/index-module.md" },

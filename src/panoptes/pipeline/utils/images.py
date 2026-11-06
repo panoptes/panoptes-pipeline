@@ -86,7 +86,9 @@ def extract_metadata(header, path_info, camera_settings: CameraSettings | None =
     camera_settings = camera_settings or CameraSettings()
     try:
         measured_rggb = [float(x) for x in header.get("MEASRGGB", "0 0 0 0").split(" ")]
-        calibration = provenance.resolve_camera(header, camera_settings)
+        camera_key = (path_info.unit_id, path_info.camera_id)
+        calibration = provenance.resolve_camera(header, camera_settings, camera=camera_key)
+        profile = provenance.camera_profile(header, camera_settings, camera=camera_key)
 
         # `str(header.get("CAMSN"))` produced the literal string "None" on every
         # frame POCS wrote without the keyword, which reads downstream as a body
@@ -159,6 +161,10 @@ def extract_metadata(header, path_info, camera_settings: CameraSettings | None =
             # Resolved calibration, each value with the tier it came from, so a
             # header reading and a fleet-wide default do not serialize alike.
             calibration=provenance.as_document(calibration),
+            # The registry profile the calibration was resolved against, so the
+            # work-list walk can tell when editing it invalidated this frame.
+            # None when the camera has no profile. See data contract 6.2.
+            registry_fingerprint=profile.fingerprint if profile is not None else None,
             file_creation_date=file_date,
             image_time=path_info.image_time.to_datetime(timezone=UTC),
         )

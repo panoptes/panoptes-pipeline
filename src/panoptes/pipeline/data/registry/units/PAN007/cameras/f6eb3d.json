@@ -1,0 +1,28 @@
+{
+  "unit_id": "PAN007",
+  "camera_uid": "f6eb3d",
+  "serial_number": "042070008650",
+  "sensor": "6024x4020",
+  "iso": 100,
+  "black_level": {
+    "value": 512,
+    "method": "body",
+    "note": "Known black of this body type; the free photon-transfer intercept reads 472, black minus the read-noise term."
+  },
+  "clip": {
+    "value": 16383,
+    "method": "histogram",
+    "note": "Raw value the histogram piles up at; WHTLVLN reads 11435."
+  },
+  "gain": {
+    "value": 2.3,
+    "uncertainty": 0.1,
+    "method": "family",
+    "note": "PAN007 class value. This camera: own shared fit 2.34-2.42 per channel over 4 sequence(s), clean per-pair median 2.16 (2.15-2.25). Sky photon transfer is a lower bound and its method floor is ~10%; replace with a flat-field photon transfer (panoptes/panoptes-pipeline#99)."
+  },
+  "read_noise": {
+    "value": 9.6,
+    "method": "sky-ptc",
+    "note": "Photon-transfer intercept with black fixed; indicative to a few e-."
+  }
+}

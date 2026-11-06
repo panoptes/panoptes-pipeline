@@ -87,8 +87,9 @@ Many units, many DSLR bodies: different black levels, white levels, gain, sensor
 and pixel sizes. Same Bayer pattern, little else. Never hardcode a camera
 constant -- measure it (saturation from the pixel histogram, gain by photon
 transfer, pixel scale from the WCS, Bayer phase via `masks.infer_pattern`) or
-resolve it from a profile keyed on the `CAMSN` serial, and **fail loudly rather
-than defaulting**. Two bugs in this repo came from fleet-wide defaults.
+resolve it from the camera registry, keyed on the camera uid (never `CAMSN`,
+never the `Cam00` slot name), and **fail loudly rather than defaulting**. Two
+bugs in this repo came from fleet-wide defaults.
 
 No algorithm parameter in raw pixels unless it is about the detector grid:
 express stamp sizes and apertures in multiples of measured FWHM, angular sizes
@@ -106,8 +107,12 @@ in arcsec. See improvement plan 1.4.
   detection, plate solving, catalog matching; reused rather than rebuilt, see
   improvement plan 4.1), `utils/sources.py` (catalog matching against a local
   parquet), `products.py` (the per-frame document and product writer),
-  `provenance.py` (where a calibration value came from), `worklist.py` (which
-  frames need processing, and why), `status.py` (the pipeline's own stages),
+  `provenance.py` (where a calibration value came from), `registry.py` (the
+  camera registry: black, clip, gain and read noise per camera uid, with the
+  profiles themselves under `data/registry/units/{unit}/cameras/{uid}.json`;
+  edit a profile there, never derive one from `params_camera_*` in archive
+  records), `worklist.py` (which frames need processing, and why), `status.py`
+  (the pipeline's own stages),
   `processing.py` (calibration and the two entry points), `stamps.py` (the
   observation-level stamp cube, cut from the per-frame products into
   `stamps.parquet` and `positions.parquet` beside `observation.json`),
@@ -139,7 +144,7 @@ dependency group, so the package is importable and no `PYTHONPATH` is needed:
 
 ```bash
 uv sync                    # project + dev tooling
-uv run pytest              # 287 tests
+uv run pytest              # 331 tests
 uv run ruff check .        # lint
 uv run ruff format .       # format
 ```

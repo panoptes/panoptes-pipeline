@@ -4,6 +4,38 @@ Notable changes, newest first, in the [Keep a
 Changelog](https://keepachangelog.com/en/1.1.0/) format. The versioning policy
 -- and why this project is deliberately pre-1.0 -- is in `AGENTS.md`.
 
+## Unreleased
+
+### Added
+
+- A camera registry, `panoptes.pipeline.registry`: one profile per camera uid
+  at `units/{unit_id}/cameras/{uid}.json` holding what no raw header carries --
+  black level, the measured raw clip, gain and read noise, each with the method
+  that produced it. It ships with the package, with profiles for the 34
+  cameras on 14 units measured by `scripts/measure_gain.py`; point
+  `CameraSettings.registry_dir` at another root to use a different one. Keyed
+  on the camera uid (the six characters in `INSTRUME` and every
+  `sequence_id`), never `CAMSN`, which current POCS no longer writes. The four
+  PAN019 profiles hold black only and a warning, because that unit's raw values
+  are digitally scaled.
+- Every frame document records `image.registry_fingerprint`, a digest of the
+  profile its calibration was resolved against, and the work list reports a
+  frame as `registry changed` when that profile has been added, edited or
+  removed since -- only that camera's frames, not the archive.
+- `read_noise` in each frame's resolved calibration, from the registry or
+  recorded as unknown. Every resolved value can now carry an `uncertainty`.
+
+### Changed
+
+- Calibration resolves from the registry before the header where the header
+  keyword does not measure the value: the registry's clip outranks `WHTLVLN`
+  (Canon's rendering white point, 10--13% below the clip, which masked real
+  signal), and its gain outranks `EGAIN` (POCS's class constant of 1.5, which
+  no camera measures). Black level comes from the registry, replacing a default
+  of 512 that is wrong by 1536 ADU on every 2048-black body. Frames processed
+  before this have no `registry_fingerprint`, so the work list reprocesses any
+  whose camera has a profile.
+
 ## v0.5.0 -- 2026-11-06
 
 ### Added

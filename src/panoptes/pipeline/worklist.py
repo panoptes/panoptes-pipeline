@@ -35,7 +35,7 @@ from loguru import logger
 from panoptes.utils.images import fits as fits_utils
 from panoptes.utils.images.fits import ImagePathInfo
 
-from panoptes.pipeline import products
+from panoptes.pipeline import products, registry
 from panoptes.pipeline.settings import FileSettings, PipelineParams
 from panoptes.pipeline.status import ImageStatus, image_status
 
@@ -49,8 +49,10 @@ FITS_MATCHER = re.compile(r".*/\d{8}T\d{6}\.fits(\.fz)?$")
 class Reason(StrEnum):
     """Why a frame is, or is not, in the work list.
 
-    The four processing reasons are the ones data contract 5.2 names.
-    `UP_TO_DATE` is the fifth because a work list that shows only the work
+    Four of the processing reasons are the ones data contract 5.2 names;
+    `REGISTRY_CHANGED` is the same rule as `PARAMS_CHANGED`, applied to the
+    camera registry, whose content is not in the params fingerprint.
+    `UP_TO_DATE` is the last because a work list that shows only the work
     cannot be diffed against one taken before a settings change -- the frames
     that *stopped* needing work are as informative as the ones that started.
     """
@@ -59,6 +61,9 @@ class Reason(StrEnum):
     MISSING = "missing"
     #: A document exists but was produced by different settings.
     PARAMS_CHANGED = "params changed"
+    #: The camera's registry profile was added, edited or removed since. Only
+    #: that camera's frames, which is the point of fingerprinting per camera.
+    REGISTRY_CHANGED = "registry changed"
     #: The last attempt failed.
     PRIOR_ERROR = "prior error"
     #: A document exists but the frame never got past `PROCESSING`.
@@ -130,7 +135,8 @@ def decide(
 
     1. No ``metadata.json`` -- process.
     2. Present, status at or past `PROCESSING`, fingerprint matches -- skip.
-    3. Present, fingerprint differs, or status is an error -- reprocess.
+    3. Present, fingerprint differs, or status is an error -- reprocess. The
+       camera's registry profile is a second fingerprint, compared the same way.
     4. Forced -- always reprocess.
 
     Rule 3 is the one the old flow was missing. It stored `params` in the
@@ -164,6 +170,10 @@ def decide(
         reason = Reason.INCOMPLETE
     elif fingerprint != params.fingerprint:
         reason = Reason.PARAMS_CHANGED
+    elif image.get("registry_fingerprint") != registry.fingerprint(
+        path_info.unit_id, path_info.camera_id, root=params.camera.registry_dir
+    ):
+        reason = Reason.REGISTRY_CHANGED
     else:
         reason = Reason.UP_TO_DATE
 

@@ -430,7 +430,7 @@ across 37 cameras. For legacy frames black has to be determined camera by
 camera, since no header carries it and the archive holds no bias frames.
 `scripts/measure_gain.py` measures all four from a camera's own science frames.
 Run across every camera with usable archive data -- 28 cameras on 11 units,
-`plans/figures/gain_fleet.png` and `gain_fleet.csv` -- it finds no camera at
+`plans/figures/gain_units.png` and `gain_units.csv` -- it finds no camera at
 Table 2's 1.50 at a real ISO 100. The 1.50 is the POCS class constant (6.3),
 originally from PAN001, and PAN001's own cameras measure 2.1--2.4. Three sensor
 families show up, and the number is a property of the family, not the unit:

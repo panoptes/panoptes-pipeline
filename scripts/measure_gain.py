@@ -46,6 +46,13 @@ The clip is read straight off the raw histogram: the one value above `WHTLVLN`
 where the counts pile up. It is the detector's saturation and the registry
 stores it as measured, not derived from a header white point.
 
+The same histogram says whether the raw values were scaled before they were
+written. A digital scale of the signal above black leaves a comb of empty
+codes -- a 1.61 scale populates five codes in eight -- so the populated
+fraction of the codes the sky occupies is reported as a scale: 1.00 for an
+untouched raw, and the factor to divide the gain by otherwise. PAN019's four
+cameras carry a 1.61 with the EXIF still reading ISO 100 (data contract 6.2).
+
 Usage
 -----
 ::
@@ -383,6 +390,31 @@ def find_clip(histogram: np.ndarray, white_level: int) -> dict:
     }
 
 
+def find_scale(histogram: np.ndarray, black: float, clip: int, smooth: int = 15) -> dict:
+    """The digital scale of the raw values, from the comb they leave in the histogram.
+
+    A raw scaled by s above black populates one code in s: against a running
+    mean over `smooth` codes, a code holding under 30% of its neighbourhood is
+    empty. The populated fraction is measured where the sky puts the counts --
+    between black and the 95th percentile of all pixels, below the clip -- and
+    only where the neighbourhood is well sampled, so a sparse tail cannot read
+    as a comb. An untouched raw returns 1.00.
+    """
+    counts = histogram[: clip - 2].astype(float)
+    total = counts.sum()
+    if total == 0:
+        return {"scale": float("nan"), "populated_fraction": float("nan"), "codes": 0}
+    p95 = int(np.searchsorted(np.cumsum(counts), 0.95 * total))
+    lo, hi = int(black) + smooth, max(p95, int(black) + 3 * smooth)
+    window = counts[lo:hi]
+    local = np.convolve(window, np.ones(smooth) / smooth, mode="same")
+    sampled = local >= 100
+    if sampled.sum() < 3 * smooth:
+        return {"scale": float("nan"), "populated_fraction": float("nan"), "codes": int(sampled.sum())}
+    populated = float((window[sampled] > 0.3 * local[sampled]).mean())
+    return {"scale": 1 / populated, "populated_fraction": populated, "codes": int(sampled.sum())}
+
+
 def plot(
     table: pd.DataFrame, fits: dict, pairs: dict, clip: dict, histogram: np.ndarray, title: str, path: Path
 ):
@@ -494,6 +526,21 @@ def plot(
     ax_hist.set_xlabel("raw ADU")
     ax_hist.set_ylabel("pixel count, all frames")
     ax_hist.text(0.02, 0.95, "top of the raw histogram", transform=ax_hist.transAxes, fontsize=9, va="top")
+    if np.isfinite(clip.get("scale", np.nan)):
+        scale_label = (
+            f"raw scaled by {clip['scale']:.2f}: {1 - clip['populated_fraction']:.0%} of codes empty"
+            if clip["scale"] > 1.05
+            else "no missing codes: raw unscaled"
+        )
+        ax_hist.text(
+            0.02,
+            0.85,
+            scale_label,
+            transform=ax_hist.transAxes,
+            fontsize=8,
+            va="top",
+            color="r" if clip["scale"] > 1.05 else "gray",
+        )
     ax_hist.grid(alpha=0.3)
     fig.savefig(path, dpi=130, bbox_inches="tight")
 
@@ -576,6 +623,17 @@ def run(args: argparse.Namespace) -> int:
     pairs = {name: fit_pairs(table[table.phase == name], drift_series, args.min_range) for name in PHASES}
     pairs["all phases"] = fit_pairs(table, drift_series, args.min_range)
     clip = find_clip(histogram, white_level)
+    clip.update(find_scale(histogram, args.black, clip["clip"]))
+    # The scale is a per-frame state, so a mixed set reads between values: one
+    # mid-sequence frame per sequence says which sequences carry it.
+    scale_by_sequence = {}
+    for sequence in dict.fromkeys(f.sequence for f in frames):
+        seq_frames = [f for f in frames if f.sequence == sequence]
+        data = read_data(seq_frames[len(seq_frames) // 2].path)
+        if data is not None:
+            frame_hist = np.bincount(data.ravel(), minlength=ADC_LEVELS)
+            scale_by_sequence[sequence] = find_scale(frame_hist, args.black, clip["clip"])["scale"]
+    clip["scale_by_sequence"] = scale_by_sequence
     pair_tables = [p["pairs"].assign(phase=name) for name, p in pairs.items() if len(p["pairs"])]
     if pair_tables:
         pd.concat(pair_tables, ignore_index=True).to_csv(output / "pairs.csv", index=False)
@@ -598,8 +656,10 @@ def run(args: argparse.Namespace) -> int:
 
     print(
         f"\nclip {clip['clip']} ADU ({clip['pixels_at_clip']} px at it, {clip['pixels_above_clip']} above); "
-        f"WHTLVLN {white_level}"
+        f"WHTLVLN {white_level}; raw scale {clip['scale']:.2f} "
+        f"({1 - clip['populated_fraction']:.0%} of sky codes empty over {clip['codes']} codes)"
     )
+    print("raw scale per sequence: " + ", ".join(f"{k} {v:.2f}" for k, v in scale_by_sequence.items()))
     print(
         f"{'set':<12}{'blocks':>8}{'level':>14}{'gain':>8}{'±':>7}{'1-line':>8}{'black(int)':>11}{'RN e-':>7}"
         f"{'pairs':>7}{'median':>8}{'p10-p90':>14}{'g(drift→0)':>12}{'r':>6}"

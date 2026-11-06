@@ -67,3 +67,23 @@ def test_find_clip_counts_the_pile_with_its_neighbour():
     assert clip["clip"] == 13583
     assert clip["pixels_at_clip"] == 140_005
     assert clip["pixels_above_clip"] == 3
+
+
+def _sky_histogram(scale: float, black: int = 2048, clip: int = 16383) -> np.ndarray:
+    """A sky histogram whose raw values were scaled by `scale` above black."""
+    rng = np.random.default_rng(1)
+    electrons = rng.normal(900, 60, size=2_000_000).clip(0)
+    raw = black + np.rint(np.rint(electrons) * scale).astype(int)
+    return np.bincount(np.minimum(raw, clip), minlength=measure_gain.ADC_LEVELS)
+
+
+def test_find_scale_reads_the_comb_of_a_scaled_raw():
+    scaled = measure_gain.find_scale(_sky_histogram(1.61), black=2048, clip=16383)
+    assert abs(scaled["scale"] - 1.61) < 0.03
+    assert scaled["codes"] > 100
+
+    plain = measure_gain.find_scale(_sky_histogram(1.0), black=2048, clip=13583)
+    assert plain["scale"] == 1.0
+
+    empty = measure_gain.find_scale(np.zeros(measure_gain.ADC_LEVELS, dtype=int), black=2048, clip=13583)
+    assert np.isnan(empty["scale"])

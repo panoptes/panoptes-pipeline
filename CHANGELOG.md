@@ -32,7 +32,10 @@ Changelog](https://keepachangelog.com/en/1.1.0/) format. The versioning policy
   distribution per sequence -- a wide spread is cloud, not the camera -- and
   the per-pair gain against the pointing drift read from the WCS, because
   unresolved stars under drift are the systematic this measurement cannot
-  remove. Output is `gain.json`, the block and pair tables, and `gain.png`
+  remove. It also reads the digital scale of the raw values off the comb of
+  empty codes a scaled raw leaves in the sky histogram (1.61 on PAN019, with
+  the EXIF still reading ISO 100), since that changes gain and clip alike.
+  Output is `gain.json`, the block and pair tables, and `gain.png`
   titled with unit and camera. This is improvement plan 1.4's "measure, do not
   configure" for the registry in #135.
 - `process_frame` and `process_observation` take `solve_options`, extra

@@ -73,8 +73,6 @@ Changelog](https://keepachangelog.com/en/1.1.0/) format. The versioning policy
   same path is still picked up, the result is a shallow copy so callers cannot
   corrupt the cached frame, and `read_catalog.cache_clear()` drops it.
 
-### Changed
-
 - `pandas` is now floored at `>=3`. Copy-on-write is unconditional there, which
   is what makes the shallow copy `read_catalog` returns genuinely isolate the
   cached catalog; on 2.x copy-on-write can be off and a caller writing through
@@ -171,8 +169,6 @@ Changelog](https://keepachangelog.com/en/1.1.0/) format. The versioning policy
   sequence. Calibration is `calibrate`; the sequence document is written once
   at the end of a batch, by the only writer that exists at that point.
 
-### Changed
-
 - Lint settings are now shared with `panoptes-utils` and POCS: 110 columns and
   `E`, `W`, `F`, `I`, `UP`. The accompanying reflow touched 24 files and changed
   no behavior.
@@ -216,6 +212,13 @@ Changelog](https://keepachangelog.com/en/1.1.0/) format. The versioning policy
   which would now change the params fingerprint from frame to frame.
 - `panoptes-utils` floor raised to `0.3.1`, which introduced `ImagePathInfo`;
   it is now imported from `panoptes.utils.images.fits`.
+
+### Removed
+
+- `panoptes-data` is no longer a dependency: nothing imported it once
+  `ImagePathInfo` moved to `panoptes-utils`, and it is downstream of this
+  pipeline. The `<0.2` pin goes with it, along with 21 transitive packages
+  including `ipython` and `ipywidgets`.
 
 ### Fixed
 
@@ -292,13 +295,6 @@ Changelog](https://keepachangelog.com/en/1.1.0/) format. The versioning policy
   built a 0-d mask when there was none. It was unreachable only because the
   fleet-wide saturation default was too high to mask anything; resolving
   saturation from the header makes real masks appear.
-
-### Removed
-
-- `panoptes-data` is no longer a dependency: nothing imported it once
-  `ImagePathInfo` moved to `panoptes-utils`, and it is downstream of this
-  pipeline. The `<0.2` pin goes with it, along with 21 transitive packages
-  including `ipython` and `ipywidgets`.
 
 ## v0.4.0 -- 2026-09-12
 

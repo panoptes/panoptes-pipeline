@@ -279,8 +279,22 @@ def match_sources(
 
 
 def detect_sources(
-    solved_wcs0, reduced_data, combined_bg_data, combined_bg_residual_data, settings: ImageSettings
+    solved_wcs0,
+    reduced_data,
+    combined_bg_data,
+    combined_bg_residual_data,
+    settings: ImageSettings,
+    effective_gain: float | None = None,
 ):
+    """Detect, deblend and measure sources in a reduced frame.
+
+    `effective_gain` is the frame's resolved gain in e-/ADU, which sets the
+    Poisson term of every source's flux error. Pass the resolved value
+    (`provenance.resolve_camera`); without it the fleet-wide setting is used,
+    which is the 1.5 no camera measures (data contract 6.3).
+    """
+    if effective_gain is None:
+        effective_gain = settings.params.camera.effective_gain
     print("Detecting sources in image")
     threshold = settings.params.catalog.detection_threshold * combined_bg_residual_data
     kernel = convolution.Gaussian2DKernel(3 * gaussian_fwhm_to_sigma)
@@ -331,10 +345,8 @@ def detect_sources(
         nlevels=32,
         contrast=0.01,
     )
-    print(f"Calculating total error for data using gain={settings.params.camera.effective_gain}")
-    error = calc_total_error(
-        data, np.asarray(combined_bg_residual_data), settings.params.camera.effective_gain
-    )
+    print(f"Calculating total error for data using gain={effective_gain}")
+    error = calc_total_error(data, np.asarray(combined_bg_residual_data), effective_gain)
     table_cols = [
         "background_mean",
         "background_centroid",

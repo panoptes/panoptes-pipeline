@@ -144,7 +144,7 @@ dependency group, so the package is importable and no `PYTHONPATH` is needed:
 
 ```bash
 uv sync                    # project + dev tooling
-uv run pytest              # 331 tests
+uv run pytest              # 332 tests
 uv run ruff check .        # lint
 uv run ruff format .       # format
 ```

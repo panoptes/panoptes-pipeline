@@ -35,6 +35,10 @@ Changelog](https://keepachangelog.com/en/1.1.0/) format. The versioning policy
   of 512 that is wrong by 1536 ADU on every 2048-black body. Frames processed
   before this have no `registry_fingerprint`, so the work list reprocesses any
   whose camera has a profile.
+- Source flux errors use the frame's resolved gain. `detect_sources` read the
+  fleet-wide `effective_gain` setting directly, so the Poisson term of every
+  error assumed 1.5 e-/ADU whatever had been resolved; it now takes
+  `effective_gain`, and `process_frame` passes the resolved value.
 
 ## v0.5.0 -- 2026-11-06
 

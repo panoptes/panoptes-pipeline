@@ -12,7 +12,7 @@ import pandas
 import pytest
 from astropy.io import fits
 
-from panoptes.pipeline import processing, products, worklist
+from panoptes.pipeline import processing, products, registry, worklist
 from panoptes.pipeline.processing import SolverMissing
 from panoptes.pipeline.settings import (
     CameraSettings,
@@ -156,6 +156,26 @@ def test_source_detection_runs_on_a_calibrated_frame(starfield, params, tmp_path
     assert len(detected) > 0
     assert "photutils_sky_centroid_ra" in detected.columns
     assert detected.photutils_fwhm.notna().all()
+
+
+def test_source_errors_use_the_gain_they_are_given(starfield, params, tmp_path):
+    """The resolved gain must reach the flux errors, not the 1.5 setting.
+
+    `detect_sources` read `settings.params.camera.effective_gain` directly, so a
+    registry gain was resolved, recorded in the document, and then not used.
+    A higher gain means fewer electrons per ADU of noise, so smaller errors.
+    """
+    settings = ImageSettings(params=params, output_dir=tmp_path)
+    assert params.camera.effective_gain == 1.5
+
+    def errors(**kwargs):
+        reduced, background, rms = starfield.reduced, starfield.background, starfield.rms
+        detected = detect_sources(synthetic_wcs(), reduced, background, rms, settings=settings, **kwargs)
+        return detected.set_index("photutils_label").photutils_segment_flux_err
+
+    default, measured = errors(), errors(effective_gain=2.3)
+
+    assert (measured < default).all()
 
 
 def test_deblending_is_available(starfield):
@@ -367,11 +387,17 @@ def test_a_frame_processes_end_to_end(widefield, widefield_catalog, tmp_path):
     assert document["image"]["status"] == "MATCHED"
     assert document["image"]["params_fingerprint"] == params.fingerprint
 
-    # Saturation resolved from the header, not a fleet-wide default. This is the
-    # value #183 exists to get right, asserted on a real frame.
-    saturation = document["image"]["calibration"]["saturation"]
-    assert saturation["provenance"] == "header"
-    assert saturation["source"] == "WHTLVLN"
+    # The fixture is PAN025 / df3495, which the packaged camera registry knows,
+    # so saturation is its measured clip rather than `WHTLVLN` (a white point
+    # below the clip) or a fleet-wide default -- #183 and #135, asserted on a
+    # real frame. Black and gain come from the same profile.
+    calibration = document["image"]["calibration"]
+    assert calibration["saturation"]["provenance"] == "registry"
+    assert calibration["saturation"]["source"] == "units/PAN025/cameras/df3495.clip"
+    assert calibration["saturation"]["value"] == 13583
+    assert calibration["zero_bias"]["value"] == 2048
+    assert calibration["effective_gain"]["provenance"] == "registry"
+    assert document["image"]["registry_fingerprint"] == registry.fingerprint("PAN025", "df3495")
 
     matched = pandas.read_parquet(written["sources"])
     assert len(matched) > 1000, "detection or matching has collapsed"

@@ -240,7 +240,12 @@ def process_frame(
         )
 
         detected = detect_sources(
-            wcs, calibrated.reduced, calibrated.background, calibrated.rms, settings=settings
+            wcs,
+            calibrated.reduced,
+            calibrated.background,
+            calibrated.rms,
+            settings=settings,
+            effective_gain=calibrated.calibration["effective_gain"].value,
         )
         matched = match_sources(
             detected,

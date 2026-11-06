@@ -187,7 +187,7 @@ not name them. Pass `solve_options={"--config": "/path/to/astrometry.cfg"}` to
 several sequences allowed -- and measures gain, black level and the raw clip by
 photon transfer on the sky, for the camera registry (#135, #99). Read its
 docstring before trusting a number from it: on science frames the gain is
-measured per Bayer phase with one intercept per sequence, and anything that
+measured per Bayer channel with one intercept per sequence, and anything that
 adds variance between two frames (cloud, drift over unresolved stars) biases
 it low, so the per-pair spread it prints per sequence is the quality flag. Use
 a photometric night with the widest sky range available; a dark sky gives no

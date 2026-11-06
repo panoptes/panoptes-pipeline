@@ -436,7 +436,7 @@ originally from PAN001, and PAN001's own cameras measure 2.1--2.4. Three sensor
 families show up, and the number is a property of the family, not the unit:
 
 - **5208x3476 (EOS 100D class; PAN001, 006, 008, 010, 012)**: black 2048, clip
-  13583, gain 2.1--2.5 per Bayer phase across ten cameras, with clean
+  13583, gain 2.1--2.5 per Bayer channel across ten cameras, with clean
   sequences giving 2.3--2.6.
 - **6020x4016 (24 MP class; PAN019, 022, 023, 025)**: black 2048, clip 13583,
   gain 1.9--2.3 on the fourteen cameras whose raw clips at 13583.
@@ -446,13 +446,13 @@ families show up, and the number is a property of the family, not the unit:
 **PAN019's raw values are digitally scaled by 1.61, and no header says so.**
 The four PAN019 cameras clip at the ADC rail of 16383 rather than 13583 and
 measure 1.1--1.6, 0.6x the rest of their family. Their sky histograms have a
-comb: 38% of the raw codes above black are empty, the populated fraction
+comb: 38% of the raw codes above black are empty in every channel, the populated fraction
 implies a scale of 1.61 on every frame of every PAN019 camera, and the black
 stays at 2048, so the scaling is applied to (raw - black) before the 14-bit
 container clips it. The same body (`438751`) is the control: for 29 sequences
 from February to June 2022 it clipped at 13583, had no comb, collected 0.6x
 the sky ADU of its sibling cameras on the same sequences, and measured
-2.33--2.35 per phase; before and after that window it matches its siblings
+2.33--2.35 per channel; before and after that window it matches its siblings
 and measures 1.3--1.6. The `ISO` keyword comes from the CR2's EXIF (the
 camera reports 100 throughout), POCS sends `iso=100` on every exposure, and
 `WHTLVLN` is the same 11765 in both states, so the camera's own firmware

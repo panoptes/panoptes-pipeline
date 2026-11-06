@@ -171,13 +171,13 @@ bias-contaminated stamp is not the same as normalization of a clean one.
 
 Table 2's bias and saturation are verified against raw data; its gain is not,
 and is wrong. Photon transfer on the sky (`scripts/measure_gain.py`, per Bayer
-phase, star-masked, consecutive-frame differences) gives **2.32--2.41 e-/ADU**
+channel, star-masked, consecutive-frame differences) gives **2.32--2.41 e-/ADU**
 on `PAN012_358d0f_20180824T035917`, and an independent re-measurement of the
 same frames gave 2.35 ± 0.10; the two PAN001 cameras give 2.1--2.4 and a
 PAN007 body 2.25--2.30. Every photon-noise floor computed at 1.50 is 24%
 too high, the square root of the gain ratio. On `PAN012_358d0f_20180824T035917` the
 raw histogram of every frame piles up at exactly **13583 ADU** in all four
-Bayer phases, with no roll-off below it and only isolated hot pixels above:
+Bayer channels, with no roll-off below it and only isolated hot pixels above:
 2048 + 11535 = 13583, the paper's bias plus its saturation. The header's
 `WHTLVLN` (11765) and `WHTLVLS` (12277) are Canon's `NormalWhiteLevel` and
 `SpecularWhiteLevel` maker-note tags copied verbatim by `panoptes-utils`; they

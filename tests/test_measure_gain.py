@@ -22,7 +22,7 @@ def synthetic_blocks(gain: float, black: float, offsets: dict[str, float], seed:
             for k, (x, y) in enumerate(zip(level, variance)):
                 rows.append((sequence, pair, "G2 (0,0)", k, x, y, 1.0))
     table = pd.DataFrame(
-        rows, columns=["sequence", "pair", "phase", "block", "level", "variance", "fraction"]
+        rows, columns=["sequence", "pair", "channel", "block", "level", "variance", "fraction"]
     )
     table["pair_id"] = table.sequence + ":" + table.pair.astype(str)
     return table

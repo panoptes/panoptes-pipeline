@@ -26,7 +26,7 @@ Changelog](https://keepachangelog.com/en/1.1.0/) format. The versioning policy
   `observation.h5` still loads.
 - `scripts/measure_gain.py` measures a camera's gain, black level and raw clip
   from its own science frames by photon transfer on the sky: variance of
-  consecutive-frame differences against level, per Bayer phase, in star-masked
+  consecutive-frame differences against level, per Bayer channel, in star-masked
   sigma-clipped blocks, with one intercept per sequence so sequences from
   different nights can be combined for lever arm. It reports the per-pair gain
   distribution per sequence -- a wide spread is cloud, not the camera -- and
@@ -208,7 +208,7 @@ Changelog](https://keepachangelog.com/en/1.1.0/) format. The versioning policy
 ### Fixed
 
 - `measure_gain.py` no longer crashes when plotting a camera whose per-pair
-  fit finds no pair with enough sky range in some Bayer phase.
+  fit finds no pair with enough sky range in some Bayer channel.
 
 - `sources.get_catalog_match` documents the function that exists. Its docstring
   described a `return_unmatched` argument -- in `Args:`, a `Note:`, a `Warning:`

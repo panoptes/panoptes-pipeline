@@ -26,9 +26,9 @@ where ``L`` is the raw level of the block, black included. The difference of two
 frames cancels everything fixed between them -- vignetting, the sky gradient,
 PRNU, the dark fixed pattern -- so what is left is the temporal variance alone,
 and its slope against level is the gain. The variance is measured per Bayer
-phase, because the four phases sit at different sky levels and a slope fitted
+channel, because the four channels sit at different sky levels and a slope fitted
 across a mixture of them is a slope through four different populations; the
-per-phase fits are the measurement, and the pooled fit is reported beside them
+per-channel fits are the measurement, and the pooled fit is reported beside them
 so the two can be compared, as #99 asks.
 
 Each block is sigma-clipped and anything the median template calls a star is
@@ -82,11 +82,11 @@ import pandas as pd
 from scipy import ndimage
 from scipy.stats import norm
 
-#: Bayer phases as ``(row offset, column offset)`` into the raw frame. The
+#: Bayer channels as ``(row offset, column offset)`` into the raw frame. The
 #: panoptes-utils convention is superpixel ``[[G2, B], [R, G1]]``; the two
-#: diagonal phases are the greens, which the data confirm by their matching
+#: diagonal channels are the greens, which the data confirm by their matching
 #: sky level. The off-diagonal names are the convention's, not measured.
-PHASES = {"G2 (0,0)": (0, 0), "B (0,1)": (0, 1), "R (1,0)": (1, 0), "G1 (1,1)": (1, 1)}
+CHANNELS = {"G2 (0,0)": (0, 0), "B (0,1)": (0, 1), "R (1,0)": (1, 0), "G1 (1,1)": (1, 1)}
 
 #: 14-bit raw: histogram bins cover every value the ADC can produce.
 ADC_LEVELS = 2**14
@@ -173,9 +173,9 @@ def clipped_variance(values: np.ndarray, good: np.ndarray, nsig: float = 4.0, it
 
 
 def star_mask(template: np.ndarray, threshold: float, dilate: int) -> np.ndarray:
-    """Pixels the median template puts above the local sky, per phase, grown by `dilate`."""
+    """Pixels the median template puts above the local sky, per channel, grown by `dilate`."""
     mask = np.zeros(template.shape, dtype=bool)
-    for dy, dx in PHASES.values():
+    for dy, dx in CHANNELS.values():
         plane = template[dy::2, dx::2]
         residual = plane - ndimage.median_filter(plane, size=31)
         sigma = 1.4826 * np.median(np.abs(residual))
@@ -190,7 +190,7 @@ def build_template(paths: list[str], every: int, max_frames: int) -> np.ndarray:
 
 
 def pair_variance(args: tuple) -> tuple[list[tuple], np.ndarray]:
-    """One frame pair: per-phase block levels and variances, plus the pair's raw histogram."""
+    """One frame pair: per-channel block levels and variances, plus the pair's raw histogram."""
     sequence, i, path_a, path_b, mask_path, block, clip_margin, white_level = args
     a = read_data(path_a)
     b = read_data(path_b)
@@ -199,7 +199,7 @@ def pair_variance(args: tuple) -> tuple[list[tuple], np.ndarray]:
     histogram = np.bincount(a.ravel(), minlength=ADC_LEVELS) + np.bincount(b.ravel(), minlength=ADC_LEVELS)
     mask = np.load(mask_path, mmap_mode="r")
     rows = []
-    for name, (dy, dx) in PHASES.items():
+    for name, (dy, dx) in CHANNELS.items():
         plane_a = a[dy::2, dx::2].astype(np.float32)
         plane_b = b[dy::2, dx::2].astype(np.float32)
         blocks_a, blocks_b = blocks(plane_a, block), blocks(plane_b, block)
@@ -395,7 +395,7 @@ def find_scale(histogram: np.ndarray, black: float, clip: int, smooth: int = 15)
 
     A raw scaled by s above black populates one code in s: against a running
     mean over `smooth` codes, a code holding under 30% of its neighbourhood is
-    empty. Give it one Bayer phase: each phase's empty codes sit at different
+    empty. Give it one Bayer channel: each channel's empty codes sit at different
     positions, so a whole frame's comb is partly filled in and reads low.
     The populated fraction is measured where the sky puts the counts --
     between black and the 95th percentile of all pixels, below the clip -- and
@@ -443,7 +443,7 @@ def plot(
         fit = fits[name]
         slope = 1 / fit["gain"]
         for s, sequence in enumerate(sequences):
-            group = table[(table.phase == name) & (table.sequence == sequence)]
+            group = table[(table.channel == name) & (table.sequence == sequence)]
             if group.empty:
                 continue
             idx = np.digitize(group.level, bins)
@@ -487,12 +487,12 @@ def plot(
     ax_res.grid(alpha=0.3)
     plt.setp(ax.get_xticklabels(), visible=False)
 
-    all_pairs = pd.concat([pairs[name]["pairs"].assign(phase=name) for name in colors], ignore_index=True)
+    all_pairs = pd.concat([pairs[name]["pairs"].assign(channel=name) for name in colors], ignore_index=True)
     has_drift = np.isfinite(all_pairs.drift).any()
     if len(all_pairs):
         for s, sequence in enumerate(sequences):
             for name, color in colors.items():
-                group = all_pairs[(all_pairs.sequence == sequence) & (all_pairs.phase == name)]
+                group = all_pairs[(all_pairs.sequence == sequence) & (all_pairs.channel == name)]
                 x = group.drift if has_drift else np.arange(len(group))
                 ax_pairs.plot(x, group.gain, markers[s % len(markers)], color=color, ms=4, alpha=0.7)
         if has_drift and len(sequences) == 1:
@@ -513,7 +513,7 @@ def plot(
     ax_pairs.set_xlabel(
         "pointing drift between the two frames [px]" if has_drift else "pair (no WCS, drift unknown)"
     )
-    ax_pairs.set_ylabel("per-pair gain, per phase [e-/ADU]")
+    ax_pairs.set_ylabel("per-pair gain, per channel [e-/ADU]")
     ax_pairs.grid(alpha=0.3)
 
     c = clip["clip"]
@@ -596,6 +596,7 @@ def run(args: argparse.Namespace) -> int:
         print(f"reusing {blocks_path} and {histogram_path}")
         table = pd.read_csv(blocks_path)
         histogram = np.load(histogram_path)
+        table = table.rename(columns={"phase": "channel"})
     else:
         histogram = np.zeros(ADC_LEVELS, dtype=np.int64)
         rows = []
@@ -607,7 +608,7 @@ def run(args: argparse.Namespace) -> int:
                 histogram += pair_hist
         if skipped:
             print(f"skipped {len(skipped)} pair(s) with an unreadable frame: {', '.join(skipped)}")
-        columns = ["sequence", "pair", "phase", "block", "level", "variance", "fraction"]
+        columns = ["sequence", "pair", "channel", "block", "level", "variance", "fraction"]
         table = pd.DataFrame(rows, columns=columns)
         table["pair_id"] = table.sequence + ":" + table.pair.astype(str)
         table = table[table.fraction > args.min_fraction]
@@ -620,28 +621,28 @@ def run(args: argparse.Namespace) -> int:
         drift_by_pair.update({f"{sequence}:{i}": d for i, d in enumerate(step)})
     drift_series = pd.Series(drift_by_pair, dtype=float)
 
-    fits = {name: fit_group(table[table.phase == name], args.black) for name in PHASES}
-    fits["all phases"] = fit_group(table, args.black)
-    pairs = {name: fit_pairs(table[table.phase == name], drift_series, args.min_range) for name in PHASES}
-    pairs["all phases"] = fit_pairs(table, drift_series, args.min_range)
+    fits = {name: fit_group(table[table.channel == name], args.black) for name in CHANNELS}
+    fits["all channels"] = fit_group(table, args.black)
+    pairs = {name: fit_pairs(table[table.channel == name], drift_series, args.min_range) for name in CHANNELS}
+    pairs["all channels"] = fit_pairs(table, drift_series, args.min_range)
     clip = find_clip(histogram, white_level)
     clip.update(find_scale(histogram, args.black, clip["clip"]))
     # The scale is a per-frame state, so a mixed set reads between values: one
     # mid-sequence frame per sequence says which sequences carry it. Read on
-    # one Bayer phase: the empty codes of the four phases sit at different
+    # one Bayer channel: the empty codes of the four channels sit at different
     # positions, so the comb of a whole frame is partly filled in.
     scale_by_sequence = {}
     for sequence in dict.fromkeys(f.sequence for f in frames):
         seq_frames = [f for f in frames if f.sequence == sequence]
         data = read_data(seq_frames[len(seq_frames) // 2].path)
         if data is not None:
-            phase_hist = np.bincount(data[0::2, 0::2].ravel(), minlength=ADC_LEVELS)
-            scale_by_sequence[sequence] = find_scale(phase_hist, args.black, clip["clip"])["scale"]
+            channel_hist = np.bincount(data[0::2, 0::2].ravel(), minlength=ADC_LEVELS)
+            scale_by_sequence[sequence] = find_scale(channel_hist, args.black, clip["clip"])["scale"]
     clip["scale_by_sequence"] = scale_by_sequence
-    clip["scale_all_phases"] = clip["scale"]
+    clip["scale_all_channels"] = clip["scale"]
     if scale_by_sequence:
         clip["scale"] = float(np.nanmedian(list(scale_by_sequence.values())))
-    pair_tables = [p["pairs"].assign(phase=name) for name, p in pairs.items() if len(p["pairs"])]
+    pair_tables = [p["pairs"].assign(channel=name) for name, p in pairs.items() if len(p["pairs"])]
     if pair_tables:
         pd.concat(pair_tables, ignore_index=True).to_csv(output / "pairs.csv", index=False)
 
@@ -664,7 +665,7 @@ def run(args: argparse.Namespace) -> int:
     print(
         f"\nclip {clip['clip']} ADU ({clip['pixels_at_clip']} px at it, {clip['pixels_above_clip']} above); "
         f"WHTLVLN {white_level}; raw scale {clip['scale']:.2f} (median over sequences; "
-        f"{1 - clip['populated_fraction']:.0%} of sky codes empty over {clip['codes']} codes, all phases)"
+        f"{1 - clip['populated_fraction']:.0%} of sky codes empty over {clip['codes']} codes, all channels)"
     )
     print("raw scale per sequence: " + ", ".join(f"{k} {v:.2f}" for k, v in scale_by_sequence.items()))
     print(
@@ -683,13 +684,13 @@ def run(args: argparse.Namespace) -> int:
             f"{read_noise:>7.1f}{p['num_pairs']:>7}{p.get('gain_median', float('nan')):>8.3f}"
             f"{spread:>14}{at_zero}"
         )
-    print("\nper sequence, all phases (per-pair gains; a wide p10-p90 is cloud or haze, not the camera):")
+    print("\nper sequence, all channels (per-pair gains; a wide p10-p90 is cloud or haze, not the camera):")
     print(
         f"{'sequence':<18}{'pairs':>6}{'median':>8}{'p10-p90':>14}{'drift px':>10}"
         f"{'black(int)':>11}{'RN e-':>7}"
     )
-    pooled = fits["all phases"]
-    for name, p in pairs["all phases"].get("per_sequence", {}).items():
+    pooled = fits["all channels"]
+    for name, p in pairs["all channels"].get("per_sequence", {}).items():
         print(
             f"{name:<18}{p['num_pairs']:>6}{p['gain_median']:>8.3f}{p['gain_p10']:>7.3f}-{p['gain_p90']:<6.3f}"
             f"{p['median_drift']:>10.2f}{pooled['black_intercept'][name]:>11.0f}{pooled['read_noise_e'][name]:>7.1f}"
@@ -711,7 +712,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("sequences", nargs="+", help="Raw sequence directories, one camera and ISO")
     parser.add_argument("--output", required=True, help="Directory for the tables, gain.json and gain.png")
-    parser.add_argument("--block", type=int, default=64, help="Block side in pixels of one Bayer phase")
+    parser.add_argument("--block", type=int, default=64, help="Block side in pixels of one Bayer channel")
     parser.add_argument("--pair-step", type=int, default=1, help="Frames between the two of a pair")
     parser.add_argument("--black", type=float, default=2048.0, help="Black level assumed for the read noise")
     parser.add_argument("--white-level", type=int, default=11765, help="Fallback when WHTLVLN is absent")

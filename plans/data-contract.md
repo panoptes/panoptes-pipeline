@@ -484,12 +484,23 @@ into registry values. Until then: 2.3 +/- 0.2 for the 100D class, 2.1 +/- 0.2
 for the 24 MP class at a 13583 clip, 2.3 +/- 0.1 for PAN007, and the 24 MP
 value divided by the measured scale for a PAN019 frame with a comb.
 
-It lives at `units/{unit_id}/cameras/{uid}.json` under a registry root -- the
-same shape a document store would use, readable offline, no new mechanism --
-and the root ships inside this package, so a release says exactly which
-calibration it carries. It is not a schema addition to `panoptes-data`;
-putting the pipeline's calibration constants in the read client is the same
-inversion as the status enums in 5.2.
+It lives in the same tree as everything else, at
+`units/{unit_id}/cameras/{uid}.json` -- the same shape a document store would
+use, readable offline, no new mechanism. It is not a schema addition to
+`panoptes-data`; putting the pipeline's calibration constants in the read
+client is the same inversion as the status enums in 5.2.
+
+**It is data, not code, and is not in this repository.** A profile is a
+measurement: it changes when the camera is measured again, the set grows when
+a camera is added, and other repositories need it without installing this
+one. Versioning it with the code would make every new measurement a release,
+and reproducibility does not need that, because each frame document records
+the fingerprint of the profile it was calibrated with. The root is
+`CameraSettings.registry_dir`, beside the archive and the processed runs, and
+has no default: the processing entry points refuse to start without one, since
+running without it is calibrating every frame with fleet-wide defaults.
+`scripts/write_registry.py` writes profiles from `measure_gain.py` results and
+never overwrites one that has been edited by hand.
 
 Each value carries the method that produced it -- the body's known black,
 the histogram clip, the family gain, a camera's own sky photon transfer, or a

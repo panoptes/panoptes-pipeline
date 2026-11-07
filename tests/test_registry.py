@@ -7,7 +7,7 @@ import pytest
 from astropy.io import fits
 from panoptes.utils.images.fits import ImagePathInfo
 
-from panoptes.pipeline import products, provenance, registry, worklist
+from panoptes.pipeline import processing, products, provenance, registry, worklist
 from panoptes.pipeline.processing import calibrate
 from panoptes.pipeline.provenance import Provenance
 from panoptes.pipeline.settings import CameraSettings, PipelineParams
@@ -50,48 +50,6 @@ def header(raw_header):
     header["SEQID"] = f"{UNIT}_{CAMERA}_20220115T082108"
     header["IMAGEID"] = f"{UNIT}_{CAMERA}_20220115T082200"
     return header
-
-
-# --- the packaged registry ------------------------------------------------
-
-
-def test_the_packaged_registry_holds_every_measured_camera():
-    profiles = registry.profiles()
-
-    assert len(profiles) == 34
-    assert len({(p.unit_id, p.camera_uid) for p in profiles}) == 34
-
-
-def test_no_packaged_profile_carries_a_fleet_wide_default():
-    """``params_camera_*`` is never a profile source, so its values must not appear here."""
-    defaults = CameraSettings()
-
-    for profile in registry.profiles():
-        if profile.gain is not None:
-            assert profile.gain.value != defaults.effective_gain, profile.camera_uid
-        if profile.clip is not None:
-            assert profile.clip.value != defaults.saturation, profile.camera_uid
-
-
-def test_every_packaged_profile_knows_its_black_level():
-    for profile in registry.profiles():
-        assert profile.black_level is not None, profile.camera_uid
-        assert profile.black_level.value in (512, 2048), profile.camera_uid
-
-
-def test_pan019_carries_a_warning_and_no_iso_dependent_values():
-    pan019 = [p for p in registry.profiles() if p.unit_id == "PAN019"]
-
-    assert len(pan019) == 4
-    for profile in pan019:
-        assert profile.warning
-        assert (profile.clip, profile.gain, profile.read_noise) == (None, None, None)
-
-
-def test_the_serial_is_a_string_with_its_leading_zero():
-    profile = registry.load_profile("PAN012", "358d0f")
-
-    assert profile.serial_number == "022071154939"
 
 
 # --- loading --------------------------------------------------------------
@@ -141,14 +99,67 @@ def test_the_fingerprint_ignores_formatting_and_follows_content(registry_root):
     assert edited != before
 
 
-def test_the_camera_comes_from_seqid_then_imageid(header):
-    assert registry.camera_from_header(header) == (UNIT, CAMERA)
+def test_the_header_identity_is_the_shared_one(header, registry_root):
+    """`worklist.identify_header`, i.e. `panoptes-utils`' `from_fits_header`, not a local parse."""
+    settings = CameraSettings(registry_dir=registry_root)
+    assert "FILENAME" in header  # the shared parser tries it first and falls back to SEQID
+    assert worklist.identify_header(header).camera_id == CAMERA
 
-    header["SEQID"] = ""
-    assert registry.camera_from_header(header) == (UNIT, CAMERA)
+    assert provenance.camera_profile(header, settings) == registry.load_profile(UNIT, CAMERA, registry_root)
 
-    del header["IMAGEID"]
-    assert registry.camera_from_header(header) is None
+
+def test_a_placeholder_uid_has_no_profile_and_builds_no_path(raw_header, registry_root, monkeypatch):
+    """`tiny.fits` is a real POCS frame whose uid is ``XXXXXX``, outside the shared grammar."""
+    assert worklist.identify_header(raw_header).camera_id == "XXXXXX"
+    assert registry.identifier_problem("PAN001", "XXXXXX")
+    monkeypatch.setattr(registry, "profile_path", lambda *a, **k: pytest.fail("built a path"))
+
+    profile = provenance.camera_profile(raw_header, CameraSettings(registry_dir=registry_root))
+
+    assert profile is None
+
+
+def test_a_header_that_identifies_nothing_has_no_profile(header, registry_root):
+    del header["FILENAME"], header["SEQID"]
+
+    assert provenance.camera_profile(header, CameraSettings(registry_dir=registry_root)) is None
+
+
+def test_with_no_registry_configured_a_helper_resolves_no_profile(header):
+    assert CameraSettings().registry_dir is None
+
+    resolved = provenance.resolve_camera(header, CameraSettings())
+
+    assert resolved["zero_bias"].provenance is Provenance.DEFAULT
+
+
+def test_loading_from_no_registry_raises():
+    with pytest.raises(registry.RegistryError, match="no camera registry configured"):
+        registry.load_profile(UNIT, CAMERA, None)
+
+
+@pytest.mark.parametrize("entry", ["frame", "observation"])
+def test_processing_refuses_to_start_without_a_registry(tmp_path, make_raw_tree, monkeypatch, entry):
+    """Without one, every frame would be calibrated with fleet-wide defaults."""
+    monkeypatch.setattr(processing, "require_solver", lambda: None)
+    monkeypatch.setattr(processing.fits_utils, "getdata", lambda *a, **k: pytest.fail("read pixels"))
+    raw_root = make_raw_tree(count=1)
+    params = PipelineParams()
+    assert params.camera.registry_dir is None
+
+    with pytest.raises(registry.RegistryError, match="no camera registry configured"):
+        if entry == "frame":
+            processing.process_frame(next(worklist.find_frames(raw_root)), tmp_path / "out", params)
+        else:
+            processing.process_observation(raw_root, tmp_path / "out", params)
+
+
+def test_processing_refuses_a_registry_that_is_not_a_directory(tmp_path, make_raw_tree, monkeypatch):
+    monkeypatch.setattr(processing, "require_solver", lambda: None)
+    params = PipelineParams(camera=CameraSettings(registry_dir=tmp_path / "nowhere"))
+
+    with pytest.raises(registry.RegistryError, match="is not a directory"):
+        processing.process_frame(next(worklist.find_frames(make_raw_tree(count=1))), tmp_path / "out", params)
 
 
 # --- resolution -----------------------------------------------------------
@@ -225,12 +236,13 @@ def test_calibrate_subtracts_the_registry_black_and_masks_at_the_clip(header, re
     assert not calibrated.mask[0, 2]
 
 
-def test_the_packaged_profile_reaches_a_real_frame(widefield):
-    """`widefield.fits.fz` is PAN025 / df3495, which the packaged registry knows."""
+def test_a_real_frame_without_filename_still_finds_its_profile(widefield, widefield_registry):
+    """`widefield.fits.fz` has no ``FILENAME``, which `from_fits_header` alone cannot handle."""
     header = fits.getheader(widefield, ext=1)
-    assert registry.camera_from_header(header) == ("PAN025", "df3495")
+    assert "FILENAME" not in header
+    assert worklist.identify_header(header).camera_id == "df3495"
 
-    resolved = provenance.resolve_camera(header, CameraSettings())
+    resolved = provenance.resolve_camera(header, CameraSettings(registry_dir=widefield_registry))
 
     assert resolved["zero_bias"].value == 2048
     assert resolved["zero_bias"].provenance is Provenance.REGISTRY
@@ -299,7 +311,16 @@ def test_a_new_profile_invalidates_frames_resolved_without_one(tmp_path, make_ra
 
 @pytest.mark.parametrize(
     "unit_id, camera_uid",
-    [("../../outside", CAMERA), (UNIT, "../../x"), ("/abs", CAMERA), (UNIT, "abc12"), ("", CAMERA)],
+    [
+        ("../../outside", CAMERA),
+        (UNIT, "../../x"),
+        ("/abs", CAMERA),
+        (UNIT, "abc12"),
+        ("", CAMERA),
+        ("PAN01", CAMERA),
+        ("x/PAN001", CAMERA),
+        (UNIT, "XXXXXX"),
+    ],
 )
 def test_an_unsafe_identifier_never_reaches_the_filesystem(tmp_path, unit_id, camera_uid):
     """A crafted path or header component must not read a file outside the root."""
@@ -344,19 +365,6 @@ def test_a_negative_uncertainty_is_refused(registry_root):
 
     with pytest.raises(registry.RegistryError):
         registry.load_profile(UNIT, CAMERA, registry_root)
-
-
-def test_a_missing_read_noise_outside_pan019_is_explained():
-    """PAN008 / 62b062 has none: its intercept sits above black, so the fit implies RN**2 < 0."""
-    unexplained = [
-        p.camera_uid
-        for p in registry.profiles()
-        if p.read_noise is None and p.unit_id != "PAN019" and "read noise" not in (p.note or "")
-    ]
-    missing = [p.camera_uid for p in registry.profiles() if p.read_noise is None and p.unit_id != "PAN019"]
-
-    assert missing == ["62b062"]
-    assert unexplained == []
 
 
 def test_the_work_list_reads_each_profile_once_per_walk(tmp_path, make_raw_tree, registry_root, monkeypatch):

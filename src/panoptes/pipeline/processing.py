@@ -30,7 +30,7 @@ from panoptes.utils.images import bayer
 from panoptes.utils.images import fits as fits_utils
 from panoptes.utils.images.fits import ImagePathInfo
 
-from panoptes.pipeline import products, provenance, worklist
+from panoptes.pipeline import products, provenance, registry, worklist
 from panoptes.pipeline.provenance import Resolved
 from panoptes.pipeline.registry import LOOKUP, CameraProfile, Lookup
 from panoptes.pipeline.settings import FileSettings, ImageSettings, PipelineParams
@@ -159,6 +159,21 @@ def require_solver() -> None:
 HOST_SOLVE_OPTIONS = frozenset({"--config"})
 
 
+def require_registry(params: PipelineParams) -> None:
+    """Fail before any pixels are read if no camera registry is configured.
+
+    The registry is data outside this repository (data contract 6.2), so there
+    is no copy to fall back on. Without one every frame would be calibrated
+    with fleet-wide defaults -- a black level 1536 ADU wrong on most bodies --
+    and recorded as such, which is the silent failure improvement plan 1.4
+    exists to prevent. An empty directory is accepted: it is an explicit
+    statement that no camera has a profile.
+    """
+    registry.require_root(params.camera.registry_dir)
+    if not Path(params.camera.registry_dir).is_dir():
+        raise registry.RegistryError(f"camera registry {params.camera.registry_dir} is not a directory")
+
+
 def check_solve_options(solve_options: dict[str, Any] | None) -> None:
     """Refuse a solve option that could change the solution without changing the fingerprint."""
     unknown = sorted(set(solve_options or {}) - HOST_SOLVE_OPTIONS)
@@ -206,6 +221,7 @@ def process_frame(
     check_solve_options(solve_options)
 
     require_solver()
+    require_registry(params)
 
     path_info = worklist.identify(raw_path)
     raw_data, header = fits_utils.getdata(str(raw_path), header=True)
@@ -339,6 +355,7 @@ def process_observation(
     `ImageStatus.ERROR` for the next walk to find.
     """
     params = params or PipelineParams()
+    require_registry(params)
 
     frames = worklist.build(raw_root, processed_root, params, force_new=force_new, files=files)
     logger.info(f"Work list: {worklist.summarize(frames)}")

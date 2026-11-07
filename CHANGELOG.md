@@ -11,14 +11,21 @@ Changelog](https://keepachangelog.com/en/1.1.0/) format. The versioning policy
 - A camera registry, `panoptes.pipeline.registry`: one profile per camera uid
   at `units/{unit_id}/cameras/{uid}.json` holding what no raw header carries --
   black level, the measured raw clip, gain and read noise, each with the method
-  that produced it. It ships with the package, with profiles for the 34
-  cameras on 14 units measured by `scripts/measure_gain.py`; point
-  `CameraSettings.registry_dir` at another root to use a different one. Keyed
-  on the camera uid (the six characters in `INSTRUME` and every
-  `sequence_id`), never `CAMSN`, which current POCS no longer writes. The four
-  PAN019 profiles hold black only and a warning, because that unit's raw values
-  are digitally scaled, and PAN008's `62b062` has no read noise, because its
-  photon-transfer fit cannot measure one.
+  that produced it. The registry is data and does not ship with the package:
+  `CameraSettings.registry_dir` names its root, and `process_frame` and
+  `process_observation` refuse to start without one rather than calibrate with
+  fleet-wide defaults. Keyed on the camera uid (the six characters in
+  `INSTRUME` and every `sequence_id`), never `CAMSN`, which current POCS no
+  longer writes; identifiers are checked against `panoptes-utils`'
+  `PATH_MATCHER`, the grammar every archive path is parsed with, and a frame
+  whose uid it does not accept (such as a placeholder `XXXXXX`) has no profile.
+- `scripts/write_registry.py` writes profiles from a table of
+  `scripts/measure_gain.py` results, applying the rules in data contract 6.2:
+  the body's black, the histogram clip, the sensor family's gain, and the
+  camera's own read noise, with a 2048-black body that clips at 16383 treated
+  as a scaled raw (black and a warning only) and a non-positive read noise left
+  out with a note. It never overwrites a profile that differs from what it
+  would write unless given `--force`, since profiles are edited by hand.
 - `registry.RegistryError` for a profile that does not validate (including a
   non-positive gain or clip, or a negative black, read noise or uncertainty),
   that names a different camera from its path, or a unit id or uid that is not

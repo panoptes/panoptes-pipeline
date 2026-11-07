@@ -102,11 +102,19 @@ def identify(raw_path: Path) -> ImagePathInfo:
     except ValueError:
         pass
 
-    # `from_fits_header` reads `FILENAME` first and only catches `ValueError`,
-    # so a frame without that keyword raises `KeyError` rather than falling
-    # through to `SEQID`/`IMAGEID`. Most POCS frames carry it; a frame that does
-    # not is still perfectly identifiable.
-    header = fits_utils.getheader(str(raw_path))
+    return identify_header(fits_utils.getheader(str(raw_path)))
+
+
+def identify_header(header) -> ImagePathInfo:
+    """`ImagePathInfo.from_fits_header`, working around its missing-``FILENAME`` bug.
+
+    `from_fits_header` reads ``FILENAME`` first and only catches `ValueError`,
+    so a frame without that keyword raises `KeyError` rather than falling
+    through to ``SEQID``/``IMAGEID``. Most POCS frames carry it; a frame that
+    does not is still perfectly identifiable. Raises `KeyError` or `ValueError`
+    when the header cannot identify the frame at all. Filed upstream as
+    panoptes/panoptes-utils#382; drop this wrapper when that lands.
+    """
     try:
         return ImagePathInfo.from_fits_header(header)
     except KeyError:
@@ -189,8 +197,14 @@ def _registry_fingerprint(
     params: PipelineParams,
     memo: dict[tuple[str, str], str | None] | None,
 ) -> str | None:
-    """The current fingerprint of this frame's camera profile, memoized in `memo`."""
+    """The current fingerprint of this frame's camera profile, memoized in `memo`.
+
+    None with no registry configured, or for an identity that is not a registry
+    key, matching what `provenance.camera_profile` resolves those frames with.
+    """
     key = (path_info.unit_id, path_info.camera_id)
+    if params.camera.registry_dir is None or registry.identifier_problem(*key):
+        return None
     if memo is None:
         return registry.fingerprint(*key, root=params.camera.registry_dir)
     if key not in memo:

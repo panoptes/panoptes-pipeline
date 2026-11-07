@@ -28,10 +28,18 @@ provenance; reading them back would close a loop in which the pipeline
 rediscovers its own wrong constants. Every value here names the method that
 produced it.
 
-The registry shipped with the package lives in ``data/registry`` beside this
-module, so a release says exactly which calibration it carries.
-``CameraSettings.registry_dir`` points somewhere else. A profile that exists but
-does not validate raises `RegistryError`: a typo in a calibration file is not
+**The registry is data, not code**, and none of it lives in this repository.
+Profiles are measurements: they change when a camera is measured again, they
+grow when a camera is added, and other repositories need them without
+installing this one. The root is ``CameraSettings.registry_dir``, in the same
+data tree as the archive and the processed runs, and it has no default: asking
+for a profile with no registry configured raises `RegistryError` rather than
+calibrating every frame with fleet-wide defaults. Reproducibility does not need
+the profiles versioned with the code, because every frame document records the
+fingerprint of the profile it was calibrated with. ``scripts/write_registry.py``
+writes profiles from `measure_gain.py` results.
+
+A profile that exists but does not validate raises `RegistryError`: a typo in a calibration file is not
 the same thing as an unknown camera, and must not fall through to a default.
 `RegistryError` is deliberately not a `ValueError`, which is what the work-list
 walk catches to skip a frame it cannot place; a bad profile has to stop the
@@ -42,30 +50,19 @@ from __future__ import annotations
 
 import hashlib
 import json
-import re
 from enum import Enum, StrEnum
 from functools import lru_cache
-from importlib.resources import files
 from pathlib import Path
 
-from astropy.io.fits import Header
 from panoptes.utils.error import PanError
+from panoptes.utils.images.fits import PATH_MATCHER
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
-
-#: The registry that ships with the package.
-PACKAGED_ROOT = Path(str(files("panoptes.pipeline") / "data" / "registry"))
 
 #: Characters of a profile's digest kept as its fingerprint, as for params.
 FINGERPRINT_LENGTH = 12
 
-#: What a unit id or camera uid may contain. Both become path components, and
-#: both reach here from headers and paths this pipeline did not write, so
-#: anything that could leave the registry root -- ``..``, a separator, an empty
-#: string -- is refused before a path is built.
-IDENTIFIER = re.compile(r"[A-Za-z0-9]+")
-
-#: The uid is the first six characters of the gphoto serial (data contract 2.3).
-CAMERA_UID_LENGTH = 6
+#: Placeholder times for checking identifiers against `PATH_MATCHER`.
+_PROBE_TIME = "20000101T000000"
 
 
 class RegistryError(PanError):
@@ -176,12 +173,24 @@ class CameraProfile(BaseModel):
 
 
 def identifier_problem(unit_id: str, camera_uid: str) -> str | None:
-    """What is wrong with this pair as registry identifiers, or None if nothing."""
-    for name, value in (("unit_id", unit_id), ("camera_uid", camera_uid)):
-        if not isinstance(value, str) or not IDENTIFIER.fullmatch(value):
-            return f"{name} {value!r} is not a registry identifier (letters and digits only)"
-    if len(camera_uid) != CAMERA_UID_LENGTH:
-        return f"camera_uid {camera_uid!r} is not {CAMERA_UID_LENGTH} characters (data contract 2.3)"
+    """What is wrong with this pair as registry identifiers, or None if nothing.
+
+    The grammar is `panoptes-utils`' `PATH_MATCHER`, the one `ImagePathInfo`
+    parses every archive path with, not a second one kept here: a unit id is
+    ``PAN`` and three digits, a camera uid six characters. Both become path
+    components and both reach here from headers and paths this pipeline did not
+    write, so a value that does not come back out of the matcher unchanged --
+    ``..``, a separator, anything the matcher would absorb into another group --
+    is refused before a path is built. Probing a synthetic path is a stopgap
+    until `panoptes-utils` exports the two patterns (panoptes/panoptes-utils#382).
+    """
+    if not isinstance(unit_id, str) or not isinstance(camera_uid, str):
+        return f"identifiers must be strings, not {unit_id!r} / {camera_uid!r}"
+    match = PATH_MATCHER.match(f"{unit_id}/{camera_uid}/{_PROBE_TIME}/{_PROBE_TIME}")
+    if match is None or (match["pre_info"] or match["field_name"]):
+        return f"{unit_id!r} / {camera_uid!r} is not a unit id and camera uid (data contract 2.3)"
+    if (match["unit_id"], match["camera_id"]) != (unit_id, camera_uid):
+        return f"{unit_id!r} / {camera_uid!r} is not a unit id and camera uid (data contract 2.3)"
     return None
 
 
@@ -191,17 +200,28 @@ def check_identifiers(unit_id: str, camera_uid: str) -> None:
         raise RegistryError(problem)
 
 
-def profile_path(unit_id: str, camera_uid: str, root: Path | str | None = None) -> Path:
+def require_root(root: Path | str | None) -> Path:
+    """`root` as a path, or `RegistryError` if no registry is configured."""
+    if root is None:
+        raise RegistryError(
+            "no camera registry configured: set CameraSettings.registry_dir to the registry root "
+            "(units/{unit_id}/cameras/{uid}.json; data contract 6.2)"
+        )
+    return Path(root)
+
+
+def profile_path(unit_id: str, camera_uid: str, root: Path | str | None) -> Path:
     """Where the profile for `camera_uid` on `unit_id` lives under `root`.
 
-    Raises `RegistryError` for an identifier that could leave `root`.
+    Raises `RegistryError` for an identifier that could leave `root`, or when
+    `root` is None.
     """
     check_identifiers(unit_id, camera_uid)
-    root = Path(root) if root is not None else PACKAGED_ROOT
+    root = require_root(root)
     return root / "units" / unit_id / "cameras" / f"{camera_uid}.json"
 
 
-def load_profile(unit_id: str, camera_uid: str, root: Path | str | None = None) -> CameraProfile | None:
+def load_profile(unit_id: str, camera_uid: str, root: Path | str | None) -> CameraProfile | None:
     """The registry's profile for this camera, or None if it has none.
 
     None only when there is no file. A file that does not parse or validate, or
@@ -236,31 +256,16 @@ def _parse(text: str) -> CameraProfile:
     return CameraProfile.model_validate_json(text)
 
 
-def fingerprint(unit_id: str, camera_uid: str, root: Path | str | None = None) -> str | None:
+def fingerprint(unit_id: str, camera_uid: str, root: Path | str | None) -> str | None:
     """The fingerprint of this camera's profile, or None if it has none."""
     profile = load_profile(unit_id, camera_uid, root)
     return profile.fingerprint if profile is not None else None
 
 
-def profiles(root: Path | str | None = None) -> list[CameraProfile]:
+def profiles(root: Path | str | None) -> list[CameraProfile]:
     """Every profile under `root`, sorted by unit and camera."""
-    root = Path(root) if root is not None else PACKAGED_ROOT
+    root = require_root(root)
     return [
         load_profile(path.parent.parent.name, path.stem, root)
         for path in sorted(root.glob("units/*/cameras/*.json"))
     ]
-
-
-def camera_from_header(header: Header) -> tuple[str, str] | None:
-    """``(unit_id, camera_uid)`` from ``SEQID``, then ``IMAGEID``, or None.
-
-    Both are ``<unit>_<uid>_<time>``. An empty keyword counts as absent: POCS
-    writes ``SEQID = ''`` on some frames.
-    """
-    for keyword in ("SEQID", "IMAGEID"):
-        value = header.get(keyword)
-        if isinstance(value, str) and value.count("_") >= 2:
-            unit_id, camera_uid, *_ = value.split("_")
-            if unit_id and camera_uid:
-                return unit_id, camera_uid
-    return None

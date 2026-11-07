@@ -108,11 +108,12 @@ in arcsec. See improvement plan 1.4.
   improvement plan 4.1), `utils/sources.py` (catalog matching against a local
   parquet), `products.py` (the per-frame document and product writer),
   `provenance.py` (where a calibration value came from), `registry.py` (the
-  camera registry: black, clip, gain and read noise per camera uid, with the
-  profiles themselves under `data/registry/units/{unit}/cameras/{uid}.json`;
-  edit a profile there, never derive one from `params_camera_*` in archive
-  records), `worklist.py` (which frames need processing, and why), `status.py`
-  (the pipeline's own stages),
+  camera registry loader: black, clip, gain and read noise per camera uid, from
+  `units/{unit}/cameras/{uid}.json` under `CameraSettings.registry_dir`; the
+  profiles are data and are **not** in this repository, so never commit one,
+  and never derive one from `params_camera_*` in archive records),
+  `worklist.py` (which frames need processing, and why), `status.py` (the
+  pipeline's own stages),
   `processing.py` (calibration and the two entry points), `stamps.py` (the
   observation-level stamp cube, cut from the per-frame products into
   `stamps.parquet` and `positions.parquet` beside `observation.json`),
@@ -144,7 +145,7 @@ dependency group, so the package is importable and no `PYTHONPATH` is needed:
 
 ```bash
 uv sync                    # project + dev tooling
-uv run pytest              # 348 tests
+uv run pytest              # 363 tests
 uv run ruff check .        # lint
 uv run ruff format .       # format
 ```
@@ -172,7 +173,15 @@ uv run scripts/benchmark_lightcurve.py processed/baseline/PAN012/358d0f/20180824
 uv run scripts/survey_targets.py processed/baseline/PAN012/358d0f/20180824T035917
 uv run scripts/fetch_catalog.py 86.49 8.72   # radius defaults to 10 deg
 uv run scripts/measure_gain.py raw/PAN012/358d0f/20180824T035917 --output gain/PAN012_358d0f --black 2048
+uv run scripts/write_registry.py plans/figures/gain_units.csv --registry registry --images images
 ```
+
+Processing needs a camera registry: pass
+`CameraSettings(registry_dir=...)`, pointing at the root holding
+`units/{unit}/cameras/{uid}.json`. There is no packaged copy and no default,
+and `process_frame` refuses to start without one. An empty directory is a valid
+registry -- every camera then falls back to header and default tiers, labeled
+as such.
 
 The benchmark scripts take a processed sequence directory -- the one holding
 `stamps.parquet`, as `stamps.build` writes it -- or a legacy `observation.h5`.

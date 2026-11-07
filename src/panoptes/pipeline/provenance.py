@@ -32,7 +32,7 @@ from astropy.io.fits import Header
 from loguru import logger
 from pydantic import BaseModel
 
-from panoptes.pipeline import registry
+from panoptes.pipeline import registry, worklist
 from panoptes.pipeline.registry import LOOKUP, CameraProfile, Lookup, Measurement
 from panoptes.pipeline.settings import CameraSettings
 
@@ -129,8 +129,16 @@ def camera_profile(
     """The registry profile for the frame's camera, or None if there is none.
 
     `camera` is ``(unit_id, camera_uid)``; without it the identity is read from
-    ``SEQID``/``IMAGEID``. Pass it where the path is authoritative, as it is in
-    `processing.process_frame`.
+    the header the way `worklist.identify_header` reads it. Pass it where the
+    path is authoritative, as it is in `processing.process_frame`.
+
+    None -- no profile -- when there is no registry configured, or when the
+    frame's identity is not a registry key at all: no ``SEQID``, or a
+    placeholder uid such as ``XXXXXX`` that the shared `PATH_MATCHER` grammar
+    does not accept. No path is built from such an identity. The processing
+    entry points refuse to run without a registry (`processing.require_registry`),
+    so "none configured" only reaches here from a helper called on its own, and
+    every value it leaves unresolved is still labeled a default.
 
     A `profile` other than `LOOKUP` is returned as given -- including None, for a
     camera already known to have none. That is how one frame is resolved
@@ -139,8 +147,15 @@ def camera_profile(
     """
     if profile is not LOOKUP:
         return profile
-    camera = camera or registry.camera_from_header(header)
+    if settings.registry_dir is None:
+        return None
     if camera is None:
+        try:
+            info = worklist.identify_header(header)
+        except (KeyError, ValueError):
+            return None
+        camera = (info.unit_id, info.camera_id)
+    if registry.identifier_problem(*camera):
         return None
     return registry.load_profile(*camera, root=settings.registry_dir)
 

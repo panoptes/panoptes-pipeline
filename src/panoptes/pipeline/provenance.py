@@ -29,8 +29,11 @@ from enum import StrEnum
 from typing import Any
 
 from astropy.io.fits import Header
+from loguru import logger
 from pydantic import BaseModel
 
+from panoptes.pipeline import registry, worklist
+from panoptes.pipeline.registry import LOOKUP, CameraProfile, Lookup, Measurement
 from panoptes.pipeline.settings import CameraSettings
 
 
@@ -45,7 +48,7 @@ class Provenance(StrEnum):
     HEADER = "header"
     #: Measured from this observation's own pixels.
     MEASURED = "measured"
-    #: Looked up in the camera registry, keyed on the body serial.
+    #: Looked up in the camera registry, keyed on the camera uid.
     REGISTRY = "registry"
     #: A fleet-wide default. Nobody knew; this is the tier that means "unknown".
     DEFAULT = "default"
@@ -63,6 +66,8 @@ class Resolved(BaseModel):
     value: float | int | str | None
     provenance: Provenance
     source: str | None = None
+    #: One-sigma, where the source states one. Only the registry does today.
+    uncertainty: float | None = None
 
     @property
     def is_default(self) -> bool:
@@ -95,18 +100,88 @@ def from_default(value: float | int | str | None, source: str) -> Resolved:
     return Resolved(value=value, provenance=Provenance.DEFAULT, source=source)
 
 
-def resolve_camera(header: Header, settings: CameraSettings) -> dict[str, Resolved]:
+def from_registry(profile: CameraProfile | None, name: str) -> Resolved | None:
+    """Resolve the registry value `name` from `profile`, or None if it has none.
+
+    ``source`` is the profile's document path and field,
+    ``units/PAN012/cameras/358d0f.gain``; the method and its caveats are in the
+    profile itself, whose fingerprint the frame document records.
+    """
+    if profile is None:
+        return None
+    measurement: Measurement | None = getattr(profile, name)
+    if measurement is None:
+        return None
+    return Resolved(
+        value=measurement.value,
+        provenance=Provenance.REGISTRY,
+        source=f"units/{profile.unit_id}/cameras/{profile.camera_uid}.{name}",
+        uncertainty=measurement.uncertainty,
+    )
+
+
+def camera_profile(
+    header: Header,
+    settings: CameraSettings,
+    camera: tuple[str, str] | None = None,
+    profile: CameraProfile | None | Lookup = LOOKUP,
+) -> CameraProfile | None:
+    """The registry profile for the frame's camera, or None if there is none.
+
+    `camera` is ``(unit_id, camera_uid)``; without it the identity is read from
+    the header the way `worklist.identify_header` reads it. Pass it where the
+    path is authoritative, as it is in `processing.process_frame`.
+
+    None -- no profile -- when there is no registry configured, or when the
+    frame's identity is not a registry key at all: no ``SEQID``, or a
+    placeholder uid such as ``XXXXXX`` that the shared `PATH_MATCHER` grammar
+    does not accept. No path is built from such an identity. The processing
+    entry points refuse to run without a registry (`processing.require_registry`),
+    so "none configured" only reaches here from a helper called on its own, and
+    every value it leaves unresolved is still labeled a default.
+
+    A `profile` other than `LOOKUP` is returned as given -- including None, for a
+    camera already known to have none. That is how one frame is resolved
+    against one profile however many times it is resolved: load it once, pass
+    it on.
+    """
+    if profile is not LOOKUP:
+        return profile
+    if settings.registry_dir is None:
+        return None
+    if camera is None:
+        try:
+            info = worklist.identify_header(header)
+        except (KeyError, ValueError):
+            return None
+        camera = (info.unit_id, info.camera_id)
+    if registry.identifier_problem(*camera):
+        return None
+    return registry.load_profile(*camera, root=settings.registry_dir)
+
+
+def resolve_camera(
+    header: Header,
+    settings: CameraSettings,
+    camera: tuple[str, str] | None = None,
+    profile: CameraProfile | None | Lookup = LOOKUP,
+) -> dict[str, Resolved]:
     """Resolve the per-frame camera calibration, each value with its tier.
 
-    Four values, and they are known to very different degrees:
+    `camera` is ``(unit_id, camera_uid)``, the registry key, and `profile` the
+    already-loaded registry profile; see `camera_profile`. The values are known
+    to very different degrees:
 
     ``saturation``
-        ``WHTLVLN`` gives the white level per frame, offline, on every frame
-        in the archive back to 2016. Measured values run 11435--12277 against
-        a fleet-wide default of 15872, so both cameras checked in data
-        contract 2.1 sit roughly 25% below the hardcoded threshold and the
-        default fails to mask saturated pixels on either. Free, and worth
-        taking.
+        The registry's measured **clip** first: the raw value the histogram
+        piles up at, 13583 on a 2048-black Canon body at ISO 100. Then
+        ``WHTLVLN``, which is on every frame back to 2016 but is Canon's
+        rendering white point, not the clip -- 11765 against 13583 on the
+        paper's camera -- so it masks 10--13% too low. Too low is the safe
+        direction, which is why it stays as a fallback; the fleet-wide default
+        of 16384 masks nothing at all. The header tier is ranked below the
+        registry here because the keyword does not measure what is being
+        resolved (data contract 6.1).
 
     ``image_width`` / ``image_height``
         ``NAXIS1``/``NAXIS2``, which are in every FITS file by definition.
@@ -117,14 +192,43 @@ def resolve_camera(header: Header, settings: CameraSettings) -> dict[str, Resolv
         has null dimensions.
 
     ``effective_gain``
-        ``EGAIN`` where POCS wrote it, which is rare. Otherwise a default,
-        until the camera registry can answer it by body serial.
+        The registry, then ``EGAIN``, then a default. The registry outranks the
+        header because ``EGAIN``, where POCS writes it at all, is the Canon
+        class constant 1.5 (data contract 6.3), which no camera in the archive
+        measures. Once panoptes/POCS#1481 writes a per-body value, a camera
+        with no profile picks it up here unchanged.
 
     ``zero_bias``
-        Not in the header at all, on any frame, so this is always a default
-        today. It is load-bearing content for the registry.
+        The registry's black level. No header carries it, so without a
+        profile this is a default -- and the default of 512 is wrong by 1536
+        ADU for every 2048-black body in the archive.
+
+    ``read_noise``
+        The registry, or unknown. There is no default to fall back to, and
+        none is invented.
+
+    Clip, gain and read noise depend on ISO, so they are taken from the
+    registry only when the frame's ``ISO`` matches the profile's. Black does
+    not.
     """
-    saturation = from_header(header, "WHTLVLN", int) or from_default(settings.saturation, "camera.saturation")
+    profile = camera_profile(header, settings, camera, profile)
+    iso_profile = profile
+    if profile is not None:
+        if profile.warning:
+            logger.warning(f"{profile.unit_id}/{profile.camera_uid}: {profile.warning}")
+        iso = header.get("ISO")
+        if iso is not None and int(iso) != profile.iso:
+            logger.warning(
+                f"{profile.unit_id}/{profile.camera_uid}: frame is ISO {iso}, registry profile is "
+                f"ISO {profile.iso}; not using its clip, gain or read noise"
+            )
+            iso_profile = None
+
+    saturation = (
+        from_registry(iso_profile, "clip")
+        or from_header(header, "WHTLVLN", int)
+        or from_default(settings.saturation, "camera.saturation")
+    )
 
     # NAXIS1/NAXIS2 are mandatory in a FITS file, so the default is unreachable
     # on a real frame. It exists so a truncated header degrades loudly-in-the-
@@ -132,11 +236,15 @@ def resolve_camera(header: Header, settings: CameraSettings) -> dict[str, Resolv
     width = from_header(header, "NAXIS1", int) or from_default(settings.image_width, "camera.image_width")
     height = from_header(header, "NAXIS2", int) or from_default(settings.image_height, "camera.image_height")
 
-    gain = from_header(header, "EGAIN", float) or from_default(
-        settings.effective_gain, "camera.effective_gain"
+    gain = (
+        from_registry(iso_profile, "gain")
+        or from_header(header, "EGAIN", float)
+        or from_default(settings.effective_gain, "camera.effective_gain")
     )
 
-    zero_bias = from_default(settings.zero_bias, "camera.zero_bias")
+    zero_bias = from_registry(profile, "black_level") or from_default(settings.zero_bias, "camera.zero_bias")
+
+    read_noise = from_registry(iso_profile, "read_noise") or from_default(None, "unknown")
 
     return dict(
         saturation=saturation,
@@ -144,6 +252,7 @@ def resolve_camera(header: Header, settings: CameraSettings) -> dict[str, Resolv
         image_height=height,
         effective_gain=gain,
         zero_bias=zero_bias,
+        read_noise=read_noise,
     )
 
 

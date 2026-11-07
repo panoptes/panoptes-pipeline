@@ -422,6 +422,15 @@ level and sensor dimensions:
 
 The tier reached is recorded with the value (3.4).
 
+**A header keyword ranks below the registry when it does not measure the value
+being resolved.** Two do not, today. `WHTLVLN` is Canon's rendering white
+point, not the clip -- 11765 against a measured 13583 on the paper's camera --
+so it masks real signal; it stays as a fallback below the registry only because
+too low is the safe direction. `EGAIN`, where POCS writes it, is the class
+constant 1.5 (6.3), which no camera measures. Once panoptes/POCS#1481 writes a
+per-body gain, that keyword measures what it names and the rule above applies
+to it unchanged for any camera without a profile.
+
 ### 6.2 The registry is small
 
 Given 2.1, the registry only ever has to hold what no header carries: gain,
@@ -480,6 +489,49 @@ It lives in the same tree as everything else, at
 use, readable offline, no new mechanism. It is not a schema addition to
 `panoptes-data`; putting the pipeline's calibration constants in the read
 client is the same inversion as the status enums in 5.2.
+
+**It is data, not code, and is not in this repository.** A profile is a
+measurement: it changes when the camera is measured again, the set grows when
+a camera is added, and other repositories need it without installing this
+one. Versioning it with the code would make every new measurement a release,
+and reproducibility does not need that, because each frame document records
+the fingerprint of the profile it was calibrated with. The root is
+`CameraSettings.registry_dir`, beside the archive and the processed runs, and
+has no default: the processing entry points refuse to start without one, since
+running without it is calibrating every frame with fleet-wide defaults.
+`scripts/write_registry.py` writes profiles from `measure_gain.py` results and
+never overwrites one that has been edited by hand.
+
+Each value carries the method that produced it -- the body's known black,
+the histogram clip, the family gain, a camera's own sky photon transfer, or a
+flat-field one -- so replacing a family gain with a flat-field measurement is
+a one-file edit that says what changed. The gains shipped today are the family
+values above, applied per camera, with each camera's own measurement in the
+value's note; read noise is each camera's own photon-transfer intercept, and
+indicative only. PAN008's `62b062` has none: its intercept lies above its
+black, which implies a negative read-noise term, so the profile leaves it
+unknown and says why rather than recording zero. The PAN019 profiles hold black and a warning, nothing that
+depends on the scaling.
+
+**A registry edit has to invalidate what it changed and nothing more.** Its
+content is not in the params fingerprint (5.2): a fingerprint over the whole
+registry would reprocess every frame of every camera for an edit to one. Each
+frame document records instead the fingerprint of the profile it was resolved
+against, and the work list compares that per camera. A frame resolved with no
+profile records none, so adding a profile picks up that camera's history.
+
+A profile that does not validate stops the walk rather than skipping its
+frames: a frame that cannot be placed is skipped, but a broken calibration
+file is not that, and skipping would drop the whole camera from the list
+without a trace. Values no detector can have -- a non-positive gain or clip,
+a negative black or read noise -- do not validate, and neither does a unit id
+or uid that is not a plain alphanumeric path component.
+
+Not yet handled: a camera whose state changed over time on one ISO. PAN019's
+`438751` clipped at 13583 for five months and at 16383 otherwise, so a single
+profile cannot hold its clip. When that unit is understood, a profile grows
+validity windows or a per-frame test on the histogram, whichever the hardware
+explains.
 
 ### 6.3 Gain is a POCS problem
 

@@ -4,6 +4,57 @@ Notable changes, newest first, in the [Keep a
 Changelog](https://keepachangelog.com/en/1.1.0/) format. The versioning policy
 -- and why this project is deliberately pre-1.0 -- is in `AGENTS.md`.
 
+## Unreleased
+
+### Added
+
+- A camera registry, `panoptes.pipeline.registry`: one profile per camera uid
+  at `units/{unit_id}/cameras/{uid}.json` holding what no raw header carries --
+  black level, the measured raw clip, gain and read noise, each with the method
+  that produced it. The registry is data and does not ship with the package:
+  `CameraSettings.registry_dir` names its root, and `process_frame` and
+  `process_observation` refuse to start without one rather than calibrate with
+  fleet-wide defaults. Keyed on the camera uid (the six characters in
+  `INSTRUME` and every `sequence_id`), never `CAMSN`, which current POCS no
+  longer writes; identifiers are checked against `panoptes-utils`'
+  `PATH_MATCHER`, the grammar every archive path is parsed with, and a frame
+  whose uid it does not accept (such as a placeholder `XXXXXX`) has no profile.
+- `scripts/write_registry.py` writes profiles from a table of
+  `scripts/measure_gain.py` results, applying the rules in data contract 6.2:
+  the body's black, the histogram clip, the sensor family's gain, and the
+  camera's own read noise, with a 2048-black body that clips at 16383 treated
+  as a scaled raw (black and a warning only) and a non-positive read noise left
+  out with a note. It never overwrites a profile that differs from what it
+  would write unless given `--force`, since profiles are edited by hand.
+- `registry.RegistryError` for a profile that does not validate (including a
+  non-positive gain or clip, or a negative black, read noise or uncertainty),
+  that names a different camera from its path, or a unit id or uid that is not
+  a plain alphanumeric path component. It is not a `ValueError`, so a bad
+  profile stops a work-list walk instead of being skipped as an unplaceable
+  frame.
+- Every frame document records `image.registry_fingerprint`, a digest of the
+  profile its calibration was resolved against, and the work list reports a
+  frame as `registry changed` when that profile has been added, edited or
+  removed since -- only that camera's frames, not the archive. Each profile is
+  read once per walk, not once per frame.
+- `read_noise` in each frame's resolved calibration, from the registry or
+  recorded as unknown. Every resolved value can now carry an `uncertainty`.
+
+### Changed
+
+- Calibration resolves from the registry before the header where the header
+  keyword does not measure the value: the registry's clip outranks `WHTLVLN`
+  (Canon's rendering white point, 10--13% below the clip, which masked real
+  signal), and its gain outranks `EGAIN` (POCS's class constant of 1.5, which
+  no camera measures). Black level comes from the registry, replacing a default
+  of 512 that is wrong by 1536 ADU on every 2048-black body. Frames processed
+  before this have no `registry_fingerprint`, so the work list reprocesses any
+  whose camera has a profile.
+- Source flux errors use the frame's resolved gain. `detect_sources` read the
+  fleet-wide `effective_gain` setting directly, so the Poisson term of every
+  error assumed 1.5 e-/ADU whatever had been resolved; it now takes
+  `effective_gain`, and `process_frame` passes the resolved value.
+
 ## v0.5.0 -- 2026-11-06
 
 ### Added

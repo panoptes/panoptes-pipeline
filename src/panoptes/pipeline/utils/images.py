@@ -15,6 +15,7 @@ from photutils import segmentation
 from photutils.utils import calc_total_error
 
 from panoptes.pipeline import provenance
+from panoptes.pipeline.registry import LOOKUP, CameraProfile, Lookup
 from panoptes.pipeline.settings import CameraSettings, ImageSettings
 from panoptes.pipeline.utils import sources
 
@@ -71,7 +72,13 @@ def get_metadata(settings: ImageSettings, path_info: ImagePathInfo) -> dict:
     return metadata
 
 
-def extract_metadata(header, path_info, camera_settings: CameraSettings | None = None) -> dict:
+def extract_metadata(
+    header,
+    path_info,
+    camera_settings: CameraSettings | None = None,
+    *,
+    profile: CameraProfile | None | Lookup = LOOKUP,
+) -> dict:
     """Get the metadata from a FITS image.
 
     Returns ``dict(unit=..., sequence=..., image=...)``, one key per document.
@@ -82,11 +89,18 @@ def extract_metadata(header, path_info, camera_settings: CameraSettings | None =
     header does not carry. Whatever it supplies is labeled `Provenance.DEFAULT`
     in the resulting document rather than being indistinguishable from a
     measurement.
+
+    ``profile`` is the camera registry profile the frame was calibrated with.
+    Pass it whenever it is known -- `processing.process_frame` does -- so the
+    values and the ``registry_fingerprint`` recorded are the ones applied; it
+    is looked up only when not given.
     """
     camera_settings = camera_settings or CameraSettings()
     try:
         measured_rggb = [float(x) for x in header.get("MEASRGGB", "0 0 0 0").split(" ")]
-        calibration = provenance.resolve_camera(header, camera_settings)
+        camera_key = (path_info.unit_id, path_info.camera_id)
+        profile = provenance.camera_profile(header, camera_settings, camera=camera_key, profile=profile)
+        calibration = provenance.resolve_camera(header, camera_settings, profile=profile)
 
         # `str(header.get("CAMSN"))` produced the literal string "None" on every
         # frame POCS wrote without the keyword, which reads downstream as a body
@@ -159,6 +173,10 @@ def extract_metadata(header, path_info, camera_settings: CameraSettings | None =
             # Resolved calibration, each value with the tier it came from, so a
             # header reading and a fleet-wide default do not serialize alike.
             calibration=provenance.as_document(calibration),
+            # The registry profile the calibration was resolved against, so the
+            # work-list walk can tell when editing it invalidated this frame.
+            # None when the camera has no profile. See data contract 6.2.
+            registry_fingerprint=profile.fingerprint if profile is not None else None,
             file_creation_date=file_date,
             image_time=path_info.image_time.to_datetime(timezone=UTC),
         )
@@ -273,8 +291,22 @@ def match_sources(
 
 
 def detect_sources(
-    solved_wcs0, reduced_data, combined_bg_data, combined_bg_residual_data, settings: ImageSettings
+    solved_wcs0,
+    reduced_data,
+    combined_bg_data,
+    combined_bg_residual_data,
+    settings: ImageSettings,
+    effective_gain: float | None = None,
 ):
+    """Detect, deblend and measure sources in a reduced frame.
+
+    `effective_gain` is the frame's resolved gain in e-/ADU, which sets the
+    Poisson term of every source's flux error. Pass the resolved value
+    (`provenance.resolve_camera`); without it the fleet-wide setting is used,
+    which is the 1.5 no camera measures (data contract 6.3).
+    """
+    if effective_gain is None:
+        effective_gain = settings.params.camera.effective_gain
     print("Detecting sources in image")
     threshold = settings.params.catalog.detection_threshold * combined_bg_residual_data
     kernel = convolution.Gaussian2DKernel(3 * gaussian_fwhm_to_sigma)
@@ -325,10 +357,8 @@ def detect_sources(
         nlevels=32,
         contrast=0.01,
     )
-    print(f"Calculating total error for data using gain={settings.params.camera.effective_gain}")
-    error = calc_total_error(
-        data, np.asarray(combined_bg_residual_data), settings.params.camera.effective_gain
-    )
+    print(f"Calculating total error for data using gain={effective_gain}")
+    error = calc_total_error(data, np.asarray(combined_bg_residual_data), effective_gain)
     table_cols = [
         "background_mean",
         "background_centroid",

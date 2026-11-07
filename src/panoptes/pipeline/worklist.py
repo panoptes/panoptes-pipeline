@@ -35,7 +35,7 @@ from loguru import logger
 from panoptes.utils.images import fits as fits_utils
 from panoptes.utils.images.fits import ImagePathInfo
 
-from panoptes.pipeline import products
+from panoptes.pipeline import products, registry
 from panoptes.pipeline.settings import FileSettings, PipelineParams
 from panoptes.pipeline.status import ImageStatus, image_status
 
@@ -49,8 +49,10 @@ FITS_MATCHER = re.compile(r".*/\d{8}T\d{6}\.fits(\.fz)?$")
 class Reason(StrEnum):
     """Why a frame is, or is not, in the work list.
 
-    The four processing reasons are the ones data contract 5.2 names.
-    `UP_TO_DATE` is the fifth because a work list that shows only the work
+    Four of the processing reasons are the ones data contract 5.2 names;
+    `REGISTRY_CHANGED` is the same rule as `PARAMS_CHANGED`, applied to the
+    camera registry, whose content is not in the params fingerprint.
+    `UP_TO_DATE` is the last because a work list that shows only the work
     cannot be diffed against one taken before a settings change -- the frames
     that *stopped* needing work are as informative as the ones that started.
     """
@@ -59,6 +61,9 @@ class Reason(StrEnum):
     MISSING = "missing"
     #: A document exists but was produced by different settings.
     PARAMS_CHANGED = "params changed"
+    #: The camera's registry profile was added, edited or removed since. Only
+    #: that camera's frames, which is the point of fingerprinting per camera.
+    REGISTRY_CHANGED = "registry changed"
     #: The last attempt failed.
     PRIOR_ERROR = "prior error"
     #: A document exists but the frame never got past `PROCESSING`.
@@ -97,11 +102,19 @@ def identify(raw_path: Path) -> ImagePathInfo:
     except ValueError:
         pass
 
-    # `from_fits_header` reads `FILENAME` first and only catches `ValueError`,
-    # so a frame without that keyword raises `KeyError` rather than falling
-    # through to `SEQID`/`IMAGEID`. Most POCS frames carry it; a frame that does
-    # not is still perfectly identifiable.
-    header = fits_utils.getheader(str(raw_path))
+    return identify_header(fits_utils.getheader(str(raw_path)))
+
+
+def identify_header(header) -> ImagePathInfo:
+    """`ImagePathInfo.from_fits_header`, working around its missing-``FILENAME`` bug.
+
+    `from_fits_header` reads ``FILENAME`` first and only catches `ValueError`,
+    so a frame without that keyword raises `KeyError` rather than falling
+    through to ``SEQID``/``IMAGEID``. Most POCS frames carry it; a frame that
+    does not is still perfectly identifiable. Raises `KeyError` or `ValueError`
+    when the header cannot identify the frame at all. Filed upstream as
+    panoptes/panoptes-utils#382; drop this wrapper when that lands.
+    """
     try:
         return ImagePathInfo.from_fits_header(header)
     except KeyError:
@@ -123,6 +136,7 @@ def decide(
     force_new: bool = False,
     files: FileSettings | None = None,
     path_info: ImagePathInfo | None = None,
+    registry_fingerprints: dict[tuple[str, str], str | None] | None = None,
 ) -> Frame:
     """Decide whether `raw_path` needs processing, and say why.
 
@@ -130,8 +144,14 @@ def decide(
 
     1. No ``metadata.json`` -- process.
     2. Present, status at or past `PROCESSING`, fingerprint matches -- skip.
-    3. Present, fingerprint differs, or status is an error -- reprocess.
+    3. Present, fingerprint differs, or status is an error -- reprocess. The
+       camera's registry profile is a second fingerprint, compared the same way.
     4. Forced -- always reprocess.
+
+    `registry_fingerprints` memoizes the registry per camera across calls;
+    `build` passes one dict for the whole walk, so each profile is read once
+    rather than once per frame. A walk is a snapshot: an edit made while it
+    runs is seen by the next one.
 
     Rule 3 is the one the old flow was missing. It stored `params` in the
     document and never compared them, so a settings change silently left stale
@@ -164,10 +184,32 @@ def decide(
         reason = Reason.INCOMPLETE
     elif fingerprint != params.fingerprint:
         reason = Reason.PARAMS_CHANGED
+    elif image.get("registry_fingerprint") != _registry_fingerprint(path_info, params, registry_fingerprints):
+        reason = Reason.REGISTRY_CHANGED
     else:
         reason = Reason.UP_TO_DATE
 
     return Frame(raw_path, path_info, reason, status, fingerprint)
+
+
+def _registry_fingerprint(
+    path_info: ImagePathInfo,
+    params: PipelineParams,
+    memo: dict[tuple[str, str], str | None] | None,
+) -> str | None:
+    """The current fingerprint of this frame's camera profile, memoized in `memo`.
+
+    None with no registry configured, or for an identity that is not a registry
+    key, matching what `provenance.camera_profile` resolves those frames with.
+    """
+    key = (path_info.unit_id, path_info.camera_id)
+    if params.camera.registry_dir is None or registry.identifier_problem(*key):
+        return None
+    if memo is None:
+        return registry.fingerprint(*key, root=params.camera.registry_dir)
+    if key not in memo:
+        memo[key] = registry.fingerprint(*key, root=params.camera.registry_dir)
+    return memo[key]
 
 
 def find_frames(raw_root: Path | str) -> Iterator[Path]:
@@ -199,10 +241,23 @@ def build(
     """
     params = params or PipelineParams()
 
+    # A bad registry profile raises `RegistryError`, which is not caught below:
+    # it is not a frame that cannot be placed, and skipping would silently drop
+    # every frame of that camera from the list.
+    fingerprints: dict[tuple[str, str], str | None] = {}
     frames = []
     for raw_path in find_frames(raw_root):
         try:
-            frames.append(decide(raw_path, processed_root, params, force_new=force_new, files=files))
+            frames.append(
+                decide(
+                    raw_path,
+                    processed_root,
+                    params,
+                    force_new=force_new,
+                    files=files,
+                    registry_fingerprints=fingerprints,
+                )
+            )
         except (ValueError, KeyError, OSError) as e:
             logger.warning(f"Skipping {raw_path}: cannot determine where it belongs ({e!r})")
 

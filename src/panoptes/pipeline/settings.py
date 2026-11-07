@@ -2,7 +2,7 @@ import hashlib
 import json
 from pathlib import Path
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings
 
 #: Characters of the params digest kept as the fingerprint. Twelve hex
@@ -26,6 +26,12 @@ class CameraSettings(BaseModel):
     effective_gain: float = 1.5
     image_width: int = 6000
     image_height: int = 4000
+    #: Root of the camera registry, holding ``units/{unit_id}/cameras/{uid}.json``.
+    #: None is the registry shipped with the package. Excluded from the dump and
+    #: so from the fingerprint: where the registry sits changes no product, and
+    #: what it says is fingerprinted per camera instead, in each frame's
+    #: ``registry_fingerprint`` (data contract 6.2).
+    registry_dir: Path | None = Field(default=None, exclude=True)
 
 
 class BackgroundSettings(BaseModel):

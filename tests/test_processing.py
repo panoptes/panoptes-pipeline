@@ -12,7 +12,7 @@ import pandas
 import pytest
 from astropy.io import fits
 
-from panoptes.pipeline import processing, products, worklist
+from panoptes.pipeline import processing, products, registry, worklist
 from panoptes.pipeline.processing import SolverMissing
 from panoptes.pipeline.settings import (
     CameraSettings,
@@ -30,10 +30,19 @@ from tests.solver import needs_solver
 
 
 @pytest.fixture
-def params() -> PipelineParams:
+def params(tmp_path) -> PipelineParams:
     # The POCS test frames are 200x200, far smaller than a real frame, so the
-    # background mesh has to be small enough to fit inside them.
-    return PipelineParams.model_validate({"background": {"box_size": (40, 40), "filter_size": (3, 3)}})
+    # background mesh has to be small enough to fit inside them. The registry is
+    # empty: the entry points refuse to run without one, and these frames are
+    # not cameras it would know.
+    registry_dir = tmp_path / "registry"
+    registry_dir.mkdir()
+    return PipelineParams.model_validate(
+        {
+            "background": {"box_size": (40, 40), "filter_size": (3, 3)},
+            "camera": {"registry_dir": registry_dir},
+        }
+    )
 
 
 # --- calibration ----------------------------------------------------------
@@ -156,6 +165,26 @@ def test_source_detection_runs_on_a_calibrated_frame(starfield, params, tmp_path
     assert len(detected) > 0
     assert "photutils_sky_centroid_ra" in detected.columns
     assert detected.photutils_fwhm.notna().all()
+
+
+def test_source_errors_use_the_gain_they_are_given(starfield, params, tmp_path):
+    """The resolved gain must reach the flux errors, not the 1.5 setting.
+
+    `detect_sources` read `settings.params.camera.effective_gain` directly, so a
+    registry gain was resolved, recorded in the document, and then not used.
+    A higher gain means fewer electrons per ADU of noise, so smaller errors.
+    """
+    settings = ImageSettings(params=params, output_dir=tmp_path)
+    assert params.camera.effective_gain == 1.5
+
+    def errors(**kwargs):
+        reduced, background, rms = starfield.reduced, starfield.background, starfield.rms
+        detected = detect_sources(synthetic_wcs(), reduced, background, rms, settings=settings, **kwargs)
+        return detected.set_index("photutils_label").photutils_segment_flux_err
+
+    default, measured = errors(), errors(effective_gain=2.3)
+
+    assert (measured < default).all()
 
 
 def test_deblending_is_available(starfield):
@@ -348,7 +377,7 @@ def test_sequences_are_discoverable_without_processing(tmp_path, make_raw_tree, 
 
 
 @needs_solver
-def test_a_frame_processes_end_to_end(widefield, widefield_catalog, tmp_path):
+def test_a_frame_processes_end_to_end(widefield, widefield_catalog, widefield_registry, tmp_path):
     """The only test that exercises calibrate, solve, detect and match together.
 
     Every other test stops short of one of those steps, which is how three
@@ -357,7 +386,10 @@ def test_a_frame_processes_end_to_end(widefield, widefield_catalog, tmp_path):
     three were found by running the pipeline, not by the suite. This is the
     suite running it.
     """
-    params = PipelineParams(catalog=CatalogSettings(catalog_filename=widefield_catalog))
+    params = PipelineParams(
+        catalog=CatalogSettings(catalog_filename=widefield_catalog),
+        camera=CameraSettings(registry_dir=widefield_registry),
+    )
 
     written = processing.process_frame(widefield, tmp_path / "processed", params, solve_timeout=180)
 
@@ -367,11 +399,19 @@ def test_a_frame_processes_end_to_end(widefield, widefield_catalog, tmp_path):
     assert document["image"]["status"] == "MATCHED"
     assert document["image"]["params_fingerprint"] == params.fingerprint
 
-    # Saturation resolved from the header, not a fleet-wide default. This is the
-    # value #183 exists to get right, asserted on a real frame.
-    saturation = document["image"]["calibration"]["saturation"]
-    assert saturation["provenance"] == "header"
-    assert saturation["source"] == "WHTLVLN"
+    # The fixture is PAN025 / df3495, which `widefield_registry` knows, so
+    # saturation is its measured clip rather than `WHTLVLN` (a white point
+    # below the clip) or a fleet-wide default -- #183 and #135, asserted on a
+    # real frame. Black and gain come from the same profile.
+    calibration = document["image"]["calibration"]
+    assert calibration["saturation"]["provenance"] == "registry"
+    assert calibration["saturation"]["source"] == "units/PAN025/cameras/df3495.clip"
+    assert calibration["saturation"]["value"] == 13583
+    assert calibration["zero_bias"]["value"] == 2048
+    assert calibration["effective_gain"]["provenance"] == "registry"
+    assert document["image"]["registry_fingerprint"] == registry.fingerprint(
+        "PAN025", "df3495", root=widefield_registry
+    )
 
     matched = pandas.read_parquet(written["sources"])
     assert len(matched) > 1000, "detection or matching has collapsed"
@@ -381,11 +421,14 @@ def test_a_frame_processes_end_to_end(widefield, widefield_catalog, tmp_path):
 
 
 @needs_solver
-def test_a_processed_frame_indexes(widefield, widefield_catalog, tmp_path):
+def test_a_processed_frame_indexes(widefield, widefield_catalog, widefield_registry, tmp_path):
     """The whole loop: raw frame in, queryable index out."""
     from panoptes.pipeline import index
 
-    params = PipelineParams(catalog=CatalogSettings(catalog_filename=widefield_catalog))
+    params = PipelineParams(
+        catalog=CatalogSettings(catalog_filename=widefield_catalog),
+        camera=CameraSettings(registry_dir=widefield_registry),
+    )
     processed = tmp_path / "processed"
     processing.process_frame(widefield, processed, params, solve_timeout=180)
 

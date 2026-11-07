@@ -93,7 +93,7 @@ def test_the_document_form_is_plain_json_types(raw_header):
 
     assert document["saturation"]["provenance"] == "header"
     assert isinstance(document["saturation"]["provenance"], str)
-    assert set(document["saturation"]) == {"value", "provenance", "source"}
+    assert set(document["saturation"]) == {"value", "provenance", "source", "uncertainty"}
 
 
 @pytest.mark.parametrize("tier", list(Provenance))

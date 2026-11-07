@@ -4,6 +4,7 @@ The FITS files under `tests/data/` are real POCS output; see that directory's
 README for what each one is and which quirks they carry.
 """
 
+import json
 import shutil
 from pathlib import Path
 
@@ -99,6 +100,36 @@ def widefield(tmp_path) -> Path:
     target = tmp_path / "widefield.fits.fz"
     shutil.copy(DATA_DIR / "widefield.fits.fz", target)
     return target
+
+
+@pytest.fixture
+def widefield_registry(tmp_path) -> Path:
+    """A camera registry holding a profile for `widefield.fits.fz` (PAN025 / df3495).
+
+    The registry is data outside this repository (data contract 6.2), so a test
+    that needs a known camera writes its own. These are that camera's values in
+    the operational registry: black and clip by body and histogram, gain the
+    24 MP family value.
+    """
+    root = tmp_path / "registry"
+    path = root / "units" / "PAN025" / "cameras" / "df3495.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        json.dumps(
+            dict(
+                unit_id="PAN025",
+                camera_uid="df3495",
+                serial_number="273074013298",
+                sensor="6020x4016",
+                iso=100,
+                black_level=dict(value=2048, method="body"),
+                clip=dict(value=13583, method="histogram"),
+                gain=dict(value=2.1, uncertainty=0.2, method="family"),
+                read_noise=dict(value=7.0, method="sky-ptc"),
+            )
+        )
+    )
+    return root
 
 
 @pytest.fixture

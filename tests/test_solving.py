@@ -18,7 +18,7 @@ from astropy.io import fits
 from astropy.wcs import WCS
 
 from panoptes.pipeline import processing, products
-from panoptes.pipeline.settings import ImageSettings, PipelineParams
+from panoptes.pipeline.settings import CameraSettings, ImageSettings, PipelineParams
 from panoptes.pipeline.utils.images import plate_solve
 from tests.solver import needs_solver
 
@@ -117,7 +117,9 @@ def test_solving_leaves_artifacts_beside_its_input(widefield, tmp_path):
 
 
 @needs_solver
-def test_processing_leaves_no_solver_artifacts_in_the_frame_directory(widefield, tmp_path):
+def test_processing_leaves_no_solver_artifacts_in_the_frame_directory(
+    widefield, widefield_registry, tmp_path
+):
     """The invariant that matters, asserted on the directory the solver ran for.
 
     `process_frame` cannot finish without a catalog, but it solves before it
@@ -125,9 +127,10 @@ def test_processing_leaves_no_solver_artifacts_in_the_frame_directory(widefield,
     scratch-copy path, and the frame directory must hold only named products.
     """
     processed = tmp_path / "processed"
+    params = PipelineParams(camera=CameraSettings(registry_dir=widefield_registry))
 
     with pytest.raises(ValueError, match="local catalog"):
-        processing.process_frame(widefield, processed, PipelineParams(), solve_timeout=180)
+        processing.process_frame(widefield, processed, params, solve_timeout=180)
 
     written = {p.name for p in processed.rglob("*") if p.is_file()}
 

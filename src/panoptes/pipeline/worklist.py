@@ -128,6 +128,7 @@ def decide(
     force_new: bool = False,
     files: FileSettings | None = None,
     path_info: ImagePathInfo | None = None,
+    registry_fingerprints: dict[tuple[str, str], str | None] | None = None,
 ) -> Frame:
     """Decide whether `raw_path` needs processing, and say why.
 
@@ -138,6 +139,11 @@ def decide(
     3. Present, fingerprint differs, or status is an error -- reprocess. The
        camera's registry profile is a second fingerprint, compared the same way.
     4. Forced -- always reprocess.
+
+    `registry_fingerprints` memoizes the registry per camera across calls;
+    `build` passes one dict for the whole walk, so each profile is read once
+    rather than once per frame. A walk is a snapshot: an edit made while it
+    runs is seen by the next one.
 
     Rule 3 is the one the old flow was missing. It stored `params` in the
     document and never compared them, so a settings change silently left stale
@@ -170,14 +176,26 @@ def decide(
         reason = Reason.INCOMPLETE
     elif fingerprint != params.fingerprint:
         reason = Reason.PARAMS_CHANGED
-    elif image.get("registry_fingerprint") != registry.fingerprint(
-        path_info.unit_id, path_info.camera_id, root=params.camera.registry_dir
-    ):
+    elif image.get("registry_fingerprint") != _registry_fingerprint(path_info, params, registry_fingerprints):
         reason = Reason.REGISTRY_CHANGED
     else:
         reason = Reason.UP_TO_DATE
 
     return Frame(raw_path, path_info, reason, status, fingerprint)
+
+
+def _registry_fingerprint(
+    path_info: ImagePathInfo,
+    params: PipelineParams,
+    memo: dict[tuple[str, str], str | None] | None,
+) -> str | None:
+    """The current fingerprint of this frame's camera profile, memoized in `memo`."""
+    key = (path_info.unit_id, path_info.camera_id)
+    if memo is None:
+        return registry.fingerprint(*key, root=params.camera.registry_dir)
+    if key not in memo:
+        memo[key] = registry.fingerprint(*key, root=params.camera.registry_dir)
+    return memo[key]
 
 
 def find_frames(raw_root: Path | str) -> Iterator[Path]:
@@ -209,10 +227,23 @@ def build(
     """
     params = params or PipelineParams()
 
+    # A bad registry profile raises `RegistryError`, which is not caught below:
+    # it is not a frame that cannot be placed, and skipping would silently drop
+    # every frame of that camera from the list.
+    fingerprints: dict[tuple[str, str], str | None] = {}
     frames = []
     for raw_path in find_frames(raw_root):
         try:
-            frames.append(decide(raw_path, processed_root, params, force_new=force_new, files=files))
+            frames.append(
+                decide(
+                    raw_path,
+                    processed_root,
+                    params,
+                    force_new=force_new,
+                    files=files,
+                    registry_fingerprints=fingerprints,
+                )
+            )
         except (ValueError, KeyError, OSError) as e:
             logger.warning(f"Skipping {raw_path}: cannot determine where it belongs ({e!r})")
 

@@ -32,6 +32,7 @@ from panoptes.utils.images.fits import ImagePathInfo
 
 from panoptes.pipeline import products, provenance, worklist
 from panoptes.pipeline.provenance import Resolved
+from panoptes.pipeline.registry import LOOKUP, CameraProfile, Lookup
 from panoptes.pipeline.settings import FileSettings, ImageSettings, PipelineParams
 from panoptes.pipeline.status import ImageStatus, ObservationStatus
 from panoptes.pipeline.utils.images import (
@@ -62,6 +63,10 @@ class Calibrated:
     rms_mesh: np.ndarray
     mask: np.ndarray
     calibration: dict[str, Resolved]
+    #: The registry profile `calibration` was resolved against, or None. Pass it
+    #: on to `extract_metadata` so the document records the profile that was
+    #: applied, not whatever the registry holds by the time it is written.
+    profile: CameraProfile | None = None
 
 
 def calibrate(
@@ -69,6 +74,7 @@ def calibrate(
     header: fits.Header,
     params: PipelineParams,
     camera: tuple[str, str] | None = None,
+    profile: CameraProfile | None | Lookup = LOOKUP,
 ) -> Calibrated:
     """Bias, saturation mask and RGB background, in that order.
 
@@ -85,9 +91,11 @@ def calibrate(
     single `Background2D`.
 
     `camera` is ``(unit_id, camera_uid)``, the camera registry key; without it
-    the identity is read from the header. See `provenance.resolve_camera`.
+    the identity is read from the header. `profile` is the registry profile,
+    looked up unless given. See `provenance.resolve_camera`.
     """
-    calibration = provenance.resolve_camera(header, params.camera, camera=camera)
+    profile = provenance.camera_profile(header, params.camera, camera=camera, profile=profile)
+    calibration = provenance.resolve_camera(header, params.camera, profile=profile)
     saturation = calibration["saturation"].value
     zero_bias = calibration["zero_bias"].value
 
@@ -124,6 +132,7 @@ def calibrate(
         rms_mesh=np.array([bg.background_rms_mesh for bg in backgrounds]),
         mask=mask,
         calibration=calibration,
+        profile=profile,
     )
 
 
@@ -206,12 +215,19 @@ def process_frame(
     header.setdefault("SEQID", path_info.sequence_id)
     header.setdefault("IMAGEID", path_info.image_id)
 
+    # Loaded once, here, and handed to both calibration and the document, so an
+    # edit to the registry while the frame solves cannot record a profile other
+    # than the one its pixels were calibrated with. Outside the `try`: a bad
+    # profile is a registry problem to fix, not a frame failure to record.
+    camera = (path_info.unit_id, path_info.camera_id)
+    profile = provenance.camera_profile(header, params.camera, camera=camera)
+
     directory = products.frame_directory(processed_root, path_info)
     directory.mkdir(parents=True, exist_ok=True)
     image_path = directory / files.reduced_filename
 
     try:
-        calibrated = calibrate(raw_data, header, params, camera=(path_info.unit_id, path_info.camera_id))
+        calibrated = calibrate(raw_data, header, params, profile=profile)
         settings = ImageSettings(params=params, files=files, output_dir=directory)
 
         # Solve a scratch copy rather than the product. `solve-field` takes a
@@ -255,7 +271,7 @@ def process_frame(
             image_height=calibrated.calibration["image_height"].value,
         )
 
-        metadata = extract_metadata(header, path_info, params.camera)
+        metadata = extract_metadata(header, path_info, params.camera, profile=profile)
         metadata["image"]["sources"] = source_statistics(matched)
         metadata = products.record_processing(metadata, params, ImageStatus.MATCHED)
 
@@ -264,7 +280,7 @@ def process_frame(
     except Exception as error:
         logger.error(f"{path_info.id}: {error!r}")
         metadata = products.record_processing(
-            extract_metadata(header, path_info, params.camera), params, ImageStatus.ERROR
+            extract_metadata(header, path_info, params.camera, profile=profile), params, ImageStatus.ERROR
         )
         metadata["image"]["error"] = repr(error)
         products.write_frame(processed_root, path_info, metadata, files=files, force_new=True)

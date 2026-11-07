@@ -17,11 +17,19 @@ Changelog](https://keepachangelog.com/en/1.1.0/) format. The versioning policy
   on the camera uid (the six characters in `INSTRUME` and every
   `sequence_id`), never `CAMSN`, which current POCS no longer writes. The four
   PAN019 profiles hold black only and a warning, because that unit's raw values
-  are digitally scaled.
+  are digitally scaled, and PAN008's `62b062` has no read noise, because its
+  photon-transfer fit cannot measure one.
+- `registry.RegistryError` for a profile that does not validate (including a
+  non-positive gain or clip, or a negative black, read noise or uncertainty),
+  that names a different camera from its path, or a unit id or uid that is not
+  a plain alphanumeric path component. It is not a `ValueError`, so a bad
+  profile stops a work-list walk instead of being skipped as an unplaceable
+  frame.
 - Every frame document records `image.registry_fingerprint`, a digest of the
   profile its calibration was resolved against, and the work list reports a
   frame as `registry changed` when that profile has been added, edited or
-  removed since -- only that camera's frames, not the archive.
+  removed since -- only that camera's frames, not the archive. Each profile is
+  read once per walk, not once per frame.
 - `read_noise` in each frame's resolved calibration, from the registry or
   recorded as unknown. Every resolved value can now carry an `uncertainty`.
 

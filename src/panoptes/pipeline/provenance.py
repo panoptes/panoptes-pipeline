@@ -33,7 +33,7 @@ from loguru import logger
 from pydantic import BaseModel
 
 from panoptes.pipeline import registry
-from panoptes.pipeline.registry import CameraProfile, Measurement
+from panoptes.pipeline.registry import LOOKUP, CameraProfile, Lookup, Measurement
 from panoptes.pipeline.settings import CameraSettings
 
 
@@ -124,13 +124,21 @@ def camera_profile(
     header: Header,
     settings: CameraSettings,
     camera: tuple[str, str] | None = None,
+    profile: CameraProfile | None | Lookup = LOOKUP,
 ) -> CameraProfile | None:
     """The registry profile for the frame's camera, or None if there is none.
 
     `camera` is ``(unit_id, camera_uid)``; without it the identity is read from
     ``SEQID``/``IMAGEID``. Pass it where the path is authoritative, as it is in
     `processing.process_frame`.
+
+    A `profile` other than `LOOKUP` is returned as given -- including None, for a
+    camera already known to have none. That is how one frame is resolved
+    against one profile however many times it is resolved: load it once, pass
+    it on.
     """
+    if profile is not LOOKUP:
+        return profile
     camera = camera or registry.camera_from_header(header)
     if camera is None:
         return None
@@ -141,11 +149,13 @@ def resolve_camera(
     header: Header,
     settings: CameraSettings,
     camera: tuple[str, str] | None = None,
+    profile: CameraProfile | None | Lookup = LOOKUP,
 ) -> dict[str, Resolved]:
     """Resolve the per-frame camera calibration, each value with its tier.
 
-    `camera` is ``(unit_id, camera_uid)``, the registry key; see
-    `camera_profile`. The values are known to very different degrees:
+    `camera` is ``(unit_id, camera_uid)``, the registry key, and `profile` the
+    already-loaded registry profile; see `camera_profile`. The values are known
+    to very different degrees:
 
     ``saturation``
         The registry's measured **clip** first: the raw value the histogram
@@ -186,7 +196,7 @@ def resolve_camera(
     registry only when the frame's ``ISO`` matches the profile's. Black does
     not.
     """
-    profile = camera_profile(header, settings, camera)
+    profile = camera_profile(header, settings, camera, profile)
     iso_profile = profile
     if profile is not None:
         if profile.warning:

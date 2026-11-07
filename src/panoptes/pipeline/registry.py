@@ -31,27 +31,58 @@ produced it.
 The registry shipped with the package lives in ``data/registry`` beside this
 module, so a release says exactly which calibration it carries.
 ``CameraSettings.registry_dir`` points somewhere else. A profile that exists but
-does not validate raises: a typo in a calibration file is not the same thing as
-an unknown camera, and must not fall through to a default.
+does not validate raises `RegistryError`: a typo in a calibration file is not
+the same thing as an unknown camera, and must not fall through to a default.
+`RegistryError` is deliberately not a `ValueError`, which is what the work-list
+walk catches to skip a frame it cannot place; a bad profile has to stop the
+walk, not quietly drop every frame of that camera from it.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
-from enum import StrEnum
+import re
+from enum import Enum, StrEnum
 from functools import lru_cache
 from importlib.resources import files
 from pathlib import Path
 
 from astropy.io.fits import Header
-from pydantic import BaseModel, ConfigDict, model_validator
+from panoptes.utils.error import PanError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 #: The registry that ships with the package.
 PACKAGED_ROOT = Path(str(files("panoptes.pipeline") / "data" / "registry"))
 
 #: Characters of a profile's digest kept as its fingerprint, as for params.
 FINGERPRINT_LENGTH = 12
+
+#: What a unit id or camera uid may contain. Both become path components, and
+#: both reach here from headers and paths this pipeline did not write, so
+#: anything that could leave the registry root -- ``..``, a separator, an empty
+#: string -- is refused before a path is built.
+IDENTIFIER = re.compile(r"[A-Za-z0-9]+")
+
+#: The uid is the first six characters of the gphoto serial (data contract 2.3).
+CAMERA_UID_LENGTH = 6
+
+
+class RegistryError(PanError):
+    """A registry profile, or a request for one, that cannot be trusted.
+
+    A `PanError` and not a `ValueError` on purpose; see the module docstring.
+    """
+
+
+class Lookup(Enum):
+    """Sentinel: find the profile, as opposed to "this camera has none" (None)."""
+
+    LOOKUP = "lookup"
+
+
+#: Pass as ``profile=`` to look the profile up rather than supply it.
+LOOKUP = Lookup.LOOKUP
 
 
 class Method(StrEnum):
@@ -79,7 +110,7 @@ class Measurement(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     value: float
-    uncertainty: float | None = None
+    uncertainty: float | None = Field(default=None, ge=0)
     method: Method
     note: str | None = None
 
@@ -110,11 +141,26 @@ class CameraProfile(BaseModel):
     #: Logged whenever the profile is used. For a camera whose frames need care
     #: before anything is trusted.
     warning: str | None = None
+    #: Anything a reader of the profile should know that belongs to no one value,
+    #: such as why a value is absent. Not logged.
+    note: str | None = None
 
     @model_validator(mode="after")
-    def _uid_shape(self) -> CameraProfile:
-        if len(self.camera_uid) != 6:
-            raise ValueError(f"camera_uid {self.camera_uid!r} is not six characters (data contract 2.3)")
+    def _identity(self) -> CameraProfile:
+        if problem := identifier_problem(self.unit_id, self.camera_uid):
+            raise ValueError(problem)
+        return self
+
+    @model_validator(mode="after")
+    def _physical(self) -> CameraProfile:
+        """Refuse values no detector can have, rather than calibrating with them."""
+        for name, positive in (("gain", True), ("clip", True), ("black_level", False), ("read_noise", False)):
+            measurement = getattr(self, name)
+            if measurement is None:
+                continue
+            if measurement.value < 0 or (positive and measurement.value == 0):
+                bound = "positive" if positive else "non-negative"
+                raise ValueError(f"{name} must be {bound}, not {measurement.value}")
         return self
 
     @property
@@ -129,8 +175,28 @@ class CameraProfile(BaseModel):
         return hashlib.sha256(canonical.encode()).hexdigest()[:FINGERPRINT_LENGTH]
 
 
+def identifier_problem(unit_id: str, camera_uid: str) -> str | None:
+    """What is wrong with this pair as registry identifiers, or None if nothing."""
+    for name, value in (("unit_id", unit_id), ("camera_uid", camera_uid)):
+        if not isinstance(value, str) or not IDENTIFIER.fullmatch(value):
+            return f"{name} {value!r} is not a registry identifier (letters and digits only)"
+    if len(camera_uid) != CAMERA_UID_LENGTH:
+        return f"camera_uid {camera_uid!r} is not {CAMERA_UID_LENGTH} characters (data contract 2.3)"
+    return None
+
+
+def check_identifiers(unit_id: str, camera_uid: str) -> None:
+    """Raise `RegistryError` unless both are safe, single path components."""
+    if problem := identifier_problem(unit_id, camera_uid):
+        raise RegistryError(problem)
+
+
 def profile_path(unit_id: str, camera_uid: str, root: Path | str | None = None) -> Path:
-    """Where the profile for `camera_uid` on `unit_id` lives under `root`."""
+    """Where the profile for `camera_uid` on `unit_id` lives under `root`.
+
+    Raises `RegistryError` for an identifier that could leave `root`.
+    """
+    check_identifiers(unit_id, camera_uid)
     root = Path(root) if root is not None else PACKAGED_ROOT
     return root / "units" / unit_id / "cameras" / f"{camera_uid}.json"
 
@@ -139,7 +205,8 @@ def load_profile(unit_id: str, camera_uid: str, root: Path | str | None = None) 
     """The registry's profile for this camera, or None if it has none.
 
     None only when there is no file. A file that does not parse or validate, or
-    that names a different camera from the path it sits at, raises.
+    that names a different camera from the path it sits at, raises
+    `RegistryError` naming the file.
     """
     path = profile_path(unit_id, camera_uid, root)
     try:
@@ -147,9 +214,12 @@ def load_profile(unit_id: str, camera_uid: str, root: Path | str | None = None) 
     except FileNotFoundError:
         return None
 
-    profile = _parse(text)
+    try:
+        profile = _parse(text)
+    except ValidationError as error:
+        raise RegistryError(f"{path} is not a valid camera profile: {error}") from error
     if (profile.unit_id, profile.camera_uid) != (unit_id, camera_uid):
-        raise ValueError(
+        raise RegistryError(
             f"{path} describes {profile.unit_id}/{profile.camera_uid}, not {unit_id}/{camera_uid}"
         )
     return profile

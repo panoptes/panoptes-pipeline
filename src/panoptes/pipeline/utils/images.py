@@ -15,6 +15,7 @@ from photutils import segmentation
 from photutils.utils import calc_total_error
 
 from panoptes.pipeline import provenance
+from panoptes.pipeline.registry import LOOKUP, CameraProfile, Lookup
 from panoptes.pipeline.settings import CameraSettings, ImageSettings
 from panoptes.pipeline.utils import sources
 
@@ -71,7 +72,13 @@ def get_metadata(settings: ImageSettings, path_info: ImagePathInfo) -> dict:
     return metadata
 
 
-def extract_metadata(header, path_info, camera_settings: CameraSettings | None = None) -> dict:
+def extract_metadata(
+    header,
+    path_info,
+    camera_settings: CameraSettings | None = None,
+    *,
+    profile: CameraProfile | None | Lookup = LOOKUP,
+) -> dict:
     """Get the metadata from a FITS image.
 
     Returns ``dict(unit=..., sequence=..., image=...)``, one key per document.
@@ -82,13 +89,18 @@ def extract_metadata(header, path_info, camera_settings: CameraSettings | None =
     header does not carry. Whatever it supplies is labeled `Provenance.DEFAULT`
     in the resulting document rather than being indistinguishable from a
     measurement.
+
+    ``profile`` is the camera registry profile the frame was calibrated with.
+    Pass it whenever it is known -- `processing.process_frame` does -- so the
+    values and the ``registry_fingerprint`` recorded are the ones applied; it
+    is looked up only when not given.
     """
     camera_settings = camera_settings or CameraSettings()
     try:
         measured_rggb = [float(x) for x in header.get("MEASRGGB", "0 0 0 0").split(" ")]
         camera_key = (path_info.unit_id, path_info.camera_id)
-        calibration = provenance.resolve_camera(header, camera_settings, camera=camera_key)
-        profile = provenance.camera_profile(header, camera_settings, camera=camera_key)
+        profile = provenance.camera_profile(header, camera_settings, camera=camera_key, profile=profile)
+        calibration = provenance.resolve_camera(header, camera_settings, profile=profile)
 
         # `str(header.get("CAMSN"))` produced the literal string "None" on every
         # frame POCS wrote without the keyword, which reads downstream as a body

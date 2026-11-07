@@ -6,7 +6,6 @@ import numpy as np
 import pytest
 from astropy.io import fits
 from panoptes.utils.images.fits import ImagePathInfo
-from pydantic import ValidationError
 
 from panoptes.pipeline import products, provenance, registry, worklist
 from panoptes.pipeline.processing import calibrate
@@ -107,7 +106,7 @@ def test_a_malformed_profile_raises_rather_than_falling_through(registry_root):
     path = write_profile(registry_root, gain=dict(value=2.3, method="guessed"))
     assert path.is_file()
 
-    with pytest.raises(ValidationError):
+    with pytest.raises(registry.RegistryError, match="is not a valid camera profile"):
         registry.load_profile(UNIT, CAMERA, registry_root)
 
 
@@ -115,7 +114,7 @@ def test_a_profile_filed_under_the_wrong_camera_raises(registry_root):
     path = write_profile(registry_root, camera_uid="def456")
     path.rename(registry.profile_path(UNIT, "fff000", registry_root))
 
-    with pytest.raises(ValueError, match="describes PAN001/def456"):
+    with pytest.raises(registry.RegistryError, match="describes PAN001/def456"):
         registry.load_profile(UNIT, "fff000", registry_root)
 
 
@@ -293,3 +292,111 @@ def test_a_new_profile_invalidates_frames_resolved_without_one(tmp_path, make_ra
     (frame,) = worklist.build(raw_root, processed, params)
 
     assert frame.reason is Reason.REGISTRY_CHANGED
+
+
+# --- review fixes ---------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "unit_id, camera_uid",
+    [("../../outside", CAMERA), (UNIT, "../../x"), ("/abs", CAMERA), (UNIT, "abc12"), ("", CAMERA)],
+)
+def test_an_unsafe_identifier_never_reaches_the_filesystem(tmp_path, unit_id, camera_uid):
+    """A crafted path or header component must not read a file outside the root."""
+    root = tmp_path / "registry"
+    root.mkdir()
+    outside = tmp_path / "outside" / "cameras" / f"{CAMERA}.json"
+    outside.parent.mkdir(parents=True)
+    outside.write_text(json.dumps(dict(unit_id="../../outside", camera_uid=CAMERA)))
+
+    with pytest.raises(registry.RegistryError):
+        registry.load_profile(unit_id, camera_uid, root)
+
+
+def test_a_malformed_profile_stops_the_walk_instead_of_dropping_the_camera(
+    tmp_path, make_raw_tree, registry_root
+):
+    """`build` skips frames it cannot place, on `ValueError`; a bad profile is not that."""
+    params = PipelineParams(camera=CameraSettings(registry_dir=registry_root))
+    raw_root = make_raw_tree(count=2)
+    processed = tmp_path / "processed"
+    for raw_path in worklist.find_frames(raw_root):
+        process(processed, raw_path, params)
+    write_profile(registry_root, gain=dict(value=2.3, method="guessed"))
+
+    with pytest.raises(registry.RegistryError, match="units/PAN001/cameras/abc123.json"):
+        worklist.build(raw_root, processed, params)
+
+
+@pytest.mark.parametrize(
+    "field, value",
+    [("gain", 0), ("gain", -2.3), ("clip", -1), ("black_level", -2048), ("read_noise", -5)],
+)
+def test_an_unphysical_value_is_refused(registry_root, field, value):
+    write_profile(registry_root, **{field: dict(value=value, method="body")})
+
+    with pytest.raises(registry.RegistryError):
+        registry.load_profile(UNIT, CAMERA, registry_root)
+
+
+def test_a_negative_uncertainty_is_refused(registry_root):
+    write_profile(registry_root, gain=dict(value=2.3, uncertainty=-0.2, method="family"))
+
+    with pytest.raises(registry.RegistryError):
+        registry.load_profile(UNIT, CAMERA, registry_root)
+
+
+def test_a_missing_read_noise_outside_pan019_is_explained():
+    """PAN008 / 62b062 has none: its intercept sits above black, so the fit implies RN**2 < 0."""
+    unexplained = [
+        p.camera_uid
+        for p in registry.profiles()
+        if p.read_noise is None and p.unit_id != "PAN019" and "read noise" not in (p.note or "")
+    ]
+    missing = [p.camera_uid for p in registry.profiles() if p.read_noise is None and p.unit_id != "PAN019"]
+
+    assert missing == ["62b062"]
+    assert unexplained == []
+
+
+def test_the_work_list_reads_each_profile_once_per_walk(tmp_path, make_raw_tree, registry_root, monkeypatch):
+    params = PipelineParams(camera=CameraSettings(registry_dir=registry_root))
+    raw_root = make_raw_tree(count=5)
+    processed = tmp_path / "processed"
+    for raw_path in worklist.find_frames(raw_root):
+        process(processed, raw_path, params)
+
+    calls = []
+    real = registry.load_profile
+    monkeypatch.setattr(registry, "load_profile", lambda *a, **k: calls.append(a) or real(*a, **k))
+    frames = worklist.build(raw_root, processed, params)
+
+    assert len(frames) == 5
+    assert {f.reason for f in frames} == {Reason.UP_TO_DATE}
+    assert len(calls) == 1
+
+
+def test_the_document_records_the_profile_it_was_given(header, raw_path_info, registry_root):
+    """One profile per frame: the one the pixels were calibrated with is the one recorded.
+
+    Loading it twice -- once to calibrate, once to write the document -- lets an
+    edit in between record values that were never applied.
+    """
+    settings = CameraSettings(registry_dir=registry_root)
+    applied = registry.load_profile(UNIT, CAMERA, registry_root)
+    write_profile(registry_root, black_level=dict(value=512, method="body"))  # edited after calibrating
+    path_info = ImagePathInfo(path=f"{UNIT}/{CAMERA}/20220115T082108/20220115T082200.fits")
+
+    metadata = extract_metadata(header, path_info, settings, profile=applied)
+
+    assert metadata["image"]["calibration"]["zero_bias"]["value"] == 2048
+    assert metadata["image"]["registry_fingerprint"] == applied.fingerprint
+    assert applied.fingerprint != registry.fingerprint(UNIT, CAMERA, registry_root)
+
+
+def test_calibrate_reports_the_profile_it_used(header, registry_root):
+    params = PipelineParams(camera=CameraSettings(registry_dir=registry_root))
+
+    calibrated = calibrate(np.full((40, 40), 2148, dtype="uint16"), header, params)
+
+    assert calibrated.profile == registry.load_profile(UNIT, CAMERA, registry_root)

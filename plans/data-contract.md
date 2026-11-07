@@ -497,7 +497,9 @@ flat-field one -- so replacing a family gain with a flat-field measurement is
 a one-file edit that says what changed. The gains shipped today are the family
 values above, applied per camera, with each camera's own measurement in the
 value's note; read noise is each camera's own photon-transfer intercept, and
-indicative only. The PAN019 profiles hold black and a warning, nothing that
+indicative only. PAN008's `62b062` has none: its intercept lies above its
+black, which implies a negative read-noise term, so the profile leaves it
+unknown and says why rather than recording zero. The PAN019 profiles hold black and a warning, nothing that
 depends on the scaling.
 
 **A registry edit has to invalidate what it changed and nothing more.** Its
@@ -506,6 +508,13 @@ registry would reprocess every frame of every camera for an edit to one. Each
 frame document records instead the fingerprint of the profile it was resolved
 against, and the work list compares that per camera. A frame resolved with no
 profile records none, so adding a profile picks up that camera's history.
+
+A profile that does not validate stops the walk rather than skipping its
+frames: a frame that cannot be placed is skipped, but a broken calibration
+file is not that, and skipping would drop the whole camera from the list
+without a trace. Values no detector can have -- a non-positive gain or clip,
+a negative black or read noise -- do not validate, and neither does a unit id
+or uid that is not a plain alphanumeric path component.
 
 Not yet handled: a camera whose state changed over time on one ISO. PAN019's
 `438751` clipped at 13583 for five months and at 16383 otherwise, so a single

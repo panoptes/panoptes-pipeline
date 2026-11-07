@@ -19,5 +19,6 @@
     "uncertainty": 0.2,
     "method": "family",
     "note": "EOS 100D class value. This camera: own shared fit 1.95-2.08 per channel over 3 sequence(s), no clean sequence in the sample. Sky photon transfer is a lower bound and its method floor is ~10%; replace with a flat-field photon transfer (panoptes/panoptes-pipeline#99)."
-  }
+  },
+  "note": "No read noise: the photon-transfer intercept (2054 ADU) lies above the 2048 black, so the fit implies a negative read-noise term and measures nothing. Left unknown rather than recorded as zero; a flat-field photon transfer (panoptes/panoptes-pipeline#99) or a bias frame would measure it."
 }
